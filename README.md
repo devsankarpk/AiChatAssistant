@@ -106,15 +106,15 @@ POST /generate
 ### Phase 1 — Database & data layer
 **Goal:** Running MySQL instance with schema and EF Core models.
 
-- [ ] Install/run MySQL (local or Docker `mysql:8`), create `ai_chat_assistant` database
-- [ ] `dotnet new sln -n AiChatAssistant` + `dotnet new webapi -n AiChatAssistant.Api`
-- [ ] Add packages: Pomelo.EntityFrameworkCore.MySql, EF Core Design, JwtBearer, FluentValidation.AspNetCore, Serilog.AspNetCore
-- [ ] Define entities: `User`, `Role`, `UserRole`, `ChatSession`, `Message`, `UsageLog`
-- [ ] Create `AppDbContext`, configure relationships/FKs
-- [ ] `dotnet ef migrations add InitialCreate` → `dotnet ef database update`
-- [ ] Verify tables in MySQL Workbench/CLI, seed test rows
+- [x] Install/run MySQL (local instance, MySQL 26.7.0), create `AiChatAssistant` database
+- [x] `dotnet new sln -n AiChatAssistant` + `dotnet new webapi -n AiChatAssistant.Api` (under `backend-dotnet/`, pinned to .NET 8 via `global.json`)
+- [x] Add packages: Pomelo.EntityFrameworkCore.MySql 8.0.3, EF Core Design 8.0.11, JwtBearer 8.0.11, FluentValidation.AspNetCore 11.3.0, Serilog.AspNetCore 8.0.3
+- [x] Define entities: `User`, `Role`, `UserRole`, `ChatSession` (Guid PK), `Message` (enum role), `UsageLog`
+- [x] Create `AppDbContext`, configure relationships/FKs, seed `Admin`/`User` roles
+- [x] `dotnet ef migrations add InitialCreate` → `dotnet ef database update`
+- [x] Verified tables + FKs + enum + `CURRENT_TIMESTAMP(6)` defaults via MySQL CLI; insert round-trip tested
 
-**Exit criteria:** Tables exist matching schema; migrations run cleanly on a fresh DB.
+**Exit criteria:** Tables exist matching schema; migrations run cleanly on a fresh DB. ✅ Met.
 
 ---
 
