@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Follow the phase-by-phase plan in `README.md` (Phases 1–8). Progress:
 
 - **Phase 1 (Database & data layer) — done.** `.NET 8` Web API scaffolded at `backend-dotnet/` (pinned via `global.json`), EF Core entities + `AppDbContext` in `src/AiChatAssistant.Api/`, `InitialCreate` migration applied to the local MySQL `AiChatAssistant` database, `Admin`/`User` roles seeded. `dotnet-ef` is a local tool (`dotnet tool restore` after clone).
-- **Phases 2–8 — not started.** `frontend/` and `ai-service-python/` do not exist yet.
+- **Phase 2 (Authentication) — done.** `AuthController` (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`), JWT issuance via `ITokenService`/`TokenService`, BCrypt.Net-Next password hashing, FluentValidation on register/login DTOs, `ExceptionHandlingMiddleware` for the `{ error: { code, message } }` shape, `AdminController` as an `[Authorize(Roles = "Admin")]` placeholder. `Jwt:Key` is stored via `dotnet user-secrets` (run `dotnet user-secrets set "Jwt:Key" "<value>"` inside `src/AiChatAssistant.Api/` after clone) — `Jwt:Issuer`/`Jwt:Audience`/`Jwt:ExpiryMinutes` live in `appsettings.json`.
+- **Phases 3–8 — not started.** `frontend/` and `ai-service-python/` do not exist yet.
 
 Local DB connection string lives (by project decision) in `backend-dotnet/src/AiChatAssistant.Api/appsettings.Development.json` under `ConnectionStrings:Default`, in Pomelo key=value form.
 
@@ -81,6 +82,7 @@ npm run build
 - Secrets (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, `INTERNAL_API_KEY`, DB connection string, JWT signing key) live in `.env` / user-secrets and are gitignored. Commit `.example` files alongside them.
 - The `.NET` API and the Python service must agree on `INTERNAL_API_KEY`.
 - Default database name: `ai_chat_assistant`.
+- `.NET` config layering: `appsettings.json` (shared defaults) → `appsettings.{Development,Production}.json` (per-environment, both committed) → user-secrets (Development only) → environment variables (`Section__Key` syntax, e.g. `Jwt__Key`, `ConnectionStrings__Default`) → command-line args, later wins. `appsettings.Production.json` intentionally has no `ConnectionStrings`/`Jwt` block — those must come from environment variables at deploy time, so the fail-fast checks in `Program.cs` catch a missing secret instead of silently booting unconfigured.
 
 ## Testing expectations
 
