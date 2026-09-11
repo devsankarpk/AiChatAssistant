@@ -49,6 +49,20 @@ builder.Services.AddAuthentication(options =>
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
         };
+        // Surface *why* a token was rejected in the logs - a bare 401 with no detail
+        // is otherwise the only signal, which makes malformed/expired/mis-signed
+        // tokens indistinguishable from each other while debugging.
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("JwtBearer")
+                    .LogWarning(context.Exception, "JWT authentication failed");
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -74,7 +88,9 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Bearer {token}\"",
+        // Type=Http + Scheme="bearer" makes Swagger UI prepend "Bearer " itself, so the box
+        // must hold ONLY the raw token, e.g. "eyJhbGciOi..." - never "Bearer eyJhbGciOi...".
+        Description = "Paste the raw JWT only - do NOT include the word \"Bearer\". Swagger UI adds that prefix for you.",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,

@@ -82,6 +82,7 @@ npm run build
 - Secrets (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, `INTERNAL_API_KEY`, DB connection string, JWT signing key) live in `.env` / user-secrets and are gitignored. Commit `.example` files alongside them.
 - The `.NET` API and the Python service must agree on `INTERNAL_API_KEY`.
 - Default database name: `ai_chat_assistant`.
+- `.NET` config layering: `appsettings.json` (shared defaults) → `appsettings.{Development,Production}.json` (per-environment, both committed) → user-secrets (Development only) → environment variables (`Section__Key` syntax, e.g. `Jwt__Key`, `ConnectionStrings__Default`) → command-line args, later wins. `appsettings.Production.json` intentionally has no `ConnectionStrings`/`Jwt` block — those must come from environment variables at deploy time, so the fail-fast checks in `Program.cs` catch a missing secret instead of silently booting unconfigured.
 
 ## Testing expectations
 
