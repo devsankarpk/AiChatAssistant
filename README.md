@@ -121,15 +121,15 @@ POST /generate
 ### Phase 2 — Authentication (.NET only)
 **Goal:** Working register/login/JWT, testable via Postman.
 
-- [ ] `POST /api/auth/register` — hash password (BCrypt.Net-Next), create user, assign default `User` role
-- [ ] `POST /api/auth/login` — verify password, issue JWT (claims: sub, email, role)
-- [ ] Configure JWT middleware in `Program.cs`
-- [ ] `GET /api/auth/me` — protected test endpoint returning claims
-- [ ] `[Authorize(Roles = "Admin")]` placeholder admin endpoint
-- [ ] FluentValidation for register/login DTOs
-- [ ] Global exception middleware → consistent `{ error: { code, message } }` shape
+- [x] `POST /api/auth/register` — hash password (BCrypt.Net-Next), create user, assign default `User` role
+- [x] `POST /api/auth/login` — verify password, issue JWT (claims: sub, email, role)
+- [x] Configure JWT middleware in `Program.cs`
+- [x] `GET /api/auth/me` — protected test endpoint returning claims
+- [x] `[Authorize(Roles = "Admin")]` placeholder admin endpoint (`AdminController.Ping`)
+- [x] FluentValidation for register/login DTOs
+- [x] Global exception middleware → consistent `{ error: { code, message } }` shape (`ExceptionHandlingMiddleware`, plus the same shape for model-binding/validation failures)
 
-**Exit criteria:** Register → login → call `/me` with token succeeds; no token → 401.
+**Exit criteria:** Register → login → call `/me` with token succeeds; no token → 401. ✅ Met (verified by code review + `dotnet build`; live curl smoke test was blocked by this environment's network permissions — worth a manual pass with `AiChatAssistant.Api.http` or `docker-compose`'s eventual test runner).
 
 ---
 

@@ -1,6 +1,34 @@
 @AiChatAssistant.Api_HostAddress = http://localhost:5291
 
-GET {{AiChatAssistant.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Register
+POST {{AiChatAssistant.Api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "Test User",
+  "email": "test@example.com",
+  "password": "Passw0rd!"
+}
+
+### Login
+# @name login
+POST {{AiChatAssistant.Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "Passw0rd!"
+}
+
+### Me (uses the token from the Login response above)
+GET {{AiChatAssistant.Api_HostAddress}}/api/auth/me
+Authorization: Bearer {{login.response.body.token}}
+
+### Me without a token -> 401
+GET {{AiChatAssistant.Api_HostAddress}}/api/auth/me
+
+### Admin ping -> 403 for a plain User token
+GET {{AiChatAssistant.Api_HostAddress}}/api/admin/ping
+Authorization: Bearer {{login.response.body.token}}
 
 ###
