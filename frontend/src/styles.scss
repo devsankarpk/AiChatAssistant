@@ -1,0 +1,83 @@
+/* Global styles. Phase 5 keeps this minimal - real design work is out of scope
+   until the chat UI (Phase 6) and admin view (Phase 7) land. */
+
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.auth-page {
+  display: flex;
+  justify-content: center;
+  padding: 4rem 1rem;
+}
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 24rem;
+
+  h1 {
+    margin: 0 0 0.5rem;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.9rem;
+  }
+
+  input {
+    padding: 0.5rem;
+    font-size: 1rem;
+  }
+
+  button {
+    padding: 0.6rem;
+    font-size: 1rem;
+    cursor: pointer;
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+  }
+}
+
+.field-error {
+  margin: -0.5rem 0 0;
+  color: #b3261e;
+  font-size: 0.8rem;
+}
+
+.form-error {
+  margin: 0;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  background: #fdecea;
+  color: #b3261e;
+  font-size: 0.9rem;
+}
+
+.switch-link {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.page {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
