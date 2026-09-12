@@ -67,6 +67,21 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+// Angular (a different origin in dev: localhost:4200 vs this API's 5291) needs an explicit
+// CORS policy to call this API from the browser. Origins are configurable, not hardcoded,
+// since the deployed frontend's origin will differ from the dev one.
+const string FrontendCorsPolicy = "Frontend";
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? new[] { "http://localhost:4200" };
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(FrontendCorsPolicy, policy => policy
+        .WithOrigins(allowedOrigins)
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
+
 builder.Services.AddControllers();
 
 // Make model-binding failures (e.g. malformed JSON) use the same { error: { code, message } }
@@ -118,6 +133,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors(FrontendCorsPolicy);
 
 app.UseAuthentication();
 app.UseAuthorization();

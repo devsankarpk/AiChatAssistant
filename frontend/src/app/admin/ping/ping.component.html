@@ -1,0 +1,11 @@
+<div class="page">
+  <h1>Admin ping</h1>
+
+  @if (result()) {
+    <p>{{ result() }}</p>
+  } @else if (error()) {
+    <p class="form-error">{{ error() }}</p>
+  } @else {
+    <p>Calling GET /api/admin/ping…</p>
+  }
+</div>

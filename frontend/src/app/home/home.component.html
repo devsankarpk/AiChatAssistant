@@ -1,0 +1,14 @@
+<div class="page">
+  <h1>Welcome{{ auth.user() ? ', ' + auth.user()!.name : '' }}</h1>
+
+  <p>Email: {{ auth.user()?.email }}</p>
+  <p>Roles: {{ auth.roles().join(', ') || '—' }}</p>
+
+  <p><em>Chat UI lands in Phase 6 — this page just proves the auth flow works.</em></p>
+
+  @if (auth.hasRole('Admin')) {
+    <p><a routerLink="/admin/ping">Admin ping →</a></p>
+  }
+
+  <button type="button" (click)="logout()">Log out</button>
+</div>

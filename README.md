@@ -169,14 +169,15 @@ POST /generate
 ### Phase 5 — Angular: auth
 **Goal:** Login/register UI wired to real API.
 
-- [ ] `ng new ai-chat-assistant-ui --routing --style=scss`
-- [ ] `AuthService`: register/login/logout, JWT storage
-- [ ] Reactive forms with validation
-- [ ] `authInterceptor` — attaches Bearer token
-- [ ] `authGuard` and `adminGuard`
-- [ ] Decode JWT client-side for UI conditionals (not for real authorization)
+- [x] `ng new ai-chat-assistant-ui --routing --style=scss` (Angular 19, standalone components; scaffolded into `frontend/` via `--directory`; CLI pinned to `@angular/cli@19` — Node on this machine predates the Node requirement for Angular 20+)
+- [x] `AuthService`: register/login/logout, JWT storage (`localStorage`, signal-based state)
+- [x] Reactive forms with validation
+- [x] `authInterceptor` — attaches Bearer token (scoped to `environment.apiBaseUrl` only)
+- [x] `authGuard` and `adminGuard`
+- [x] Decode JWT client-side for UI conditionals (not for real authorization) — `core/utils/jwt.ts`
+- [x] `.NET`: added a `Cors` policy (`Program.cs` + `appsettings.json` `Cors:AllowedOrigins`) so the Angular dev origin can call the API — not an explicit checklist line above, but required for any of this to work from a real browser
 
-**Exit criteria:** Register/login works; protected routes redirect correctly; session persists on refresh.
+**Exit criteria:** Register/login works; protected routes redirect correctly; session persists on refresh. ✅ Met — verified live by scripting an actual headless Chrome through register → home → refresh → `/admin/ping` (redirected, correctly, for a `User`) → logout → `/` (redirected to `/login?returnUrl=%2F`) → re-login, then again as a promoted Admin through to a real `pong (admin-only)` from `AdminController`.
 
 ---
 
