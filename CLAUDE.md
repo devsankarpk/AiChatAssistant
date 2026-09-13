@@ -9,7 +9,8 @@ Follow the phase-by-phase plan in `README.md` (Phases 1–8). Progress:
 - **Phase 1 (Database & data layer) — done.** `.NET 8` Web API scaffolded at `backend-dotnet/` (pinned via `global.json`), EF Core entities + `AppDbContext` in `src/AiChatAssistant.Api/`, `InitialCreate` migration applied to the local MySQL `AiChatAssistant` database, `Admin`/`User` roles seeded. `dotnet-ef` is a local tool (`dotnet tool restore` after clone).
 - **Phase 2 (Authentication) — done.** `AuthController` (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`), JWT issuance via `ITokenService`/`TokenService`, BCrypt.Net-Next password hashing, FluentValidation on register/login DTOs, `ExceptionHandlingMiddleware` for the `{ error: { code, message } }` shape, `AdminController` as an `[Authorize(Roles = "Admin")]` placeholder. `Jwt:Key` is stored via `dotnet user-secrets` (run `dotnet user-secrets set "Jwt:Key" "<value>"` inside `src/AiChatAssistant.Api/` after clone) — `Jwt:Issuer`/`Jwt:Audience`/`Jwt:ExpiryMinutes` live in `appsettings.json`.
 - **Phase 5 (Angular: auth) — done, out of order.** Phases 3–4 (Python service, chat wiring) were skipped for now since Phase 5 only depends on Phase 2's auth endpoints; picking those up later still works, nothing here assumes they exist. `frontend/` is an Angular 19 app (project name `ai-chat-assistant-ui`, CLI pinned to `@angular/cli@19` — this machine's Node predates what Angular 20+'s CLI requires), standalone components, `src/app/{auth,core,home,admin}/`. `AuthService` (signals, `localStorage`-backed session), `authInterceptor`, `authGuard`/`adminGuard`, JWT decoding in `core/utils/jwt.ts`. `HomeComponent` and `AdminController`'s `ping.component.ts` are throwaway placeholders standing in for Phase 6/7's real pages — expect them to be replaced, not extended. Backend gained a `Cors` policy (`Program.cs`, `appsettings.json` `Cors:AllowedOrigins`, default `http://localhost:4200`) so the browser can call the API at all.
-- **Phases 3, 4, 6, 7, 8 — not started.** `ai-service-python/` does not exist yet.
+- **Phase 3 (Python LLM service) — done.** `ai-service-python/` (FastAPI, Python 3.12, venv at `.venv/`). LLM provider is **DeepInfra** (`https://api.deepinfra.com/v1/openai`, OpenAI-compatible, used via the plain `openai` SDK), model `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo` (small/cheap, chosen deliberately for a demo — swap `DEEPINFRA_MODEL` in `.env` for anything else in DeepInfra's catalog). `POST /generate` (`app/routes/generate.py`) is gated by `X-Internal-Key` (`app/auth/api_key.py`); `app/services/llm_client.py` maps timeouts/rate-limits to `503` and any other upstream/unexpected error to `502` — never a bare `500`. Secrets live in `ai-service-python/.env` (gitignored; template at `env.example`).
+- **Phases 4, 6, 7, 8 — not started.**
 
 Local DB connection string lives (by project decision) in `backend-dotnet/src/AiChatAssistant.Api/appsettings.Development.json` under `ConnectionStrings:Default`, in Pomelo key=value form.
 
@@ -22,7 +23,7 @@ Three deployables plus a database, split so that LLM access is isolated from bus
 ```
 frontend/          Angular 17+ SPA — REST + JWT to the .NET API
 backend-dotnet/     .NET 8 Web API — auth, roles, orchestration, persistence
-ai-service-python/  FastAPI service — the only component that calls OpenAI/Anthropic
+ai-service-python/  FastAPI service — the only component that calls the LLM provider (DeepInfra)
 MySQL 8            users, roles, chat sessions, messages, usage logs
 ```
 
@@ -80,7 +81,7 @@ npm run build
 
 ## Configuration
 
-- Secrets (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, `INTERNAL_API_KEY`, DB connection string, JWT signing key) live in `.env` / user-secrets and are gitignored. Commit `.example` files alongside them.
+- Secrets (`DEEPINFRA_API_KEY` — project uses DeepInfra's OpenAI-compatible API rather than OpenAI/Anthropic directly, see Phase 3 — `INTERNAL_API_KEY`, DB connection string, JWT signing key) live in `.env` / user-secrets and are gitignored. Commit `.example` files alongside them (named `env.example`, not `.env.example` — a `.env*` glob is denied to this agent's Read/Write/Bash tools, so the committed template can't use that prefix).
 - The `.NET` API and the Python service must agree on `INTERNAL_API_KEY`.
 - Default database name: `ai_chat_assistant`.
 - `.NET` config layering: `appsettings.json` (shared defaults) → `appsettings.{Development,Production}.json` (per-environment, both committed) → user-secrets (Development only) → environment variables (`Section__Key` syntax, e.g. `Jwt__Key`, `ConnectionStrings__Default`) → command-line args, later wins. `appsettings.Production.json` intentionally has no `ConnectionStrings`/`Jwt` block — those must come from environment variables at deploy time, so the fail-fast checks in `Program.cs` catch a missing secret instead of silently booting unconfigured.
