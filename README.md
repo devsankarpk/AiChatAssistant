@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-A moderate-depth chat application that integrates an LLM (OpenAI/Anthropic) through a split backend: a .NET Web API for auth, business logic, and orchestration, and a Python FastAPI microservice dedicated to LLM calls. This is the foundation app — later projects (RAG document Q&A, ticket system, resume screener, meeting summarizer) reuse this same skeleton.
+A moderate-depth chat application that integrates an LLM (originally scoped as OpenAI/Anthropic; built against **DeepInfra**'s OpenAI-compatible API for cost reasons — see Phase 3) through a split backend: a .NET Web API for auth, business logic, and orchestration, and a Python FastAPI microservice dedicated to LLM calls. This is the foundation app — later projects (RAG document Q&A, ticket system, resume screener, meeting summarizer) reuse this same skeleton.
 
 ### Architecture
 
@@ -30,7 +30,7 @@ OpenAI / Anthropic API
 |---|---|
 | Frontend | Angular 17+, Angular Material or Tailwind, RxJS |
 | Backend API | .NET 8, EF Core, ASP.NET Identity/JWT, FluentValidation, Serilog |
-| AI service | Python 3.11+, FastAPI, OpenAI/Anthropic SDK, Uvicorn |
+| AI service | Python 3.11+, FastAPI, `openai` SDK (pointed at DeepInfra's OpenAI-compatible API), Uvicorn |
 | Database | MySQL 8, Pomelo.EntityFrameworkCore.MySql |
 | Infra (later) | Docker Compose |
 
@@ -136,14 +136,14 @@ POST /generate
 ### Phase 3 — Python LLM service (standalone)
 **Goal:** FastAPI service returning LLM replies, testable without .NET.
 
-- [ ] `pip install fastapi uvicorn openai python-dotenv` (or `anthropic`)
-- [ ] `.env` with `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` + `INTERNAL_API_KEY`
-- [ ] `POST /generate` — request/response models, builds message list, calls LLM
-- [ ] `X-Internal-Key` header check dependency (reject unauthorized calls)
-- [ ] Error handling — timeouts/rate limits return clean 502/503, never crash
-- [ ] (Optional) `/generate/stream` via SSE for streaming responses
+- [x] `pip install fastapi uvicorn openai python-dotenv` — LLM provider is **DeepInfra**, not OpenAI/Anthropic directly: it exposes an OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`), so the `openai` SDK is used unmodified, just pointed at a different `base_url` with a DeepInfra key. Model: `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo` (small, ~$0.02/$0.04 per 1M tokens — a deliberately cheap choice for demo purposes, not DeepInfra's larger/flagship models)
+- [x] `.env` with `DEEPINFRA_API_KEY` + `INTERNAL_API_KEY` (see `ai-service-python/env.example`)
+- [x] `POST /generate` — request/response models (`app/schemas.py`), builds message list (`history` + `prompt`), calls LLM (`app/services/llm_client.py`)
+- [x] `X-Internal-Key` header check dependency (`app/auth/api_key.py`) — reject unauthorized calls with `401`
+- [x] Error handling — LLM timeout/connection error → `503`; rate limit → `503`; any other upstream or unexpected error → `502`; service never crashes with a bare `500`
+- [ ] (Optional) `/generate/stream` via SSE for streaming responses — skipped, still optional
 
-**Exit criteria:** `curl -X POST /generate` with valid key returns a real LLM reply + token count.
+**Exit criteria:** `curl -X POST /generate` with valid key returns a real LLM reply + token count. ✅ Met — verified live: no/wrong `X-Internal-Key` → `401`; valid key + real history → `200 {"reply": "...", "tokens_used": 57}` with a reply that correctly used the conversation history; an intentionally bad model name → `502` with a clean error body, not a crash.
 
 ---
 
