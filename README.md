@@ -150,19 +150,19 @@ POST /generate
 ### Phase 4 — Wire .NET ↔ Python ↔ MySQL
 **Goal:** End-to-end message flow: persist → call LLM → persist reply → log usage.
 
-- [ ] Register typed `HttpClient` for Python service in `Program.cs`
-- [ ] `IPythonAiClient.GenerateAsync(...)` implementation
-- [ ] `POST /api/chat/sessions` — create session for authenticated user
-- [ ] `POST /api/chat/sessions/{id}/messages`:
-  - [ ] Validate session ownership (or Admin)
-  - [ ] Save user message
-  - [ ] Fetch recent history
-  - [ ] Call Python service
-  - [ ] Save assistant message + usage log
-  - [ ] Handle Python failure gracefully (503, not 500)
-- [ ] `GET /api/chat/sessions` and `GET /api/chat/sessions/{id}/messages`
+- [x] Register typed `HttpClient` for Python service in `Program.cs` — `PythonService:BaseUrl` (`appsettings.json`) + `PythonService:InternalApiKey` (user-secrets, must match `ai-service-python`'s `INTERNAL_API_KEY`)
+- [x] `IPythonAiClient.GenerateAsync(...)` implementation (`Services/PythonAiClient.cs`) — explicit `[JsonPropertyName]` DTOs keep the snake_case wire contract exact regardless of the rest of the API's naming policy
+- [x] `POST /api/chat/sessions` — create session for authenticated user (`ChatController.CreateSession`; untitled sessions default to "New chat")
+- [x] `POST /api/chat/sessions/{id}/messages`:
+  - [x] Validate session ownership (or Admin) — 404 (not 403) for "not yours", to avoid confirming another user's session exists
+  - [x] Save user message — committed on its own, before the Python call
+  - [x] Fetch recent history — last 20 messages, chronological order
+  - [x] Call Python service
+  - [x] Save assistant message + usage log
+  - [x] Handle Python failure gracefully (503, not 500) — verified live by killing the Python process mid-flow
+- [x] `GET /api/chat/sessions` and `GET /api/chat/sessions/{id}/messages`
 
-**Exit criteria:** Full round trip in Postman produces a real AI reply and correct DB rows.
+**Exit criteria:** Full round trip in Postman produces a real AI reply and correct DB rows. ✅ Met — verified live (Node `fetch`, Postman not installed in this environment): register → create session → two message turns, second turn correctly recalled context from the first (real DeepInfra replies, not a stub) → `GET` sessions/messages both reflect it. Also verified: cross-user access → `404`; no token → `401`; empty content → `400`; Python process killed mid-request → `503` with the user's message still persisted, confirmed via a follow-up `GET`.
 
 ---
 

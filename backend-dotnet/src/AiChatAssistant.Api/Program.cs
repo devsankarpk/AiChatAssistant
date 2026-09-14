@@ -2,6 +2,7 @@ using System.Text;
 using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
+using AiChatAssistant.Api.Dtos.Chat;
 using AiChatAssistant.Api.Middleware;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Validators;
@@ -26,6 +27,29 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IValidator<RegisterRequest>, RegisterRequestValidator>();
 builder.Services.AddScoped<IValidator<LoginRequest>, LoginRequestValidator>();
+
+// Chat
+builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();
+builder.Services.AddScoped<IValidator<SendMessageRequest>, SendMessageRequestValidator>();
+
+// Python AI service client. InternalApiKey is the shared secret from CLAUDE.md's X-Internal-Key
+// contract - it must match ai-service-python's INTERNAL_API_KEY exactly.
+var pythonBaseUrl = builder.Configuration["PythonService:BaseUrl"] ?? "http://localhost:8000";
+var pythonInternalApiKey = builder.Configuration["PythonService:InternalApiKey"]
+    ?? throw new InvalidOperationException(
+        "PythonService:InternalApiKey is not configured. Set it via "
+        + "'dotnet user-secrets set \"PythonService:InternalApiKey\" \"<value>\"' in Development "
+        + "(must match ai-service-python's INTERNAL_API_KEY), or the PythonService__InternalApiKey "
+        + "environment variable elsewhere.");
+
+builder.Services.AddHttpClient<IPythonAiClient, PythonAiClient>(client =>
+{
+    client.BaseAddress = new Uri(pythonBaseUrl);
+    client.DefaultRequestHeaders.Add("X-Internal-Key", pythonInternalApiKey);
+    // The LLM call itself can legitimately take a while; longer than ASP.NET Core's own
+    // request timeout would matter, but this is well short of forever.
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException(

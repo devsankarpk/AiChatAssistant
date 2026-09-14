@@ -39,7 +39,7 @@ public class AuthController : ControllerBase
         var validation = await _registerValidator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return ValidationError(validation);
+            return this.ValidationError(validation);
         }
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
@@ -72,7 +72,7 @@ public class AuthController : ControllerBase
         var validation = await _loginValidator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return ValidationError(validation);
+            return this.ValidationError(validation);
         }
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
@@ -93,13 +93,12 @@ public class AuthController : ControllerBase
     [Authorize]
     public ActionResult<MeResponse> Me()
     {
-        var subject = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         var email = User.FindFirstValue(ClaimTypes.Email);
         var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToArray();
 
         return Ok(new MeResponse
         {
-            Id = int.TryParse(subject, out var id) ? id : 0,
+            Id = User.GetUserId(),
             Email = email ?? string.Empty,
             Roles = roles,
         });
@@ -120,11 +119,5 @@ public class AuthController : ControllerBase
                 Roles = roles,
             },
         };
-    }
-
-    private ActionResult ValidationError(FluentValidation.Results.ValidationResult validation)
-    {
-        var message = string.Join(" ", validation.Errors.Select(e => e.ErrorMessage));
-        return BadRequest(new ErrorResponse("validation_error", message));
     }
 }
