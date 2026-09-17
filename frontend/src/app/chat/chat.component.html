@@ -1,0 +1,82 @@
+<div class="chat-layout">
+  <aside class="sidebar">
+    <button type="button" class="new-chat" (click)="newChat()">+ New chat</button>
+
+    @if (sessionsError()) {
+      <p class="form-error">{{ sessionsError() }}</p>
+    }
+
+    <nav class="session-list">
+      @for (session of sessions(); track session.id) {
+        <button
+          type="button"
+          class="session-item"
+          [class.active]="session.id === selectedSessionId()"
+          (click)="selectSession(session.id)"
+        >
+          {{ session.title }}
+        </button>
+      } @empty {
+        @if (!sessionsLoading()) {
+          <p class="empty-hint">No chats yet - start one below.</p>
+        }
+      }
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="user-name">{{ auth.user()?.name }}</span>
+      @if (auth.hasRole('Admin')) {
+        <a routerLink="/admin/ping">Admin ping</a>
+      }
+      <button type="button" (click)="logout()">Log out</button>
+    </div>
+  </aside>
+
+  <main class="chat-main">
+    @if (!selectedSessionId() && messages().length === 0) {
+      <div class="empty-state">
+        <p>Start a new conversation, or pick one from the sidebar.</p>
+      </div>
+    }
+
+    <div class="message-list">
+      @for (message of messages(); track message.id) {
+        <div class="message" [class]="message.role" [class.pending]="message.pending" [class.failed]="message.failed">
+          <div class="bubble">
+            {{ message.content }}
+            @if (message.failed) {
+              <div class="message-error">
+                Failed to send.
+                <button type="button" (click)="retry()">Retry</button>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      @if (sending()) {
+        <div class="message assistant thinking">
+          <div class="bubble">Thinking…</div>
+        </div>
+      }
+
+      <div #scrollAnchor></div>
+    </div>
+
+    <form class="composer" (ngSubmit)="send()">
+      <textarea
+        rows="1"
+        placeholder="Message the assistant…"
+        [ngModel]="draft()"
+        (ngModelChange)="draft.set($event)"
+        (keydown)="onDraftKeydown($event)"
+        name="draft"
+      ></textarea>
+      <button type="submit" [disabled]="sending() || !draft().trim()">Send</button>
+    </form>
+
+    @if (sendError()) {
+      <p class="form-error composer-error">{{ sendError() }}</p>
+    }
+  </main>
+</div>

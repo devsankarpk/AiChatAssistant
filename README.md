@@ -184,13 +184,34 @@ POST /generate
 ### Phase 6 — Angular: chat UI
 **Goal:** Working chat experience against the real backend.
 
-- [ ] `ChatService`: getSessions, createSession, getMessages, sendMessage
-- [ ] Sidebar: session list + "New chat"
-- [ ] Chat window: message list, input box, send button
-- [ ] Optimistic user message render + "thinking" indicator
-- [ ] Error state with retry if send fails
+- [x] `ChatService`: getSessions, createSession, getMessages, sendMessage
+- [x] Sidebar: session list + "New chat"
+- [x] Chat window: message list, input box, send button
+- [x] Optimistic user message render + "thinking" indicator
+- [x] Error state with retry if send fails
 
-**Exit criteria:** Full browser round trip — login → new chat → send → real LLM reply → persists on refresh.
+Replaces Phase 5's `HomeComponent` placeholder (deleted). Session selection is a query param
+(`?session=<id>`), not a path segment (`/chat/:id`) — see `app.routes.ts`'s comment: two path-based
+routes pointing at the same lazy-loaded component look equivalent but aren't, since Angular's
+default route reuse strategy destroys and recreates the component on every transition between
+them, silently orphaning any subscription the old instance was holding (a chat send's response
+arriving after such a navigation, updating a signal nothing renders anymore, was a real bug caught
+by live testing below — not a hypothetical).
+
+**Exit criteria:** Full browser round trip — login → new chat → send → real LLM reply → persists on refresh. ✅ Met — verified live by scripting an actual headless Chrome (puppeteer-core against this machine's installed Chrome) through: register → type directly into the empty state (no session yet, one is lazily created) → real DeepInfra reply → second turn correctly recalls the first → hard refresh → exact same conversation still there → "New chat" → fresh empty session in the sidebar. Separately verified the failure path: killed the Python process → send shows a failed bubble with a "Failed to send." + Retry inline, and the error banner; restarted Python → clicked Retry → succeeds and clears the failed state.
+
+Three real bugs were found and fixed this way, not by review — all in `ChatComponent`'s
+interaction with routing/effects, not in `ChatService` or the backend:
+1. Two route configs (`''` and `'chat/:sessionId'`) for the same component meant Angular
+   destroyed and recreated it on that specific transition, orphaning the send's own subscription.
+   Fixed by using one route + a query param instead (see above).
+2. `toSignal(route.queryParamMap...)` re-emits on every new `ParamMap` object even when the
+   `session` value is unchanged, so the load-messages effect fired more than once per navigation.
+   Fixed with `distinctUntilChanged()`.
+3. Even after (1) and (2), Angular's effect scheduling has no guarantee of running before
+   `router.navigate()`'s returned promise resolves — a `messages.set([])` meant to run "before" a
+   send could still land after it. Fixed by clearing `messages` synchronously at the call site
+   (`send()`/`newChat()`) instead of inside the effect.
 
 ---
 
