@@ -1,0 +1,71 @@
+<div class="usage-page">
+  <header>
+    <h1>Usage logs</h1>
+    <a routerLink="/">← Back to chat</a>
+  </header>
+
+  <form class="filter" (ngSubmit)="applyFilter()">
+    <label>
+      From
+      <input type="date" [ngModel]="fromDate()" (ngModelChange)="fromDate.set($event)" name="from" />
+    </label>
+    <label>
+      To
+      <input type="date" [ngModel]="toDate()" (ngModelChange)="toDate.set($event)" name="to" />
+    </label>
+    <button type="submit">Apply</button>
+    <button type="button" (click)="clearFilter()">Clear</button>
+  </form>
+
+  @if (error()) {
+    <p class="form-error">{{ error() }}</p>
+  }
+
+  @if (dailyTotals().length > 1) {
+    <div class="chart" aria-hidden="true">
+      @for (d of dailyTotals(); track d.day) {
+        <div class="bar-col" [title]="d.day + ': ' + d.tokens + ' tokens'">
+          <div class="bar" [style.height.%]="(d.tokens / maxDailyTokens()) * 100"></div>
+          <span class="bar-label">{{ d.day.slice(5) }}</span>
+        </div>
+      }
+    </div>
+  }
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>User</th>
+          <th>Session</th>
+          <th>Tokens</th>
+          <th>Cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (item of items(); track item.id) {
+          <tr>
+            <td>{{ item.createdAt | date: 'short' }}</td>
+            <td>{{ item.userName }} <span class="muted">({{ item.userEmail }})</span></td>
+            <td>{{ item.sessionTitle }}</td>
+            <td>{{ item.tokensUsed }}</td>
+            <td>{{ item.costEstimate | currency }}</td>
+          </tr>
+        } @empty {
+          @if (!loading()) {
+            <tr>
+              <td colspan="5" class="empty-hint">No usage logs in this range.</td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pager">
+    <button type="button" [disabled]="page() <= 1" (click)="prevPage()">← Prev</button>
+    <span>Page {{ page() }} of {{ totalPages() || 1 }} ({{ totalCount() }} total)</span>
+    <button type="button" [disabled]="page() >= totalPages()" (click)="nextPage()">Next →</button>
+  </div>
+</div>

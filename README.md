@@ -218,11 +218,11 @@ interaction with routing/effects, not in `ChatService` or the backend:
 ### Phase 7 — Admin usage view
 **Goal:** Role-based data access end-to-end.
 
-- [ ] `.NET`: `GET /api/admin/usage` (Admin-only), paginated, date filter
-- [ ] Angular: `admin/usage` page — table + filter, guarded route
-- [ ] (Optional) simple usage-over-time chart
+- [x] `.NET`: `GET /api/admin/usage` (Admin-only), paginated (`page`/`pageSize`, capped at 100), date filter (`from`/`to`, `400` if `from` > `to`)
+- [x] Angular: `admin/usage` page — table + filter, guarded route (replaces Phase 2's `admin/ping` placeholder page, though the backend `GET /api/admin/ping` endpoint itself is kept as a minimal RBAC smoke-test route)
+- [x] (Optional) simple usage-over-time chart — a lightweight CSS bar chart of tokens-per-day, scoped to the currently-loaded page of results (not a separate aggregate endpoint)
 
-**Exit criteria:** `User` role blocked (guard + 403); `Admin` sees all usage data.
+**Exit criteria:** `User` role blocked (guard + 403); `Admin` sees all usage data. ✅ Met — verified live: a plain `User` gets `403` calling `GET /api/admin/usage` directly, the "Usage logs" sidebar link isn't even rendered for them, and navigating straight to `/admin/usage` by URL redirects to `/` (`adminGuard`). The same account promoted to `Admin` sees a real row (user name/email, session title, tokens, cost) in the table, and the date-range filter correctly narrows results (a future-only range shows the empty state; an inverted range is rejected with `400`).
 
 ---
 

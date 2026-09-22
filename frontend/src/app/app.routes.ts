@@ -24,9 +24,9 @@ export const routes: Routes = [
     loadComponent: () => import('./chat/chat.component').then((m) => m.ChatComponent),
   },
   {
-    path: 'admin/ping',
+    path: 'admin/usage',
     canActivate: [authGuard, adminGuard],
-    loadComponent: () => import('./admin/ping/ping.component').then((m) => m.PingComponent),
+    loadComponent: () => import('./admin/usage/usage.component').then((m) => m.UsageComponent),
   },
   { path: '**', redirectTo: '' },
 ];

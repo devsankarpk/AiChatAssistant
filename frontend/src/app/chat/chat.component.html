@@ -26,7 +26,7 @@
     <div class="sidebar-footer">
       <span class="user-name">{{ auth.user()?.name }}</span>
       @if (auth.hasRole('Admin')) {
-        <a routerLink="/admin/ping">Admin ping</a>
+        <a routerLink="/admin/usage">Usage logs</a>
       }
       <button type="button" (click)="logout()">Log out</button>
     </div>
