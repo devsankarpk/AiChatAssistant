@@ -116,6 +116,18 @@ If Angular's tests can't find Chrome, point `CHROME_BIN` at it first, e.g. on ma
 export CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ```
 
+> **What "run end-to-end on a fresh clone" above actually means:** the steps in this section were
+> followed literally - `git clone` into an empty directory, new `.venv`, new `node_modules`, freshly
+> generated `Jwt:Key`/`PythonService:InternalApiKey`/`INTERNAL_API_KEY` - reusing nothing from any
+> other checkout except the already-running MySQL server and its `AiChatAssistant` database/user
+> (already matching the committed dev connection string, so the `CREATE DATABASE`/`CREATE USER`
+> statements above weren't re-run against it - `dotnet ef database update` still ran for real and
+> correctly reported "already up to date"). All three test suites passed from that clone
+> (`dotnet test`, `pytest`, `ng test`), and a real browser register → chat → real DeepInfra reply →
+> hard-refresh round trip worked end to end. The one thing this doesn't cover: a MySQL server with
+> nothing on it yet, so the `CREATE DATABASE`/`CREATE USER` SQL above is standard, unremarkable
+> syntax that wasn't separately exercised against this specific server.
+
 ---
 
 ## 1. Overview
