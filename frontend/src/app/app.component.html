@@ -1,1 +1,14 @@
+@if (loading.isLoading()) {
+  <div class="loading-bar" role="status" aria-label="Loading"></div>
+}
+
+<div class="toast-stack" aria-live="polite">
+  @for (t of toast.toasts(); track t.id) {
+    <div class="toast" [class]="t.kind">
+      <span>{{ t.message }}</span>
+      <button type="button" (click)="toast.dismiss(t.id)" aria-label="Dismiss">×</button>
+    </div>
+  }
+</div>
+
 <router-outlet />

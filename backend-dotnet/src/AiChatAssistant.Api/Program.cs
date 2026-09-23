@@ -86,6 +86,22 @@ builder.Services.AddAuthentication(options =>
                     .LogWarning(context.Exception, "JWT authentication failed");
                 return Task.CompletedTask;
             },
+            // Without these, a missing/invalid token or a wrong role short-circuits the pipeline
+            // before any controller runs, so ASP.NET Core's own default kicks in: a bare 401/403
+            // with an empty body - breaking the "every .NET error response uses
+            // { error: { code, message } }" rule from CLAUDE.md for exactly the two error cases
+            // every protected endpoint can hit on every request.
+            OnChallenge = async context =>
+            {
+                context.HandleResponse(); // suppress the default empty-body 401
+                await new ErrorResponse("unauthorized", "Authentication is required.")
+                    .WriteAsync(context.HttpContext, StatusCodes.Status401Unauthorized);
+            },
+            OnForbidden = async context =>
+            {
+                await new ErrorResponse("forbidden", "You do not have permission to perform this action.")
+                    .WriteAsync(context.HttpContext, StatusCodes.Status403Forbidden);
+            },
         };
     });
 
@@ -164,5 +180,12 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// A route matching nothing above (typo'd path, wrong method, ...) would otherwise fall through
+// to ASP.NET Core's bare, empty-body 404 - same consistent-error-shape reasoning as the
+// OnChallenge/OnForbidden handlers above.
+app.MapFallback(context =>
+    new ErrorResponse("not_found", "The requested resource was not found.")
+        .WriteAsync(context, StatusCodes.Status404NotFound));
 
 app.Run();
