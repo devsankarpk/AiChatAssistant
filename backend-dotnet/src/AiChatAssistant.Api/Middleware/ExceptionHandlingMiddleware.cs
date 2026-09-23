@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text.Json;
 using AiChatAssistant.Api.Common;
 
 namespace AiChatAssistant.Api.Middleware;
@@ -37,14 +35,8 @@ public class ExceptionHandlingMiddleware
             }
 
             context.Response.Clear();
-            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-            context.Response.ContentType = "application/json";
-
-            var body = new ErrorResponse("internal_error", "An unexpected error occurred.");
-            await context.Response.WriteAsync(JsonSerializer.Serialize(body, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            }));
+            await new ErrorResponse("internal_error", "An unexpected error occurred.")
+                .WriteAsync(context, StatusCodes.Status500InternalServerError);
         }
     }
 }

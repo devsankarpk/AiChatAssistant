@@ -5,6 +5,131 @@
 
 ---
 
+## 0. Getting started
+
+Everything below has been run end-to-end on a fresh clone as of Phase 8 - not just written down and hoped for.
+
+### Prerequisites
+
+| Tool | Version used in dev | Notes |
+|---|---|---|
+| .NET SDK | 8.0.404 | Pinned via `global.json`; any 8.0.4xx works |
+| Node.js | 22.11.0 | `frontend/` pins `@angular/cli@19` in `package.json` - Angular 20+'s CLI needs Node ≥22.12/24, so an older Node like this still works fine as long as you don't bump that pin |
+| Python | 3.12.8 | 3.11+ is fine |
+| MySQL | 8-compatible (26.7.0 CalVer in dev) | `ServerVersion.AutoDetect` in `Program.cs` handles version differences |
+| A DeepInfra API key | — | Free account at [deepinfra.com](https://deepinfra.com/dash/api_keys); or swap `ai-service-python/app/config.py` + `services/llm_client.py` for a different OpenAI-compatible provider |
+
+### 1. Clone and set up the database
+
+```bash
+git clone <repo-url>
+cd AiChatAssistant
+```
+
+Create the database and a user matching the connection string already committed in
+`backend-dotnet/src/AiChatAssistant.Api/appsettings.Development.json` (or edit that file's
+`ConnectionStrings:Default` to match your own local MySQL instead):
+
+```sql
+CREATE DATABASE AiChatAssistant;
+CREATE USER 'chemapp'@'localhost' IDENTIFIED BY 'ChemApp123!';
+GRANT ALL PRIVILEGES ON AiChatAssistant.* TO 'chemapp'@'localhost';
+```
+
+### 2. Backend (.NET)
+
+```bash
+cd backend-dotnet
+dotnet tool restore   # dotnet-ef, pinned in .config/dotnet-tools.json
+dotnet user-secrets set "Jwt:Key" "$(openssl rand -base64 48)" --project src/AiChatAssistant.Api
+dotnet user-secrets set "PythonService:InternalApiKey" "$(openssl rand -hex 32)" --project src/AiChatAssistant.Api
+dotnet ef database update --project src/AiChatAssistant.Api
+```
+
+Keep the `PythonService:InternalApiKey` value you just generated - it goes into the Python
+service's `.env` next, and the two **must** match exactly (see CLAUDE.md's Configuration section).
+
+### 3. AI service (Python)
+
+```bash
+cd ai-service-python
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp env.example .env
+```
+
+Edit `.env`:
+- `DEEPINFRA_API_KEY` - from [deepinfra.com/dash/api_keys](https://deepinfra.com/dash/api_keys)
+- `INTERNAL_API_KEY` - the exact value you generated for `PythonService:InternalApiKey` above
+
+### 4. Frontend (Angular)
+
+```bash
+cd frontend
+npm install
+```
+
+### Run all three
+
+```bash
+# terminal 1
+cd ai-service-python && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
+
+# terminal 2
+cd backend-dotnet && dotnet run --project src/AiChatAssistant.Api
+
+# terminal 3
+cd frontend && npm start
+```
+
+Open `http://localhost:4200`, register an account, start chatting.
+
+### Becoming an Admin
+
+There's no self-serve path (by design - see `AuthController.Register` in CLAUDE.md's notes). Grant
+it directly in the database for the account you just registered:
+
+```sql
+INSERT INTO UserRoles (UserId, RoleId)
+SELECT Id, 1 FROM Users WHERE Email = 'you@example.com';
+```
+
+(`RoleId` 1 is `Admin`, seeded by the `InitialCreate` migration.) Log out and back in afterward -
+roles are baked into the JWT at login, not re-checked per request, so an already-issued token
+won't pick this up on its own.
+
+### Running the tests
+
+```bash
+# .NET (ChatController mocks IPythonAiClient, AuthController its own dependencies)
+cd backend-dotnet && dotnet test
+
+# Python (mocks the LLM SDK - no real DeepInfra calls)
+cd ai-service-python && source .venv/bin/activate && pytest
+
+# Angular (AuthService, both interceptors, every component)
+cd frontend && npm test -- --watch=false --browsers=ChromeHeadless
+```
+
+If Angular's tests can't find Chrome, point `CHROME_BIN` at it first, e.g. on macOS:
+```bash
+export CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+```
+
+> **What "run end-to-end on a fresh clone" above actually means:** the steps in this section were
+> followed literally - `git clone` into an empty directory, new `.venv`, new `node_modules`, freshly
+> generated `Jwt:Key`/`PythonService:InternalApiKey`/`INTERNAL_API_KEY` - reusing nothing from any
+> other checkout except the already-running MySQL server and its `AiChatAssistant` database/user
+> (already matching the committed dev connection string, so the `CREATE DATABASE`/`CREATE USER`
+> statements above weren't re-run against it - `dotnet ef database update` still ran for real and
+> correctly reported "already up to date"). All three test suites passed from that clone
+> (`dotnet test`, `pytest`, `ng test`), and a real browser register → chat → real DeepInfra reply →
+> hard-refresh round trip worked end to end. The one thing this doesn't cover: a MySQL server with
+> nothing on it yet, so the `CREATE DATABASE`/`CREATE USER` SQL above is standard, unremarkable
+> syntax that wasn't separately exercised against this specific server.
+
+---
+
 ## 1. Overview
 
 A moderate-depth chat application that integrates an LLM (originally scoped as OpenAI/Anthropic; built against **DeepInfra**'s OpenAI-compatible API for cost reasons — see Phase 3) through a split backend: a .NET Web API for auth, business logic, and orchestration, and a Python FastAPI microservice dedicated to LLM calls. This is the foundation app — later projects (RAG document Q&A, ticket system, resume screener, meeting summarizer) reuse this same skeleton.
@@ -228,13 +353,13 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Phase 8 — Polish & hardening
 
-- [ ] Global HTTP error interceptor (Angular) → toasts + loading states
-- [ ] Confirm consistent error shape across .NET → Angular
-- [ ] Config hygiene: `.gitignore` secrets, commit `.example` config files
-- [ ] Tests: .NET controller (mocked Python client), Python `/generate` (mocked LLM), Angular `AuthService`/interceptor
-- [ ] Top-level README with full setup instructions
+- [x] Global HTTP error interceptor (Angular) → toasts + loading states — `core/error.interceptor.ts` + `LoadingService`/`ToastService`, layered on top of (not replacing) each component's own inline handling; toasts only truly unexpected failures (network down, uncaught `500`/`502`) and auto-logs-out + redirects to `/login` on a stale/invalid token
+- [x] Confirm consistent error shape across .NET → Angular — audit found a real gap: `[Authorize]` rejections and unmatched routes bypassed MVC entirely, falling through to ASP.NET Core's bare empty-body `401`/`403`/`404`. Fixed via `JwtBearerEvents.OnChallenge`/`OnForbidden` and `app.MapFallback` in `Program.cs`
+- [x] Config hygiene: `.gitignore` secrets, commit `.example` config files — audited; only the documented, intentional dev-DB-password exception is committed, everything else is `.env`/user-secrets
+- [x] Tests: .NET controller (mocked Python client), Python `/generate` (mocked LLM), Angular `AuthService`/interceptor — `backend-dotnet/tests/AiChatAssistant.Api.Tests/` (xUnit, 23 tests), `ai-service-python/tests/` (pytest, 10 tests), Angular gained `AuthService`/`authInterceptor`/`errorInterceptor` specs (24 tests total across the app)
+- [x] Top-level README with full setup instructions — section 0 above
 
-**Exit criteria:** Fresh clone + README gets a new dev to a working app.
+**Exit criteria:** Fresh clone + README gets a new dev to a working app. ✅ Met — verified via an actual fresh `git clone` into a clean directory, following section 0's steps literally (not from a pre-configured environment), through to a real chat exchange in the browser. See the note at the end of section 0 for exactly what that run covered.
 
 ---
 

@@ -13,7 +13,7 @@ Follow the phase-by-phase plan in `README.md` (Phases 1–8). Progress:
 - **Phase 4 (wire .NET ↔ Python ↔ MySQL) — done.** `ChatController` (`POST`/`GET /api/chat/sessions`, `GET`/`POST /api/chat/sessions/{id}/messages`), all `[Authorize]`, ownership enforced via `GetOwnedSessionAsync` (404, not 403, for a session that isn't the caller's — same for User and Admin, Admin just always passes the check). `IPythonAiClient`/`PythonAiClient` is a typed `HttpClient` (`PythonService:BaseUrl` in `appsettings.json`, `PythonService:InternalApiKey` in user-secrets — **must** match `ai-service-python`'s `INTERNAL_API_KEY` exactly, regenerate both together if one changes). Send-message flow: save user message and commit immediately, fetch last 20 prior messages as history, call Python, on `PythonServiceUnavailableException` return `503` (verified live by killing the Python process mid-request — user message stayed persisted); on success save the assistant message + a `UsageLog` row (`CostEstimate` left at its `0` default — .NET deliberately doesn't know Python's model/pricing, that split is architectural, not an oversight).
 - **Phase 6 (Angular: chat UI) — done.** `ChatComponent` (`src/app/chat/`) replaces Phase 5's `HomeComponent` placeholder at the root route. `ChatService` (`core/services/chat.service.ts`) wraps the four `/api/chat/*` endpoints. Session selection is a **query param** (`?session=<id>`), not a path segment — two path-based routes pointing at the same lazy component looked equivalent but weren't (Angular's default route reuse strategy destroys/recreates the component between them, orphaning an in-flight subscription); see `app.routes.ts`'s comment. `selectedSessionId` uses `distinctUntilChanged()` (a bare `toSignal(queryParamMap...)` re-emits on every new `ParamMap` object even when the value hasn't changed). `messages` is cleared synchronously at the `send()`/`newChat()` call site, not inside the route-change `effect()` — that effect's own scheduling has no guaranteed ordering against `router.navigate()`'s promise. All three of these were real bugs caught by live browser testing (puppeteer-core against the local Chrome), not review.
 - **Phase 7 (Admin usage view) — done.** `AdminController.GetUsage` (`GET /api/admin/usage`, `[Authorize(Roles = "Admin")]`) — paginated (`page`/`pageSize`, capped at 100), `from`/`to` date filter (`400` if `from` > `to`), joins `User`/`ChatSession` for display fields. Angular: `admin/usage/usage.component.ts` (`src/app/admin/`) replaces Phase 2's `ping.component.ts` placeholder — table, date filter, pager, and an optional tokens-per-day CSS bar chart scoped to the current page only (not a separate aggregate query). The backend `GET /api/admin/ping` route itself is kept (harmless, still a minimal RBAC smoke test) — only its frontend placeholder page was replaced. `ChatComponent`'s sidebar links to it as "Usage logs", shown only when `auth.hasRole('Admin')`.
-- **Phase 8 — not started.**
+- **Phase 8 (Polish & hardening) — done.** Error-shape audit found and fixed a real gap: `[Authorize]` rejections and unmatched routes previously fell through to ASP.NET Core's bare, empty-body 401/403/404, bypassing the `{ error: { code, message } }` rule entirely - fixed via `JwtBearerEvents.OnChallenge`/`OnForbidden` and `app.MapFallback` in `Program.cs`, all writing through `ErrorResponse.WriteAsync` (the shared helper `ExceptionHandlingMiddleware` was refactored to use too). Angular gained `core/error.interceptor.ts`: a global `LoadingService` (in-flight-request counter, drives a top loading bar in `AppComponent`) and `ToastService`, layered on top of (never replacing) each component's own error handling - it toasts only truly unexpected failures (network-unreachable, uncaught `500`/`502`) and auto-logs-out + redirects to `/login` on error code `"unauthorized"` (a stale/invalid token), leaving everything already well-handled inline (chat's `503`, login's `401`, validation `400`s) alone to avoid double notifications. Verified live with a *real* expired token (temporary `Jwt__ExpiryMinutes=1` env var override, not a simulated 401). Test suites added for the first time: `backend-dotnet/tests/AiChatAssistant.Api.Tests/` (xUnit + Moq + EF Core InMemory - `ChatControllerTests` mocks `IPythonAiClient` per plan, `AuthControllerTests` mocks `ITokenService`, both use the real FluentValidation validators), `ai-service-python/tests/` (pytest, monkeypatches `app.services.llm_client`'s module-level OpenAI client - never a real DeepInfra call; needs `pytest.ini`'s `pythonpath = .` since `app/` and `tests/` are siblings, not a `src` layout), `frontend/src/app/**/*.spec.ts` gained `AuthService`, `authInterceptor`, and `errorInterceptor` specs (a fake-but-correctly-shaped JWT is required for any AuthService-touching test - a plain placeholder string fails AuthService's own expiry check and gets self-cleared, see the `fakeJwt()` helpers). README gained a "Getting started" section (0.) with real, verified setup steps - see below.
 
 Local DB connection string lives (by project decision) in `backend-dotnet/src/AiChatAssistant.Api/appsettings.Development.json` under `ConnectionStrings:Default`, in Pomelo key=value form.
 
@@ -36,7 +36,7 @@ Key rules that span components:
 - The Python service **never** talks to MySQL and has no user concept. It is stateless: `.NET` sends the full history and prompt on every call.
 - Python is authenticated only by a shared `INTERNAL_API_KEY` via the `X-Internal-Key` header — it must never be exposed to the browser.
 - A Python failure (timeout, rate limit, upstream error) must surface to Angular as `503`, never `500`, and the user message stays persisted.
-- Error responses from `.NET` use a consistent shape: `{ "error": { "code", "message" } }`, produced by global exception middleware.
+- Error responses from `.NET` use a consistent shape: `{ "error": { "code", "message" } }` - always, including unhandled exceptions (`ExceptionHandlingMiddleware`), missing/invalid-token `401`s and wrong-role `403`s (`JwtBearerEvents.OnChallenge`/`OnForbidden` in `Program.cs` - these bypass MVC entirely by default, which is what made them easy to miss), and unmatched routes (`app.MapFallback`).
 - JWT carries `sub`, `email`, `role`. Client-side JWT decoding is for UI conditionals only; real authorization is server-side (`[Authorize(Roles = "Admin")]`).
 - Session ownership is enforced on every chat endpoint: a user may only touch their own sessions unless they are `Admin`.
 
@@ -50,7 +50,8 @@ Changing any of these requires updating both sides and the schema section of `RE
 
 ## Commands
 
-These are the expected commands once each part is scaffolded per the plan; they will not work until then.
+All of these are live and verified as of Phase 8 - see README.md's "Getting started" (section 0)
+for first-time setup (user-secrets, `.env`, database).
 
 **backend-dotnet/** (.NET 8, EF Core, Pomelo MySQL)
 ```
@@ -75,20 +76,26 @@ pytest tests/test_generate.py::test_returns_reply    # single test
 ```
 npm install
 npm start                          # ng serve
-npm test                           # ng test (Karma)
-npm test -- --include='**/auth.service.spec.ts'   # single spec
+npm test -- --watch=false --browsers=ChromeHeadless          # ng test (Karma), single run
+npm test -- --include='**/auth.service.spec.ts'               # single spec
 npm run build
 ```
 
-**Full stack:** `docker-compose.yml` (added in a later phase) brings up MySQL + all three services.
+**Full stack:** no `docker-compose.yml` - out of scope for this 8-phase plan (there's no later
+phase to add it in). Run MySQL + the three services individually; see README.md section 0.
 
 ## Configuration
 
 - Secrets (`DEEPINFRA_API_KEY` — project uses DeepInfra's OpenAI-compatible API rather than OpenAI/Anthropic directly, see Phase 3 — `INTERNAL_API_KEY`, DB connection string, JWT signing key) live in `.env` / user-secrets and are gitignored. Commit `.example` files alongside them (named `env.example`, not `.env.example` — a `.env*` glob is denied to this agent's Read/Write/Bash tools, so the committed template can't use that prefix).
 - The `.NET` API and the Python service must agree on `INTERNAL_API_KEY`.
-- Default database name: `ai_chat_assistant`.
+- Database name actually in use (per the committed `appsettings.Development.json` connection string): `AiChatAssistant` - README's original plan said `ai_chat_assistant`; this is what's really there, correcting that stale reference.
 - `.NET` config layering: `appsettings.json` (shared defaults) → `appsettings.{Development,Production}.json` (per-environment, both committed) → user-secrets (Development only) → environment variables (`Section__Key` syntax, e.g. `Jwt__Key`, `ConnectionStrings__Default`) → command-line args, later wins. `appsettings.Production.json` intentionally has no `ConnectionStrings`/`Jwt` block — those must come from environment variables at deploy time, so the fail-fast checks in `Program.cs` catch a missing secret instead of silently booting unconfigured.
 
 ## Testing expectations
 
-Per Phase 8: `.NET` controller tests mock `IPythonAiClient`; Python `/generate` tests mock the LLM SDK; Angular tests cover `AuthService` and the auth interceptor. Do not make real LLM calls in tests.
+Done as of Phase 8 - keep new tests consistent with these patterns:
+- **`.NET`** (`backend-dotnet/tests/AiChatAssistant.Api.Tests/`): controller tests mock `IPythonAiClient`/`ITokenService` with Moq, but use the *real* FluentValidation validators and a real (`EntityFrameworkCore.InMemory`) `AppDbContext` - only the LLM/token-issuance boundary is faked. Build a caller identity with `TestSupport/ClaimsPrincipalFactory.Create(userId, email, ...roles)`, not a hand-rolled `ClaimsPrincipal` - it shapes claims the way they actually look *after* JWT validation (`role` remapped to `ClaimTypes.Role`, etc.), not the raw pre-validation JWT shape.
+- **Python** (`ai-service-python/tests/`): monkeypatch `app.services.llm_client._client.chat.completions.create` - never call DeepInfra for real. `conftest.py` sets fake `DEEPINFRA_API_KEY`/`INTERNAL_API_KEY` via `os.environ.setdefault` so tests don't need a real `.env`. `pytest.ini` sets `pythonpath = .` (required: `app/` and `tests/` are siblings).
+- **Angular**: `AuthService`, `authInterceptor`, and `errorInterceptor` all have specs. Any test that stores a token in `localStorage` needs a real JWT *shape* (`header.payload.signature`, valid base64) with a real `exp` claim - `AuthService`'s constructor self-clears anything that fails its own expiry check, so a plain placeholder string silently vanishes. Reuse the `fakeJwt()` pattern from `auth.service.spec.ts`/`auth.interceptor.spec.ts`.
+
+Do not make real LLM calls in tests.

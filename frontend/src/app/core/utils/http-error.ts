@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 
-import { ApiErrorResponse } from '../models/auth.models';
+import { ApiErrorResponse } from '../models/api-error.model';
 
 /** Pulls a human-readable message out of the `.NET` `{ error: { code, message } }` shape. */
 export function extractErrorMessage(err: HttpErrorResponse): string {

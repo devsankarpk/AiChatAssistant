@@ -2,3 +2,7 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 openai==1.59.7
 python-dotenv==1.0.1
+
+# Testing (Phase 8) - kept in the same file since README/CLAUDE.md document a single
+# `pip install -r requirements.txt` before `pytest`, not a separate dev-requirements step.
+pytest==8.3.4

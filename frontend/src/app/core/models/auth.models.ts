@@ -31,11 +31,3 @@ export interface MeResponse {
   email: string;
   roles: string[];
 }
-
-/** The .NET-wide error shape: `{ error: { code, message } }` (see CLAUDE.md). */
-export interface ApiErrorResponse {
-  error: {
-    code: string;
-    message: string;
-  };
-}

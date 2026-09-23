@@ -7,6 +7,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{DC856711-B8D
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AiChatAssistant.Api", "src\AiChatAssistant.Api\AiChatAssistant.Api.csproj", "{7F831713-17E7-45D1-B8A8-3F0D981B66D4}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{C74599B5-B3F7-435C-A9F7-2594B7C0BFE2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AiChatAssistant.Api.Tests", "tests\AiChatAssistant.Api.Tests\AiChatAssistant.Api.Tests.csproj", "{A90E6339-3356-4B53-A1D8-0C440773FACC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,8 +24,13 @@ Global
 		{7F831713-17E7-45D1-B8A8-3F0D981B66D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7F831713-17E7-45D1-B8A8-3F0D981B66D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7F831713-17E7-45D1-B8A8-3F0D981B66D4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A90E6339-3356-4B53-A1D8-0C440773FACC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A90E6339-3356-4B53-A1D8-0C440773FACC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A90E6339-3356-4B53-A1D8-0C440773FACC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A90E6339-3356-4B53-A1D8-0C440773FACC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{7F831713-17E7-45D1-B8A8-3F0D981B66D4} = {DC856711-B8D1-4C15-9D67-B47422A4FB60}
+		{A90E6339-3356-4B53-A1D8-0C440773FACC} = {C74599B5-B3F7-435C-A9F7-2594B7C0BFE2}
 	EndGlobalSection
 EndGlobal
