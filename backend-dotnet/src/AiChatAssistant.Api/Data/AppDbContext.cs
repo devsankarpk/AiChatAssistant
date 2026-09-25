@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<ChatSession> ChatSessions => Set<ChatSession>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<UsageLog> UsageLogs => Set<UsageLog>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -96,6 +97,19 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(l => l.UserId);
             entity.HasIndex(l => l.CreatedAt);
+        });
+
+        modelBuilder.Entity<PasswordResetToken>(entity =>
+        {
+            entity.ToTable("PasswordResetTokens");
+            entity.Property(t => t.TokenHash).HasMaxLength(64).IsRequired(); // SHA-256 hex = 64 chars
+            entity.HasIndex(t => t.TokenHash).IsUnique();
+            entity.Property(t => t.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.HasOne(t => t.User)
+                .WithMany(u => u.PasswordResetTokens)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(t => t.UserId);
         });
     }
 }

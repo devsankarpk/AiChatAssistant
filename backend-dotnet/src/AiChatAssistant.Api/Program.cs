@@ -27,6 +27,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IValidator<RegisterRequest>, RegisterRequestValidator>();
 builder.Services.AddScoped<IValidator<LoginRequest>, LoginRequestValidator>();
+builder.Services.AddScoped<IValidator<ForgotPasswordRequest>, ForgotPasswordRequestValidator>();
+builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordRequestValidator>();
+// No real email provider wired up yet - this dev stand-in logs the reset link instead of sending
+// it. Swap for a real IEmailSender (SendGrid/Resend/Postmark/SES/...) before deploying anywhere
+// real users can reach - see ConsoleEmailSender's doc comment.
+builder.Services.AddScoped<IEmailSender, ConsoleEmailSender>();
 
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();

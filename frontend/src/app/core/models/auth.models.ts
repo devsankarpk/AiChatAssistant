@@ -31,3 +31,17 @@ export interface MeResponse {
   email: string;
   roles: string[];
 }
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
+/** Generic success body for forgot/reset-password - no token, no user summary. */
+export interface AuthMessageResponse {
+  message: string;
+}

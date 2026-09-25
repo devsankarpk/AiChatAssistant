@@ -10,6 +10,16 @@ export const routes: Routes = [
     loadComponent: () => import('./auth/register/register.component').then((m) => m.RegisterComponent),
   },
   {
+    path: 'forgot-password',
+    loadComponent: () =>
+      import('./auth/forgot-password/forgot-password.component').then((m) => m.ForgotPasswordComponent),
+  },
+  {
+    path: 'reset-password',
+    loadComponent: () =>
+      import('./auth/reset-password/reset-password.component').then((m) => m.ResetPasswordComponent),
+  },
+  {
     // Session selection is a query param (?session=<id>), not a path segment, so there is only
     // ever one route config here - Angular reuses the same ChatComponent instance across every
     // "select a session" navigation instead of destroying and recreating it. (Two path-based

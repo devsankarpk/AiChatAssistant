@@ -84,6 +84,19 @@ cd frontend && npm start
 
 Open `http://localhost:4200`, register an account, start chatting.
 
+### Forgot password
+
+Works end to end, but no real email provider is wired up - the "email" is logged to the .NET
+console/log instead of actually sent (`ConsoleEmailSender`; see CLAUDE.md's Configuration section
+for how to swap in a real provider). To test it yourself: click "Forgot password?" on the login
+page, then find the reset link in the terminal running `dotnet run` (search for `DEV EMAIL`):
+
+```bash
+grep "DEV EMAIL" /path/to/your/dotnet-run-output.log   # or just watch the terminal
+```
+
+Copy the `Link:` value into your browser to actually reset the password.
+
 ### Becoming an Admin
 
 There's no self-serve path (by design - see `AuthController.Register` in CLAUDE.md's notes). Grant

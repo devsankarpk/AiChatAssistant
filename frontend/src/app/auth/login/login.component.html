@@ -17,6 +17,7 @@
     @if (form.controls.password.invalid && form.controls.password.touched) {
       <p class="field-error">Password is required.</p>
     }
+    <p class="switch-link"><a routerLink="/forgot-password">Forgot password?</a></p>
 
     @if (errorMessage()) {
       <p class="form-error">{{ errorMessage() }}</p>
