@@ -175,3 +175,24 @@ def test_unexpected_exception_maps_to_502_never_a_bare_500(monkeypatch):
 
     assert response.status_code == 502
     assert response.json()["detail"]["error"]["code"] == "llm_unexpected_error"
+
+
+def test_llm_client_worst_case_fits_inside_dotnet_timeout():
+    # .NET's PythonAiClient gives up after 60s (Program.cs). If retries could outlast that, the
+    # user sits on "Thinking..." for a full minute and this service's 503 is never delivered.
+    client = llm_client_module._client
+    assert client.timeout * (client.max_retries + 1) < 55
+
+
+def test_caps_reply_length(monkeypatch):
+    captured = {}
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return _mock_completion("ok", 1)
+
+    monkeypatch.setattr(llm_client_module._client.chat.completions, "create", fake_create)
+
+    client.post("/generate", json={"session_id": "s1", "history": [], "prompt": "hi"}, headers=AUTH_HEADER)
+
+    assert captured["max_tokens"] == llm_client_module.DEEPINFRA_MAX_TOKENS

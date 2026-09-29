@@ -4,10 +4,18 @@ unmodified - just pointed at a different base_url with a DeepInfra key.
 """
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
-from app.config import DEEPINFRA_API_KEY, DEEPINFRA_BASE_URL, DEEPINFRA_MODEL
+from app.config import DEEPINFRA_API_KEY, DEEPINFRA_BASE_URL, DEEPINFRA_MAX_TOKENS, DEEPINFRA_MODEL
 from app.schemas import HistoryMessage
 
-_client = OpenAI(api_key=DEEPINFRA_API_KEY, base_url=DEEPINFRA_BASE_URL, timeout=30.0)
+# Worst case (timeout x (1 + max_retries), plus backoff) must stay under the .NET caller's 60s
+# HttpClient.Timeout. Otherwise .NET gives up first and this service's clean 503 is never seen.
+# The SDK's default max_retries=2 at 30s allowed ~90s.
+_client = OpenAI(
+    api_key=DEEPINFRA_API_KEY,
+    base_url=DEEPINFRA_BASE_URL,
+    timeout=25.0,
+    max_retries=1,
+)
 
 
 class UpstreamError(Exception):
@@ -27,7 +35,9 @@ def generate_reply(history: list[HistoryMessage], prompt: str) -> tuple[str, int
     messages.append({"role": "user", "content": prompt})
 
     try:
-        completion = _client.chat.completions.create(model=DEEPINFRA_MODEL, messages=messages)
+        completion = _client.chat.completions.create(
+            model=DEEPINFRA_MODEL, messages=messages, max_tokens=DEEPINFRA_MAX_TOKENS
+        )
     except (APITimeoutError, APIConnectionError) as exc:
         raise UpstreamError(503, "llm_timeout", "The LLM provider timed out or was unreachable.") from exc
     except RateLimitError as exc:
