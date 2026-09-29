@@ -129,6 +129,67 @@ public class ChatControllerTests : IDisposable
         Assert.Empty(_db.UsageLogs);
     }
 
+    private void SetupReply() =>
+        _pythonClient
+            .Setup(c => c.GenerateAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<PythonHistoryMessage>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PythonGenerateResult("ok", 1));
+
+    [Fact]
+    public async Task SendMessage_TitlesANewChat_FromTheFirstMessage_AndKeepsItAfterwards()
+    {
+        var session = SeedSession(_owner, "New chat");
+        SetupReply();
+        var controller = CreateController(_owner.Id, "User");
+
+        await controller.SendMessage(session.Id, new SendMessageRequest { Content = "  Who invented\n school exams?  " }, CancellationToken.None);
+        await controller.SendMessage(session.Id, new SendMessageRequest { Content = "Tell me more" }, CancellationToken.None);
+
+        Assert.Equal("Who invented school exams?", _db.ChatSessions.Single().Title);
+    }
+
+    [Fact]
+    public async Task SendMessage_DoesNotRename_AChatWithACustomTitle()
+    {
+        var session = SeedSession(_owner, "Trip planning");
+        SetupReply();
+        var controller = CreateController(_owner.Id, "User");
+
+        await controller.SendMessage(session.Id, new SendMessageRequest { Content = "Hello" }, CancellationToken.None);
+
+        Assert.Equal("Trip planning", _db.ChatSessions.Single().Title);
+    }
+
+    [Fact]
+    public async Task SendMessage_ShortensALongFirstMessage_AtAWordBoundary()
+    {
+        var session = SeedSession(_owner, "New chat");
+        SetupReply();
+        var controller = CreateController(_owner.Id, "User");
+        var longMessage = "Can you explain how photosynthesis works in plants and why it matters for the climate?";
+
+        await controller.SendMessage(session.Id, new SendMessageRequest { Content = longMessage }, CancellationToken.None);
+
+        var title = _db.ChatSessions.Single().Title;
+        Assert.True(title.Length <= 60, title);
+        Assert.EndsWith("…", title);
+        Assert.StartsWith(title.TrimEnd('…'), longMessage);
+        Assert.Equal(' ', longMessage[title.Length - 1]);
+    }
+
+    [Fact]
+    public async Task SendMessage_KeepsTheNewTitle_EvenWhenPythonIsUnavailable()
+    {
+        var session = SeedSession(_owner, "New chat");
+        _pythonClient
+            .Setup(c => c.GenerateAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<PythonHistoryMessage>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new PythonServiceUnavailableException("down"));
+        var controller = CreateController(_owner.Id, "User");
+
+        await controller.SendMessage(session.Id, new SendMessageRequest { Content = "Plan a weekend in Goa" }, CancellationToken.None);
+
+        Assert.Equal("Plan a weekend in Goa", _db.ChatSessions.Single().Title);
+    }
+
     [Fact]
     public async Task SendMessage_Returns400_ForEmptyContent()
     {

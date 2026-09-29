@@ -3,7 +3,15 @@ import { Injectable, computed, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { AuthResponse, LoginRequest, RegisterRequest, UserSummary } from '../models/auth.models';
+import {
+  AuthMessageResponse,
+  AuthResponse,
+  ForgotPasswordRequest,
+  LoginRequest,
+  RegisterRequest,
+  ResetPasswordRequest,
+  UserSummary,
+} from '../models/auth.models';
 import { decodeJwtPayload, isExpired, rolesFromClaims } from '../utils/jwt';
 
 const TOKEN_KEY = 'aichat.auth.token';
@@ -53,6 +61,16 @@ export class AuthService {
 
   logout(): void {
     this.clearSession();
+  }
+
+  /** Always resolves the same way whether or not the email is registered - the backend
+   * deliberately doesn't reveal that, so there's nothing session-specific to update here. */
+  forgotPassword(request: ForgotPasswordRequest): Observable<AuthMessageResponse> {
+    return this.http.post<AuthMessageResponse>(`${environment.apiBaseUrl}/auth/forgot-password`, request);
+  }
+
+  resetPassword(request: ResetPasswordRequest): Observable<AuthMessageResponse> {
+    return this.http.post<AuthMessageResponse>(`${environment.apiBaseUrl}/auth/reset-password`, request);
   }
 
   hasRole(role: string): boolean {

@@ -17,4 +17,6 @@ public class User
     public ICollection<ChatSession> ChatSessions { get; set; } = new List<ChatSession>();
 
     public ICollection<UsageLog> UsageLogs { get; set; } = new List<UsageLog>();
+
+    public ICollection<PasswordResetToken> PasswordResetTokens { get; set; } = new List<PasswordResetToken>();
 }

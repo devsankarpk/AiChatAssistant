@@ -52,7 +52,7 @@ public class ChatController : ControllerBase
         {
             Id = Guid.NewGuid(),
             UserId = User.GetUserId(),
-            Title = string.IsNullOrWhiteSpace(request.Title) ? "New chat" : request.Title.Trim(),
+            Title = string.IsNullOrWhiteSpace(request.Title) ? DefaultTitle : request.Title.Trim(),
         };
         _db.ChatSessions.Add(session);
         await _db.SaveChangesAsync(cancellationToken);
@@ -111,8 +111,12 @@ public class ChatController : ControllerBase
             Content = request.Content.Trim(),
         };
         _db.Messages.Add(userMessage);
+        if (session.Title == DefaultTitle)
+        {
+            session.Title = TitleFromMessage(userMessage.Content);
+        }
         // Saved on its own, before the Python call - so a Python failure below still leaves this
-        // persisted, per CLAUDE.md ("... the user message stays persisted").
+        // (and the title) persisted, per CLAUDE.md ("... the user message stays persisted").
         await _db.SaveChangesAsync(cancellationToken);
 
         var priorMessages = await _db.Messages
@@ -178,6 +182,27 @@ public class ChatController : ControllerBase
     // 404, not 403, for "not yours" too - avoids confirming to a caller that a given session id
     // exists at all when it isn't theirs.
     private ActionResult SessionNotFound() => NotFound(new ErrorResponse("session_not_found", "Chat session not found."));
+
+    private const string DefaultTitle = "New chat";
+    private const int TitleMaxLength = 60;
+
+    private static string TitleFromMessage(string content)
+    {
+        var singleLine = string.Join(' ', content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (singleLine.Length <= TitleMaxLength)
+        {
+            return singleLine;
+        }
+
+        var cut = singleLine[..(TitleMaxLength - 1)];
+        var lastSpace = cut.LastIndexOf(' ');
+        // Break at a word boundary unless that would throw away most of the text.
+        if (lastSpace > TitleMaxLength / 2)
+        {
+            cut = cut[..lastSpace];
+        }
+        return cut.TrimEnd() + "…";
+    }
 
     private static SessionResponse ToSessionResponse(ChatSession s) => new()
     {

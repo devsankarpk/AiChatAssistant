@@ -1,53 +1,81 @@
-<div class="chat-layout">
-  <aside class="sidebar">
-    <button type="button" class="new-chat" (click)="newChat()">+ New chat</button>
+<div class="chat-layout" [class.sidebar-open]="sidebarOpen()">
+  <aside class="sidebar" id="chat-sidebar">
+    <p class="wordmark">AI Chat Assistant</p>
+
+    <button type="button" class="btn btn-primary new-chat" (click)="newChat()">New chat</button>
 
     @if (sessionsError()) {
-      <p class="form-error">{{ sessionsError() }}</p>
+      <p class="form-error" role="alert">{{ sessionsError() }}</p>
     }
 
-    <nav class="session-list">
+    <nav class="session-list" aria-label="Your chats">
       @for (session of sessions(); track session.id) {
         <button
           type="button"
           class="session-item"
           [class.active]="session.id === selectedSessionId()"
+          [attr.aria-current]="session.id === selectedSessionId() ? 'page' : null"
           (click)="selectSession(session.id)"
         >
           {{ session.title }}
         </button>
       } @empty {
         @if (!sessionsLoading()) {
-          <p class="empty-hint">No chats yet - start one below.</p>
+          <p class="empty-hint">Your chats will be listed here.</p>
         }
       }
     </nav>
 
     <div class="sidebar-footer">
-      <span class="user-name">{{ auth.user()?.name }}</span>
+      <div class="who">
+        <span class="user-name">{{ auth.user()?.name }}</span>
+        <span class="user-email">{{ auth.user()?.email }}</span>
+      </div>
       @if (auth.hasRole('Admin')) {
         <a routerLink="/admin/usage">Usage logs</a>
       }
-      <button type="button" (click)="logout()">Log out</button>
+      <button type="button" class="btn btn-quiet" (click)="logout()">Log out</button>
     </div>
   </aside>
 
-  <main class="chat-main">
-    @if (!selectedSessionId() && messages().length === 0) {
-      <div class="empty-state">
-        <p>Start a new conversation, or pick one from the sidebar.</p>
-      </div>
-    }
+  <button
+    type="button"
+    class="scrim"
+    aria-label="Close chat list"
+    tabindex="-1"
+    (click)="sidebarOpen.set(false)"
+  ></button>
 
-    <div class="message-list">
+  <main class="chat-main">
+    <header class="mobile-bar">
+      <button
+        type="button"
+        class="btn btn-quiet"
+        aria-controls="chat-sidebar"
+        [attr.aria-expanded]="sidebarOpen()"
+        (click)="sidebarOpen.set(true)"
+      >
+        Chats
+      </button>
+      <span class="mobile-title">{{ selectedTitle() }}</span>
+    </header>
+
+    <div class="message-list" aria-live="polite">
+      @if (!selectedSessionId() && messages().length === 0) {
+        <div class="empty-state">
+          <h1>What are you working on?</h1>
+          <p class="muted">Ask a question, paste something to rewrite, or think out loud. Each chat is saved in the list on the left.</p>
+        </div>
+      }
+
       @for (message of messages(); track message.id) {
         <div class="message" [class]="message.role" [class.pending]="message.pending" [class.failed]="message.failed">
-          <div class="bubble">
-            {{ message.content }}
-            @if (message.failed) {
+          <span class="speaker">{{ message.role === 'user' ? 'You' : 'Assistant' }}</span>
+          <!-- No whitespace before the content: .text is pre-wrap, so it would render. -->
+          <div class="text">{{ message.content.trim() }}@if (message.failed) {
               <div class="message-error">
-                Failed to send.
-                <button type="button" (click)="retry()">Retry</button>
+                <span>This message didn't send.</span>
+                <button type="button" class="btn btn-quiet" (click)="retry()">Send again</button>
               </div>
             }
           </div>
@@ -55,28 +83,34 @@
       }
 
       @if (sending()) {
-        <div class="message assistant thinking">
-          <div class="bubble">Thinking…</div>
+        <div class="message assistant thinking" role="status">
+          <span class="speaker">Assistant</span>
+          <div class="text">Thinking<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></div>
         </div>
       }
 
       <div #scrollAnchor></div>
     </div>
 
-    <form class="composer" (ngSubmit)="send()">
-      <textarea
-        rows="1"
-        placeholder="Message the assistant…"
-        [ngModel]="draft()"
-        (ngModelChange)="draft.set($event)"
-        (keydown)="onDraftKeydown($event)"
-        name="draft"
-      ></textarea>
-      <button type="submit" [disabled]="sending() || !draft().trim()">Send</button>
-    </form>
-
-    @if (sendError()) {
-      <p class="form-error composer-error">{{ sendError() }}</p>
-    }
+    <div class="composer-wrap">
+      @if (sendError()) {
+        <p class="form-error composer-error" role="alert">{{ sendError() }}</p>
+      }
+      <form class="composer" (ngSubmit)="send()">
+        <label class="visually-hidden" for="composer-input">Message</label>
+        <textarea
+          id="composer-input"
+          rows="1"
+          placeholder="Write a message"
+          [ngModel]="draft()"
+          (ngModelChange)="draft.set($event)"
+          (keydown)="onDraftKeydown($event)"
+          name="draft"
+          aria-describedby="composer-hint"
+        ></textarea>
+        <button type="submit" class="btn btn-primary" [disabled]="sending() || !draft().trim()">Send</button>
+      </form>
+      <p id="composer-hint" class="composer-hint">Enter sends. Shift+Enter starts a new line.</p>
+    </div>
   </main>
 </div>

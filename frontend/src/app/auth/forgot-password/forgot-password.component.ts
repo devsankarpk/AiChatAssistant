@@ -1,31 +1,31 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
 import { AuthShellComponent } from '../auth-shell/auth-shell.component';
 
 @Component({
-  selector: 'app-login',
+  selector: 'app-forgot-password',
   imports: [ReactiveFormsModule, RouterLink, AuthShellComponent],
-  templateUrl: './login.component.html',
-  styleUrl: './login.component.scss',
+  templateUrl: './forgot-password.component.html',
+  styleUrl: './forgot-password.component.scss',
 })
-export class LoginComponent {
+export class ForgotPasswordComponent {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
-  private readonly router = inject(Router);
-  private readonly route = inject(ActivatedRoute);
 
   readonly form = this.fb.nonNullable.group({
     email: ['', [Validators.required, Validators.email]],
-    password: ['', [Validators.required]],
   });
 
   readonly submitting = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  // Set once the request succeeds - the backend never reveals whether the email was actually
+  // registered, so this message is identical either way (see AuthService.forgotPassword).
+  readonly submittedMessage = signal<string | null>(null);
 
   submit(): void {
     if (this.form.invalid || this.submitting()) {
@@ -36,10 +36,10 @@ export class LoginComponent {
     this.submitting.set(true);
     this.errorMessage.set(null);
 
-    this.auth.login(this.form.getRawValue()).subscribe({
-      next: () => {
-        const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') ?? '/';
-        this.router.navigateByUrl(returnUrl);
+    this.auth.forgotPassword(this.form.getRawValue()).subscribe({
+      next: (res) => {
+        this.submitting.set(false);
+        this.submittedMessage.set(res.message);
       },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);

@@ -27,6 +27,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IValidator<RegisterRequest>, RegisterRequestValidator>();
 builder.Services.AddScoped<IValidator<LoginRequest>, LoginRequestValidator>();
+builder.Services.AddScoped<IValidator<ForgotPasswordRequest>, ForgotPasswordRequestValidator>();
+builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordRequestValidator>();
+// Real SMTP email (see SmtpEmailSender's doc comment for the Smtp:Username/Password secrets it
+// needs). ConsoleEmailSender (logs the link instead of sending) is still available as a dev-only
+// swap if you don't want to hit a real SMTP server locally.
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();

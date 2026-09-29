@@ -49,6 +49,19 @@ dotnet ef database update --project src/AiChatAssistant.Api
 Keep the `PythonService:InternalApiKey` value you just generated - it goes into the Python
 service's `.env` next, and the two **must** match exactly (see CLAUDE.md's Configuration section).
 
+To send real password-reset emails (optional - skip this and the forgot-password flow still
+works, see below), also set SMTP credentials. For Gmail: enable 2-Step Verification on the sending
+account, generate an App Password at
+[myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), then:
+
+```bash
+dotnet user-secrets set "Smtp:Username" "<your-gmail-address>" --project src/AiChatAssistant.Api
+dotnet user-secrets set "Smtp:Password" "<16-char-app-password-no-spaces>" --project src/AiChatAssistant.Api
+```
+
+`Smtp:Host`/`Port`/`FromName` (`appsettings.json`) already default to Gmail's SMTP - override them
+if you're using a different provider.
+
 ### 3. AI service (Python)
 
 ```bash
@@ -83,6 +96,21 @@ cd frontend && npm start
 ```
 
 Open `http://localhost:4200`, register an account, start chatting.
+
+### Forgot password
+
+Sends a real email via SMTP (`SmtpEmailSender`) if you set the `Smtp:Username`/`Smtp:Password`
+secrets in step 2 above. Click "Forgot password?" on the login page, enter the account's email,
+and the reset link arrives in that inbox.
+
+If you skipped the SMTP secrets, `SmtpEmailSender` will throw at send time (fail-fast, same
+pattern as a missing `Jwt:Key`) - swap `Program.cs`'s DI registration back to `ConsoleEmailSender`
+(logs the link instead of sending it - see CLAUDE.md's Configuration section) if you'd rather not
+set up SMTP for local dev.
+
+On some networks, .NET's TLS revocation check can't reach the mail provider's OCSP responder and
+the connection fails with an `SslHandshakeException` even though the certificate is valid -
+`SmtpEmailSender` already disables revocation checking for this reason (see its comment).
 
 ### Becoming an Admin
 
