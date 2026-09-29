@@ -50,6 +50,7 @@ export class ChatComponent implements AfterViewChecked {
 
   readonly messages = signal<DisplayMessage[]>([]);
   readonly messagesLoading = signal(false);
+
   readonly sidebarOpen = signal(false);
 
   readonly selectedTitle = computed(
@@ -197,6 +198,7 @@ export class ChatComponent implements AfterViewChecked {
           res.assistantMessage,
         ]);
         this.sending.set(false);
+        this.refreshTitleIfUntitled(sessionId);
       },
       error: (err: HttpErrorResponse) => {
         this.sending.set(false);
@@ -205,6 +207,21 @@ export class ChatComponent implements AfterViewChecked {
         );
         this.lastFailedContent = content;
         this.sendError.set(extractErrorMessage(err));
+        // The server titles the chat as soon as the message is saved, even if the reply failed.
+        this.refreshTitleIfUntitled(sessionId);
+      },
+    });
+  }
+
+  // The backend renames a "New chat" from its first message; pick that up without a full reload.
+  private refreshTitleIfUntitled(sessionId: string): void {
+    if (this.sessions().find((s) => s.id === sessionId)?.title !== 'New chat') {
+      return;
+    }
+    this.chat.getSessions().subscribe({
+      next: (list) => this.sessions.set(list),
+      error: () => {
+        // Cosmetic only - the title shows up on the next page load anyway.
       },
     });
   }
