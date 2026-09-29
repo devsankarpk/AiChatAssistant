@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { AfterViewChecked, Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
+import { AfterViewChecked, Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { distinctUntilChanged, firstValueFrom, map } from 'rxjs';
@@ -50,6 +50,11 @@ export class ChatComponent implements AfterViewChecked {
 
   readonly messages = signal<DisplayMessage[]>([]);
   readonly messagesLoading = signal(false);
+  readonly sidebarOpen = signal(false);
+
+  readonly selectedTitle = computed(
+    () => this.sessions().find((s) => s.id === this.selectedSessionId())?.title ?? 'New chat',
+  );
 
   readonly draft = signal('');
   readonly sending = signal(false);
@@ -120,6 +125,7 @@ export class ChatComponent implements AfterViewChecked {
   }
 
   selectSession(id: string): Promise<boolean> {
+    this.sidebarOpen.set(false);
     return this.router.navigate([], { relativeTo: this.route, queryParams: { session: id } });
   }
 

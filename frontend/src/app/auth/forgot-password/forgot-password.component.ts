@@ -5,10 +5,11 @@ import { RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
+import { AuthShellComponent } from '../auth-shell/auth-shell.component';
 
 @Component({
   selector: 'app-forgot-password',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, AuthShellComponent],
   templateUrl: './forgot-password.component.html',
   styleUrl: './forgot-password.component.scss',
 })

@@ -1,4 +1,4 @@
-import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -15,7 +15,7 @@ interface DayTotal {
 
 @Component({
   selector: 'app-usage',
-  imports: [FormsModule, RouterLink, DatePipe, CurrencyPipe],
+  imports: [FormsModule, RouterLink, DatePipe, CurrencyPipe, DecimalPipe],
   templateUrl: './usage.component.html',
   styleUrl: './usage.component.scss',
 })
