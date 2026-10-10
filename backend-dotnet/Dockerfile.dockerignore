@@ -1,0 +1,16 @@
+# Context is the repo root, so this file (named after the Dockerfile) is what BuildKit uses.
+**/bin
+**/obj
+**/node_modules
+**/.venv
+**/__pycache__
+**/dist
+**/.vs
+.git
+.claude
+frontend
+ai-service-python
+**/*.env
+**/.env*
+docker.env
+**/appsettings.*.local.json

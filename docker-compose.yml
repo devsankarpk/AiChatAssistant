@@ -1,0 +1,96 @@
+# Whole stack in containers:
+#   ./scripts/gen-docker-env.sh                       # once; then set DEEPINFRA_API_KEY in docker.env
+#   docker compose --env-file docker.env up --build -d
+#   open http://localhost:8080
+name: aichat
+
+x-db-connection: &db-connection
+  ConnectionStrings__Default: "Server=mysql;Port=3306;Database=AiChatAssistant;User=aichat;Password=${MYSQL_PASSWORD:?set in docker.env}"
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set in docker.env}
+      MYSQL_DATABASE: AiChatAssistant
+      MYSQL_USER: aichat
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set in docker.env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # Over TCP on purpose: during first-run init MySQL listens on a socket only, so this
+      # stays unhealthy until the real server is up.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  migrate:
+    image: aichat-migrate:local
+    build:
+      context: .
+      dockerfile: backend-dotnet/Dockerfile
+      target: migrate
+    environment:
+      <<: *db-connection
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  ai-service:
+    image: aichat-ai-service:local
+    build:
+      context: ./ai-service-python
+    environment:
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:?set DEEPINFRA_API_KEY in docker.env}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set in docker.env}
+    restart: unless-stopped
+
+  api:
+    image: aichat-api:local
+    build:
+      context: .
+      dockerfile: backend-dotnet/Dockerfile
+      target: api
+    environment:
+      <<: *db-connection
+      Jwt__Key: ${JWT_KEY:?set in docker.env}
+      PythonService__BaseUrl: http://ai-service:8000
+      PythonService__InternalApiKey: ${INTERNAL_API_KEY:?set in docker.env}
+      Frontend__BaseUrl: ${PUBLIC_URL:-http://localhost:8080}
+      Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost:8080}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      # The aspnet image has no curl/wget; bash's /dev/tcp is enough to hit /health.
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /health HTTP/1.0\r\n\r\n" >&3 && head -n1 <&3 | grep -q 200'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    image: aichat-web:local
+    build:
+      context: ./frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
