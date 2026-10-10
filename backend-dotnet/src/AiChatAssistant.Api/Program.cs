@@ -130,6 +130,10 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddControllers();
 
+// Liveness only (is the process serving requests) - deliberately no DB check, so a MySQL blip
+// doesn't make Kubernetes restart a healthy API. Used by container/k8s probes.
+builder.Services.AddHealthChecks();
+
 // Make model-binding failures (e.g. malformed JSON) use the same { error: { code, message } }
 // shape as everything else, instead of the framework's default ProblemDetails.
 builder.Services.Configure<ApiBehaviorOptions>(options =>
@@ -186,6 +190,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 // A route matching nothing above (typo'd path, wrong method, ...) would otherwise fall through
 // to ASP.NET Core's bare, empty-body 404 - same consistent-error-shape reasoning as the
