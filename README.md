@@ -156,6 +156,100 @@ export CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 > nothing on it yet, so the `CREATE DATABASE`/`CREATE USER` SQL above is standard, unremarkable
 > syntax that wasn't separately exercised against this specific server.
 
+### Running in Docker
+
+The whole stack (MySQL, the .NET API, the Python service, and the Angular app behind nginx) runs
+in containers, so nothing above except Docker itself needs to be installed.
+
+```bash
+./scripts/gen-docker-env.sh       # once: writes docker.env (gitignored) with random secrets
+# open docker.env and set DEEPINFRA_API_KEY - without it chat replies fail.
+# SMTP_USERNAME / SMTP_PASSWORD are optional (real forgot-password emails only).
+
+docker compose --env-file docker.env up --build -d
+```
+
+Then open **http://localhost:8080**. Stop it with `docker compose --env-file docker.env down`
+(add `-v` to also delete the database volume).
+
+- Every `docker compose` command needs `--env-file docker.env` (or `export COMPOSE_ENV_FILES=docker.env`
+  once per shell).
+- Start-up order is enforced: MySQL (healthy) -> `migrate` (applies EF migrations, then exits) ->
+  `ai-service` -> `api` -> `web`. The `migrate` log line "Continuing without the application
+  service provider" is expected: EF skipped building the real app, which is the point of
+  `AppDbContextFactory`.
+- nginx serves the Angular build and proxies `/api` to the .NET service, so the browser only ever
+  talks to one origin (no CORS). Its `proxy_read_timeout` (75s) must stay above the .NET->Python
+  timeout (60s) - see CLAUDE.md's note on nested timeouts.
+- This MySQL is its own container with its own volume, **separate from your local development
+  database**; accounts and chats don't carry over.
+- Without `SMTP_*` set, "Forgot password" returns a 500 (the same behaviour as running locally
+  without SMTP secrets).
+
+### Running on Kubernetes (Docker Desktop)
+
+1. Docker Desktop > Settings > Kubernetes > **Enable Kubernetes** > Apply & restart (the first
+   start takes a few minutes). Check with `kubectl config current-context`, which should print
+   `docker-desktop`.
+2. Make sure `docker.env` exists and has `DEEPINFRA_API_KEY` set (see "Running in Docker").
+3. Deploy:
+
+```bash
+./scripts/k8s-deploy-local.sh
+```
+
+Then open **http://localhost:8081**. The script builds the four images, creates the
+`aichat-secrets` Secret from `docker.env`, applies `k8s/overlays/local`, and waits until
+everything is ready (about 30 seconds on a warm machine). Re-run it after code changes; it also
+restarts the pods so the rebuilt `:local` images are picked up. It refuses to run if the current
+`kubectl` context isn't `docker-desktop`, so it can't touch another cluster by accident.
+
+```bash
+kubectl -n aichat get pods
+kubectl -n aichat logs deploy/api                 # the API
+kubectl -n aichat logs deploy/api -c migrate      # the migration init container
+kubectl delete namespace aichat                   # tear everything down, including the database volume
+```
+
+- **Layout:** `k8s/base/` holds the manifests; `k8s/overlays/local` points them at the locally
+  built images and `k8s/overlays/ghcr` at the images CD publishes. Secrets are never in the repo.
+- **Migrations** run as an init container on the `api` pod (retried automatically until MySQL
+  accepts connections). That is only safe at one replica, so `api` is pinned to `replicas: 1`; to
+  scale out, turn `migrate` into a Job.
+- **Port:** the `web` Service is a `LoadBalancer` on 8081, which Docker Desktop exposes on
+  localhost. docker-compose uses 8080, so both stacks can run at once.
+- The cluster uses the images you built locally (no registry), which works with Docker Desktop's
+  default cluster type. If you switch it to the "kind" type, locally built images won't be found.
+
+**Deploying what CD published** (instead of building locally): pick a tag from the package page
+on GitHub (`sha-xxxxxxx`), set `newTag` for the four images in `k8s/overlays/ghcr/kustomization.yaml`,
+then:
+
+```bash
+# Only if the repo/packages are private (token needs read:packages):
+kubectl -n aichat create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io --docker-username=<github-user> --docker-password=<token>
+
+kubectl apply -k k8s/overlays/ghcr
+```
+
+(The `aichat-secrets` Secret must exist first - run the secret step from `scripts/k8s-deploy-local.sh`.)
+
+### CI/CD (GitHub Actions)
+
+| Workflow | Runs on | What it does |
+|---|---|---|
+| `.github/workflows/ci.yml` | pull requests into `main`; pushes to any other branch | .NET build + tests, Python tests, Angular tests + build, builds all four Docker images (no push), validates `docker-compose.yml` and both Kustomize overlays |
+| `.github/workflows/cd.yml` | pushes to `main`; `v*` tags | re-runs CI, then publishes the four images to GitHub Container Registry |
+
+Published images: `ghcr.io/devsankarpk/aichatassistant-{api,migrate,ai-service,web}`, each tagged
+`sha-<short commit>`, plus `latest` (from `main`) and `1.2.3` / `1.2` (from a `v1.2.3` tag).
+CI needs no secrets; CD uses the built-in `GITHUB_TOKEN`. Deploying the published images is a
+manual step - see the `ghcr` overlay under Kubernetes.
+
+GHCR packages start with the same visibility as the repo. If it's private, the cluster needs a
+pull secret (a personal access token with `read:packages`) before it can pull them.
+
 ---
 
 ## 1. Overview
@@ -185,7 +279,7 @@ OpenAI / Anthropic API
 | Backend API | .NET 8, EF Core, ASP.NET Identity/JWT, FluentValidation, Serilog |
 | AI service | Python 3.11+, FastAPI, `openai` SDK (pointed at DeepInfra's OpenAI-compatible API), Uvicorn |
 | Database | MySQL 8, Pomelo.EntityFrameworkCore.MySql |
-| Infra (later) | Docker Compose |
+| Infra | Docker, Docker Compose, Kubernetes (Kustomize), GitHub Actions |
 
 ### Repo structure
 
@@ -210,7 +304,11 @@ ai-chat-assistant/
 │       ├── routes/generate.py
 │       ├── services/llm_client.py
 │       └── auth/api_key.py
-└── docker-compose.yml
+├── k8s/                     # Kustomize: base/ + overlays/{local,ghcr}/
+├── scripts/                 # gen-docker-env.sh, k8s-deploy-local.sh
+├── .github/workflows/       # ci.yml, cd.yml
+├── docker-compose.yml
+└── docker.env.example       # template; the real docker.env is gitignored
 ```
 
 ### Database schema (MySQL)

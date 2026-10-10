@@ -1,0 +1,23 @@
+# Images published by .github/workflows/cd.yml. Pin newTag to a commit tag (sha-xxxxxxx) rather
+# than `latest`: the base uses imagePullPolicy IfNotPresent, so a moving tag would go stale.
+#   kubectl apply -k k8s/overlays/ghcr
+# If the repo (and so its packages) is private, create the pull secret first - see README.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - { name: aichat-api, newName: ghcr.io/devsankarpk/aichatassistant-api, newTag: latest }
+  - { name: aichat-migrate, newName: ghcr.io/devsankarpk/aichatassistant-migrate, newTag: latest }
+  - { name: aichat-ai-service, newName: ghcr.io/devsankarpk/aichatassistant-ai-service, newTag: latest }
+  - { name: aichat-web, newName: ghcr.io/devsankarpk/aichatassistant-web, newTag: latest }
+
+patches:
+  # Harmless for public packages (an unused/absent pull secret is only a warning event).
+  - target: { kind: Deployment }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value: [{ name: ghcr-pull }]

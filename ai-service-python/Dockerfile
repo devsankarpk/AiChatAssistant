@@ -13,7 +13,7 @@ RUN pip install -r requirements.txt
 COPY app ./app
 
 RUN useradd --system --uid 10001 --no-create-home appuser
-USER appuser
+USER 10001
 
 EXPOSE 8000
 # Plain-stdlib probe: the slim image has no curl.
