@@ -1,5 +1,5 @@
-/* Unscoped on purpose (see the component): every rule hangs off .md. Reads like the surrounding
-   serif reply; only code and tables switch to a different face, because they need to. */
+/* Unscoped on purpose (see the component): every rule hangs off .md. Sits inside the assistant
+   bubble; only code uses a different face (monospace), because it needs to. */
 .md {
   overflow-wrap: anywhere;
 
@@ -68,28 +68,28 @@
   hr {
     margin: 1.5em 0;
     border: 0;
-    border-top: 1px solid var(--rule);
+    border-top: 1px solid var(--border);
   }
 
   blockquote {
     padding-left: 1rem;
-    border-left: 3px solid var(--rule);
-    color: var(--ink-muted);
+    border-left: 3px solid var(--border);
+    color: var(--text-muted);
   }
 
   code {
     padding: 0.1em 0.35em;
     border-radius: 4px;
-    background: var(--surface);
+    background: var(--surface-muted);
     font-family: var(--font-code);
     font-size: 0.82em;
   }
 
   pre {
     padding: 0.9rem 1rem;
-    border: 1px solid var(--rule);
-    border-radius: var(--radius-control);
-    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-muted);
     overflow-x: auto;
     font-family: var(--font-code);
     font-size: var(--step--1);
@@ -107,22 +107,21 @@
     max-width: 100%;
     overflow-x: auto;
     border-collapse: collapse;
-    font-family: var(--font-ui);
     font-size: var(--step--1);
     line-height: 1.4;
   }
 
   th,
   td {
-    padding: 0.5rem 0.9rem 0.5rem 0;
-    border-bottom: 1px solid var(--rule);
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--border);
     text-align: left;
     vertical-align: top;
   }
 
   th {
-    border-top: 1px solid var(--ink);
-    color: var(--ink-muted);
+    background: var(--surface-muted);
+    color: var(--text-muted);
     font-weight: 500;
     white-space: nowrap;
   }

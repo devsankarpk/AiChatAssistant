@@ -7,6 +7,7 @@ import { distinctUntilChanged, firstValueFrom, map } from 'rxjs';
 
 import { AuthService } from '../core/services/auth.service';
 import { ChatService } from '../core/services/chat.service';
+import { ThemeService } from '../core/services/theme.service';
 import { MessageResponse, SessionResponse } from '../core/models/chat.models';
 import { extractErrorMessage } from '../core/utils/http-error';
 import { groupSessionsByRecency } from '../core/utils/session-groups';
@@ -33,6 +34,7 @@ export class ChatComponent implements AfterViewChecked {
   private readonly composerInput = viewChild<ElementRef<HTMLTextAreaElement>>('composerInput');
 
   readonly auth = inject(AuthService);
+  readonly theme = inject(ThemeService);
 
   // distinctUntilChanged matters here, not just style: ActivatedRoute.queryParamMap can emit a
   // new ParamMap *object* for the same underlying value more than once per navigation, and

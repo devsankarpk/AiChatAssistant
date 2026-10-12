@@ -1,15 +1,15 @@
 ---
 name: ui-design
-description: The AI Chat Assistant's visual design system (tokens, typefaces, layout rules, copy voice). Use before adding or changing any Angular page, component, or style in frontend/, so new UI matches the existing design instead of drifting back to generic defaults.
+description: The AI Chat Assistant's visual design system (modern SaaS look - tokens, type, components, layout rules, copy voice). Use before adding or changing any Angular page, component, or style in frontend/, so new UI matches the existing design instead of drifting back to generic defaults.
 ---
 
 # AI Chat Assistant UI design
 
-The Angular frontend (`frontend/src/`) has a deliberate design system. It was set with the `frontend-design` plugin skill. Follow it for any UI change, and update this file if you change the system itself.
+The Angular frontend (`frontend/src/`) has a deliberate design system: a **modern SaaS look**. Follow it for any UI change, and update this file if you change the system itself.
 
 ## The one idea
 
-**Each speaker has their own typeface.** The assistant writes in a reading serif, and the user writes in a sans. Conversations are transcripts, not chat bubbles: the speaker's name sits in a left margin column (`6rem`) and the text sits beside it, left-aligned. Everything else stays quiet so this carries the personality. Don't add a second "bold" element that competes with it.
+**Quiet slate surfaces, one indigo accent, soft depth.** Cards and bubbles sit on a pale page with a 1px border and a faint shadow; the accent is reserved for the primary action, the user's message bubble, the active sidebar item, links, focus and chart bars. Don't add a second accent colour or heavy decoration.
 
 ## Tokens (`frontend/src/styles.scss`)
 
@@ -17,46 +17,43 @@ Always use the CSS variables. Never hardcode a hex value in a component styleshe
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--paper` | `#ffffff` | `#142024` | page background |
-| `--surface` | `#f4f6f5` | `#1b2a2f` | sidebar, auth sample panel (inputs and the composer use `--paper`) |
-| `--ink` | `#17262b` | `#e4ecea` | body text |
-| `--ink-muted` | `#5a6b70` | `#93a5a8` | secondary text, assistant speaker label, hints |
-| `--rule` | `#cbd3d1` | `#2c3e43` | borders and dividers |
-| `--accent` | `#0e6b5c` | `#4fc1a9` | primary buttons, links, the user's speaker label, focus ring, chart bars |
-| `--accent-soft` | `#d5e6e1` | `#1d3b37` | the active sidebar item |
-| `--danger` / `--danger-soft` | `#b42318` / `#fbe4e1` | `#f2877b` / `#3a2220` | errors only |
+| `--bg` | `#f8fafc` | `#0b1220` | page background |
+| `--surface` | `#ffffff` | `#111a2e` | cards, sidebar, inputs, composer |
+| `--surface-muted` | `#f1f5f9` | `#16213a` | hover fills, table headers, code blocks |
+| `--border` / `--border-strong` | `#e2e8f0` / `#cbd5e1` | `#223052` / `#31426b` | dividers and card borders / input and button borders |
+| `--text` / `--text-muted` | `#0f172a` / `#64748b` | `#e5e9f2` / `#94a3b8` | body / secondary text |
+| `--accent`, `--accent-hover`, `--accent-soft`, `--accent-contrast` | `#4f46e5`, `#4338ca`, `#eef2ff`, `#fff` | `#818cf8`, `#a5b4fc`, `#1e2750`, `#0b1020` | primary buttons, user bubble, links, focus, active sidebar item |
+| `--danger`, `--danger-soft`, `--danger-border` | `#b91c1c`, `#fef2f2`, `#fecaca` | `#fca5a5`, `#3a1a1d`, `#7f1d1d` | errors only |
+| `--shadow-sm` / `--shadow-md` | | | cards and buttons / composer, auth card, drawer |
 
-The page background is **white by product decision**, even when the OS is in dark mode. Don't reintroduce a `prefers-color-scheme` switch. The dark values only apply when `data-theme="dark"` is set on `<html>` (opt-in, nothing sets it today).
+**Light is the default regardless of the OS setting** - don't reintroduce a `prefers-color-scheme` switch. Dark is opt-in: `ThemeService` (`core/services/theme.service.ts`) sets `data-theme="dark"` on `<html>` and remembers the choice in `localStorage` (every access try/catch'd, so the app works when storage is blocked). `AppComponent` injects it so the stored theme applies on every route. The toggle lives in the chat sidebar and the usage page's top bar.
 
-**Type**: `--font-voice` = Newsreader (the assistant's replies, page `h1`/`h2`, the wordmark). `--font-ui` = Instrument Sans (everything else, including the user's messages). Both load from Google Fonts in `index.html`. The scale is `--step--1` (13px) through `--step-3` (36px). Don't introduce a third family. The one exception is `--font-code` (a system monospace stack, nothing to download), used **only** inside rendered code (`pre`/`code` in model replies); never for prose, labels, or UI.
+**Type:** one family, Inter (`--font-sans`, loaded from Google Fonts in `index.html`). The scale is `--step--1` (13px) to `--step-3` (28px), body is `--step-0` (15px). `--font-code` (system monospace) is for code blocks only. Don't add a third family.
 
-**Radius**: `--radius-control` (6px) for buttons and inputs, `--radius-field` (10px) for the chat composer only. Most surfaces have no radius and are separated by `--rule` lines, not shadows.
+**Shape:** `--radius-sm` 8px (buttons, inputs), `--radius-md` 12px (cards), `--radius-lg` 16px (message bubbles, composer). Spacing follows 4/8px steps.
 
 ## Shared primitives (global classes)
 
+- `.brand` - the product mark (gradient square plus the name). Used on the auth pages, the chat sidebar and the usage page.
+- `.card` - bordered, rounded surface with `--shadow-sm`.
 - Buttons: `.btn` plus `.btn-primary` (one per view, the main action) or `.btn-quiet` (outlined, secondary).
-- Forms: `.field` (a label wrapping an input), `.field-row` (label + inline link), `.field-hint` (add `.is-error` to turn it red instead of adding a duplicate error line), `.field-error`, and `.form-error` (a server error, with a left danger rule and `role="alert"`).
+- Forms: `.field` (a label wrapping an input), `.field-row`, `.field-hint` (add `.is-error` to turn it red), `.field-error`, `.form-error` (a server error: bordered red box, `role="alert"`), `.input-reveal` + `.reveal` (show/hide password via `PasswordVisibilityDirective`).
 - `.muted`, `.visually-hidden`.
-- Password fields: wrap the input in `.input-reveal` with a `.reveal` button and put `appPasswordVisibility` (`core/directives/`) on the input; the label uses `for`/`id`, so the "Show"/"Hide" text doesn't leak into the field's accessible name.
-- Auth pages wrap their content in `<app-auth-shell>` (`auth/auth-shell/`). It provides the wordmark, the form column, and the sample transcript panel on wide screens. Keep `.auth-card` on the form: it styles the form, and the live-test scripts select on it.
+- Auth pages wrap their content in `<app-auth-shell>` (`auth/auth-shell/`): the brand, a centred `.card` panel, and a one-line tagline. Keep `.auth-card` on the form; the live-test scripts select on it.
 
 ## Layout rules
 
-- Chat (`chat/`): a sidebar (`16.5rem`, `--surface`) plus a transcript column capped at `48rem`. Below `48rem` the sidebar becomes a drawer (`sidebarOpen` signal, scrim, "Chats" button in `.mobile-bar`), and the speaker label stacks above the text.
-- Admin (`admin/usage/`): max width `64rem`. The table has no card around it, just a strong ink rule on top and `--rule` row lines. Number columns use `.num` (right-aligned, `tabular-nums`).
-- Chat sidebar: chats are grouped by recency (Today, Yesterday, Previous 7 days, Older) under small sentence-case `.group-label` headings - not uppercase. Grouping logic is `core/utils/session-groups.ts`.
-- Empty chat screen: the heading plus `.starters`, plain rule-separated text buttons (not cards) that fill the composer; the person still presses send.
-- Each assistant reply ends with a quiet `.actions` text button ("Copy", which turns into "Copied" for about 2 seconds). Always visible - no hover-only controls.
-- Content is left-aligned everywhere except the auth form, which is centered in its column on wide screens.
+- Chat (`chat/`): a 17rem `--surface` sidebar (brand, New chat, chats grouped Today / Yesterday / Earlier, footer with avatar + name, theme toggle, Log out, and "Usage logs" for admins) plus a transcript column capped at `50rem`. User messages are right-aligned accent bubbles; assistant replies are left-aligned bordered cards with an "AI" avatar and a Copy button beneath. The composer is a rounded, shadowed pill pinned to the bottom. Below `48rem` the sidebar becomes a drawer (`sidebarOpen` signal, scrim, "Chats" button in `.mobile-bar`).
+- Admin (`admin/usage/`): a top bar (brand, theme toggle, Back to chat), a heading, a filter card, stat cards, the per-day bar chart, then the table in a card with a muted header row and a hover row. Max width `68rem`. Number columns use `.num` (right-aligned, `tabular-nums`).
 - Everything must work at 390px wide with no horizontal scroll.
 
 ## Rendering model replies (markdown)
 
-Assistant text goes through `<app-markdown [source]="...">` (`shared/markdown/`), never `{{ }}` or `innerHTML` directly. It is untrusted model output: raw HTML and images are shown as plain text (a remote image URL can leak data), links open in a new tab via a click handler, and Angular's sanitizer stays on as a second layer. Don't add `bypassSecurityTrust*` anywhere near it. Its stylesheet is unscoped (`ViewEncapsulation.None`, every rule under `.md`) because the rendered HTML isn't part of the template. The person's own messages stay plain pre-wrapped text.
+Assistant text goes through `<app-markdown [source]="...">` (`shared/markdown/`), never `{{ }}` or `innerHTML` directly. It is untrusted model output: raw HTML and images are shown as plain text (a remote image URL can leak the reader's IP), and Angular's sanitizer stays on. Its styles hang off `.md` and use the same tokens; only code uses `--font-code`.
 
 ## Motion
 
-Only two animations exist: the "Thinking…" dots and the top loading bar. Both are functional, and both are disabled by the global `prefers-reduced-motion` rule. Motion is allowed when it answers a user action (the drawer slide). Don't add entrance animations or hover transitions on lists.
+Only these: the "Thinking…" dots, the top loading bar, the 0.12s button/colour transition, and the mobile drawer slide. All are disabled by the global `prefers-reduced-motion` rule. No entrance animations or hover transforms.
 
 ## Copy voice
 
@@ -64,12 +61,12 @@ Only two animations exist: the "Thinking…" dots and the top loading bar. Both 
 - Don't show a number that isn't real: the usage page says "Not tracked" for cost instead of `$0.00`.
 - Sentence case. Active verbs that say what happens: "Create account", "Send reset link", "Save new password", "Apply dates", "Send again". A button's label and its result use the same word.
 - Errors say what happened and what to do next, and never apologize ("This message didn't send." plus a "Send again" button).
-- Empty states invite an action ("What are you working on?").
-- Avoid these defaults: arrows in link or button text ("← Back", "Next →"), ALL-CAPS labels or eyebrows, middle-dot meta strings, and one accented word inside a headline.
+- Empty states invite an action ("What are you working on?" plus example prompts).
+- Avoid: arrows or "←" in link/button text (the Send button's icon is an SVG, not text), ALL-CAPS labels, and middle-dot meta strings.
 
 ## Before you finish a UI change
 
-1. `npm run build` stays within the component style budget (6 kB warning, 10 kB error - raised from 4/8 when the chat screen grew).
+1. `npm run build` stays within the component style budget (6 kB warning, 10 kB error in `angular.json`).
 2. `npm test -- --watch=false --browsers=ChromeHeadless` passes.
-3. **Never write test data into the development database to get screenshots** (no seeded accounts, no direct SQL). Fake the API instead: run `ng serve` alone and answer `/api/*` with Puppeteer request interception (`page.setRequestInterception`), using a fake JWT with a future `exp` like the `fakeJwt()` spec helpers. Needs no backend and no MySQL. Chrome's clipboard checks also need the `clipboard-sanitized-write` permission granted.
-4. Screenshot it for real (puppeteer-core against the local Chrome, per CLAUDE.md) at desktop width and at 390px wide, with the OS in dark mode too (the page must stay white), and look at the screenshots before calling it done.
+3. **Never write test data into the development database to get screenshots** (no seeded accounts, no direct SQL). Fake the API instead: run `ng serve` alone and answer `/api/*` with Puppeteer request interception (`page.setRequestInterception`), with a fake JWT in `localStorage` (`aichat.auth.token` / `aichat.auth.user`; the token needs a real `exp`).
+4. Screenshot it for real (puppeteer-core against the local Chrome) at desktop width and at 390px wide, in light and dark themes, and with the OS in dark mode too (the page must stay light unless the theme toggle was used). Use a fresh browser context per shot or clear `aichat.theme`, otherwise a stored dark theme leaks into later shots. Look at the screenshots before calling it done.

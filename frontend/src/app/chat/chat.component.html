@@ -1,8 +1,11 @@
 <div class="chat-layout" [class.sidebar-open]="sidebarOpen()">
   <aside class="sidebar" id="chat-sidebar">
-    <p class="wordmark">AI Chat Assistant</p>
+    <p class="brand">AI Chat Assistant</p>
 
-    <button type="button" class="btn btn-primary new-chat" (click)="newChat()">New chat</button>
+    <button type="button" class="btn btn-primary new-chat" (click)="newChat()">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" /></svg>
+      New chat
+    </button>
 
     @if (sessionsError()) {
       <p class="form-error" role="alert">{{ sessionsError() }}</p>
@@ -31,12 +34,18 @@
 
     <div class="sidebar-footer">
       <div class="who">
-        <span class="user-name">{{ auth.user()?.name }}</span>
-        <span class="user-email">{{ auth.user()?.email }}</span>
+        <span class="avatar" aria-hidden="true">{{ auth.user()?.name?.charAt(0)?.toUpperCase() }}</span>
+        <span class="who-text">
+          <span class="user-name">{{ auth.user()?.name }}</span>
+          <span class="user-email">{{ auth.user()?.email }}</span>
+        </span>
       </div>
       @if (auth.hasRole('Admin')) {
-        <a routerLink="/admin/usage">Usage logs</a>
+        <a class="footer-link" routerLink="/admin/usage">Usage logs</a>
       }
+      <button type="button" class="btn btn-quiet" [attr.aria-pressed]="theme.theme() === 'dark'" (click)="theme.toggle()">
+        {{ theme.theme() === 'dark' ? 'Light theme' : 'Dark theme' }}
+      </button>
       <button type="button" class="btn btn-quiet" (click)="logout()">Log out</button>
     </div>
   </aside>
@@ -78,7 +87,8 @@
 
       @for (message of messages(); track message.id) {
         <div class="message" [class]="message.role" [class.pending]="message.pending" [class.failed]="message.failed">
-          <span class="speaker">{{ message.role === 'user' ? 'You' : 'Assistant' }}</span>
+          <span class="avatar" aria-hidden="true">{{ message.role === 'user' ? 'You' : 'AI' }}</span>
+          <span class="speaker visually-hidden">{{ message.role === 'user' ? 'You' : 'Assistant' }}</span>
           <div class="body">
             @if (message.role === 'assistant') {
               <app-markdown class="text" [source]="message.content" />
@@ -103,7 +113,8 @@
 
       @if (sending()) {
         <div class="message assistant thinking" role="status">
-          <span class="speaker">Assistant</span>
+          <span class="avatar" aria-hidden="true">AI</span>
+          <span class="speaker visually-hidden">Assistant</span>
           <div class="body"><div class="text">Thinking<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></div></div>
         </div>
       }
@@ -128,7 +139,10 @@
           name="draft"
           aria-describedby="composer-hint"
         ></textarea>
-        <button type="submit" class="btn btn-primary" [disabled]="sending() || !draft().trim()">Send</button>
+        <button type="submit" class="btn btn-primary send" [disabled]="sending() || !draft().trim()">
+          Send
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
+        </button>
       </form>
       <p id="composer-hint" class="composer-hint">Enter sends. Shift+Enter starts a new line.</p>
     </div>
