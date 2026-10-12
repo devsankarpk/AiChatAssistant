@@ -5,11 +5,12 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
+import { PasswordVisibilityDirective } from '../../core/directives/password-visibility.directive';
 import { AuthShellComponent } from '../auth-shell/auth-shell.component';
 
 @Component({
   selector: 'app-login',
-  imports: [ReactiveFormsModule, RouterLink, AuthShellComponent],
+  imports: [ReactiveFormsModule, RouterLink, AuthShellComponent, PasswordVisibilityDirective],
   templateUrl: './login.component.html',
   styleUrl: './login.component.scss',
 })

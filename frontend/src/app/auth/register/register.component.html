@@ -18,15 +18,18 @@
       <p class="field-error">Enter a valid email address.</p>
     }
 
-    <label class="field">
-      Password
-      <input type="password" formControlName="password" autocomplete="new-password" aria-describedby="register-password-hint" />
+    <div class="field">
+      <label for="register-password">Password</label>
+      <div class="input-reveal">
+        <input id="register-password" appPasswordVisibility #pw="appPasswordVisibility" type="password" formControlName="password" autocomplete="new-password" aria-describedby="register-password-hint" />
+        <button type="button" class="reveal" aria-controls="register-password" (click)="pw.toggle()">{{ pw.visible() ? 'Hide' : 'Show' }}</button>
+      </div>
       <span
         id="register-password-hint"
         class="field-hint"
         [class.is-error]="form.controls.password.invalid && form.controls.password.touched"
       >Use at least 8 characters.</span>
-    </label>
+    </div>
 
     @if (errorMessage()) {
       <p class="form-error" role="alert">{{ errorMessage() }}</p>

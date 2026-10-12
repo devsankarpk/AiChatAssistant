@@ -17,6 +17,9 @@
   --font-voice: 'Newsreader', 'Iowan Old Style', Georgia, serif;
   --font-ui: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
+  /* Code only. A system stack on purpose (nothing to download); never used for prose or UI. */
+  --font-code: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.125rem;
@@ -104,6 +107,32 @@ input {
 
   &.ng-invalid.ng-touched {
     border-color: var(--danger);
+  }
+}
+
+.input-reveal {
+  position: relative;
+
+  input {
+    padding-right: 4.25rem;
+  }
+
+  .reveal {
+    position: absolute;
+    top: 50%;
+    right: 0.25rem;
+    padding: 0.3rem 0.6rem;
+    border: 0;
+    background: none;
+    color: var(--ink-muted);
+    font-size: var(--step--1);
+    font-weight: 500;
+    transform: translateY(-50%);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--ink);
+    }
   }
 }
 
