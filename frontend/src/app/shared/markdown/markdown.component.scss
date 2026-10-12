@@ -1,0 +1,128 @@
+/* Unscoped on purpose (see the component): every rule hangs off .md. Sits inside the assistant
+   bubble; only code uses a different face (monospace), because it needs to. */
+.md {
+  overflow-wrap: anywhere;
+
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  p,
+  ul,
+  ol,
+  pre,
+  blockquote,
+  table {
+    margin: 0 0 1em;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 1.5em 0 0.4em;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  h1 {
+    font-size: var(--step-2);
+  }
+
+  h2 {
+    font-size: 1.3em;
+  }
+
+  h3,
+  h4 {
+    font-size: 1.1em;
+  }
+
+  ul,
+  ol {
+    padding-left: 1.4em;
+  }
+
+  li {
+    margin: 0.25em 0;
+  }
+
+  li > ul,
+  li > ol {
+    margin: 0.25em 0 0;
+  }
+
+  strong {
+    font-weight: 600;
+  }
+
+  a {
+    color: var(--accent);
+    text-underline-offset: 0.2em;
+  }
+
+  hr {
+    margin: 1.5em 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  blockquote {
+    padding-left: 1rem;
+    border-left: 3px solid var(--border);
+    color: var(--text-muted);
+  }
+
+  code {
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background: var(--surface-muted);
+    font-family: var(--font-code);
+    font-size: 0.82em;
+  }
+
+  pre {
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-muted);
+    overflow-x: auto;
+    font-family: var(--font-code);
+    font-size: var(--step--1);
+    line-height: 1.55;
+
+    code {
+      padding: 0;
+      background: none;
+      font-size: inherit;
+    }
+  }
+
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: var(--step--1);
+    line-height: 1.4;
+  }
+
+  th,
+  td {
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: var(--surface-muted);
+    color: var(--text-muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+}

@@ -1,11 +1,20 @@
 <div class="usage-page">
-  <header>
-    <a class="back" routerLink="/">Back to chat</a>
-    <h1>Usage logs</h1>
-    <p class="muted">Every assistant reply, with who asked and how many tokens it used.</p>
+  <header class="topbar">
+    <p class="brand">AI Chat Assistant</p>
+    <div class="topbar-actions">
+      <button type="button" class="btn btn-quiet" [attr.aria-pressed]="theme.theme() === 'dark'" (click)="theme.toggle()">
+        {{ theme.theme() === 'dark' ? 'Light theme' : 'Dark theme' }}
+      </button>
+      <a class="btn btn-quiet" routerLink="/">Back to chat</a>
+    </div>
   </header>
 
-  <form class="filter" (ngSubmit)="applyFilter()">
+  <div class="heading">
+    <h1>Usage logs</h1>
+    <p class="muted">Every assistant reply, with who asked and how many tokens it used.</p>
+  </div>
+
+  <form class="filter card" (ngSubmit)="applyFilter()">
     <label class="field">
       From
       <input type="date" [ngModel]="fromDate()" (ngModelChange)="fromDate.set($event)" name="from" />
@@ -22,8 +31,21 @@
     <p class="form-error" role="alert">{{ error() }}</p>
   }
 
+  @if (!loading() && totalCount() > 0) {
+    <div class="stats">
+      <div class="stat card">
+        <span class="stat-label">Replies in range</span>
+        <span class="stat-value">{{ totalCount() | number }}</span>
+      </div>
+      <div class="stat card">
+        <span class="stat-label">Tokens on this page</span>
+        <span class="stat-value">{{ pageTokens() | number }}</span>
+      </div>
+    </div>
+  }
+
   @if (dailyTotals().length > 1) {
-    <figure class="chart">
+    <figure class="chart card">
       <figcaption>Tokens per day, this page</figcaption>
       <div class="bars" aria-hidden="true">
         @for (d of dailyTotals(); track d.day) {
@@ -36,7 +58,7 @@
     </figure>
   }
 
-  <div class="table-wrap">
+  <div class="table-wrap card">
     <table>
       <thead>
         <tr>
@@ -57,7 +79,13 @@
             </td>
             <td class="title">{{ item.sessionTitle }}</td>
             <td class="num">{{ item.tokensUsed | number }}</td>
-            <td class="num">{{ item.costEstimate | currency }}</td>
+            <td class="num">
+              @if (item.costEstimate > 0) {
+                {{ item.costEstimate | currency }}
+              } @else {
+                <span class="muted" title="Cost isn't tracked yet">Not tracked</span>
+              }
+            </td>
           </tr>
         } @empty {
           @if (!loading()) {

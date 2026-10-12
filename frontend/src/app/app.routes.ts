@@ -4,18 +4,21 @@ import { adminGuard } from './auth/guards/admin.guard';
 import { authGuard } from './auth/guards/auth.guard';
 
 export const routes: Routes = [
-  { path: 'login', loadComponent: () => import('./auth/login/login.component').then((m) => m.LoginComponent) },
+  { path: 'login', title: 'Log in', loadComponent: () => import('./auth/login/login.component').then((m) => m.LoginComponent) },
   {
     path: 'register',
+    title: 'Create account',
     loadComponent: () => import('./auth/register/register.component').then((m) => m.RegisterComponent),
   },
   {
     path: 'forgot-password',
+    title: 'Reset your password',
     loadComponent: () =>
       import('./auth/forgot-password/forgot-password.component').then((m) => m.ForgotPasswordComponent),
   },
   {
     path: 'reset-password',
+    title: 'Choose a new password',
     loadComponent: () =>
       import('./auth/reset-password/reset-password.component').then((m) => m.ResetPasswordComponent),
   },
@@ -30,11 +33,13 @@ export const routes: Routes = [
     // navigation, updating a signal nothing renders anymore.)
     path: '',
     pathMatch: 'full',
+    title: 'Chat',
     canActivate: [authGuard],
     loadComponent: () => import('./chat/chat.component').then((m) => m.ChatComponent),
   },
   {
     path: 'admin/usage',
+    title: 'Usage logs',
     canActivate: [authGuard, adminGuard],
     loadComponent: () => import('./admin/usage/usage.component').then((m) => m.UsageComponent),
   },

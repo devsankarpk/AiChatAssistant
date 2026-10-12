@@ -7,8 +7,11 @@ import { distinctUntilChanged, firstValueFrom, map } from 'rxjs';
 
 import { AuthService } from '../core/services/auth.service';
 import { ChatService } from '../core/services/chat.service';
+import { ThemeService } from '../core/services/theme.service';
 import { MessageResponse, SessionResponse } from '../core/models/chat.models';
 import { extractErrorMessage } from '../core/utils/http-error';
+import { groupSessionsByRecency } from '../core/utils/session-groups';
+import { MarkdownComponent } from '../shared/markdown/markdown.component';
 
 /** A message as rendered in the thread - `pending`/`failed` only ever exist client-side, for the
  * optimistic-render + retry UI; they never come from or go to the server. */
@@ -19,7 +22,7 @@ interface DisplayMessage extends MessageResponse {
 
 @Component({
   selector: 'app-chat',
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, MarkdownComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.scss',
 })
@@ -28,8 +31,10 @@ export class ChatComponent implements AfterViewChecked {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
+  private readonly composerInput = viewChild<ElementRef<HTMLTextAreaElement>>('composerInput');
 
   readonly auth = inject(AuthService);
+  readonly theme = inject(ThemeService);
 
   // distinctUntilChanged matters here, not just style: ActivatedRoute.queryParamMap can emit a
   // new ParamMap *object* for the same underlying value more than once per navigation, and
@@ -50,6 +55,18 @@ export class ChatComponent implements AfterViewChecked {
 
   readonly messages = signal<DisplayMessage[]>([]);
   readonly messagesLoading = signal(false);
+
+  readonly sessionGroups = computed(() => groupSessionsByRecency(this.sessions()));
+
+  /** Ideas on the empty screen. Clicking one fills the composer; the person still presses send. */
+  readonly starters = [
+    'Explain how DNS works in plain language',
+    'Rewrite this to sound friendlier: ',
+    'Plan a week of simple vegetarian dinners',
+  ];
+
+  readonly copiedId = signal<number | null>(null);
+  private copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   readonly sidebarOpen = signal(false);
 
@@ -128,6 +145,22 @@ export class ChatComponent implements AfterViewChecked {
   selectSession(id: string): Promise<boolean> {
     this.sidebarOpen.set(false);
     return this.router.navigate([], { relativeTo: this.route, queryParams: { session: id } });
+  }
+
+  useStarter(text: string): void {
+    this.draft.set(text);
+    this.composerInput()?.nativeElement.focus();
+  }
+
+  async copy(message: DisplayMessage): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(message.content);
+    } catch {
+      return; // Clipboard blocked (insecure context or denied) - the text stays selectable by hand.
+    }
+    this.copiedId.set(message.id);
+    clearTimeout(this.copiedTimer);
+    this.copiedTimer = setTimeout(() => this.copiedId.set(null), 1800);
   }
 
   onDraftKeydown(event: KeyboardEvent): void {

@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { AdminService } from '../../core/services/admin.service';
+import { ThemeService } from '../../core/services/theme.service';
 import { UsageLogResponse } from '../../core/models/admin.models';
 import { extractErrorMessage } from '../../core/utils/http-error';
 
@@ -21,6 +22,7 @@ interface DayTotal {
 })
 export class UsageComponent {
   private readonly admin = inject(AdminService);
+  readonly theme = inject(ThemeService);
 
   readonly items = signal<UsageLogResponse[]>([]);
   readonly loading = signal(true);
@@ -46,6 +48,8 @@ export class UsageComponent {
     }
     return Array.from(totals, ([day, tokens]) => ({ day, tokens })).sort((a, b) => a.day.localeCompare(b.day));
   });
+
+  readonly pageTokens = computed(() => this.items().reduce((sum, item) => sum + item.tokensUsed, 0));
 
   readonly maxDailyTokens = computed(() => Math.max(1, ...this.dailyTotals().map((d) => d.tokens)));
 
