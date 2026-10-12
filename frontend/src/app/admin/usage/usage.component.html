@@ -22,13 +22,6 @@
     <p class="form-error" role="alert">{{ error() }}</p>
   }
 
-  @if (!loading() && totalCount() > 0) {
-    <p class="summary muted">
-      {{ totalCount() | number }} {{ totalCount() === 1 ? 'reply' : 'replies' }} in this range. The ones on this page used
-      {{ pageTokens() | number }} tokens.
-    </p>
-  }
-
   @if (dailyTotals().length > 1) {
     <figure class="chart">
       <figcaption>Tokens per day, this page</figcaption>
@@ -64,13 +57,7 @@
             </td>
             <td class="title">{{ item.sessionTitle }}</td>
             <td class="num">{{ item.tokensUsed | number }}</td>
-            <td class="num">
-              @if (item.costEstimate > 0) {
-                {{ item.costEstimate | currency }}
-              } @else {
-                <span class="muted" title="Cost isn't tracked yet">Not tracked</span>
-              }
-            </td>
+            <td class="num">{{ item.costEstimate | currency }}</td>
           </tr>
         } @empty {
           @if (!loading()) {

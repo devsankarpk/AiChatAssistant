@@ -28,7 +28,7 @@ Always use the CSS variables. Never hardcode a hex value in a component styleshe
 
 The page background is **white by product decision**, even when the OS is in dark mode. Don't reintroduce a `prefers-color-scheme` switch. The dark values only apply when `data-theme="dark"` is set on `<html>` (opt-in, nothing sets it today).
 
-**Type**: `--font-voice` = Newsreader (the assistant's replies, page `h1`/`h2`, the wordmark). `--font-ui` = Instrument Sans (everything else, including the user's messages). Both load from Google Fonts in `index.html`. The scale is `--step--1` (13px) through `--step-3` (36px). Don't introduce a third family. The one exception is `--font-code` (a system monospace stack, nothing to download), used **only** inside rendered code (`pre`/`code` in model replies); never for prose, labels, or UI.
+**Type**: `--font-voice` = Newsreader (the assistant's replies, page `h1`/`h2`, the wordmark). `--font-ui` = Instrument Sans (everything else, including the user's messages). Both load from Google Fonts in `index.html`. The scale is `--step--1` (13px) through `--step-3` (36px). Don't introduce a third family or a monospace face.
 
 **Radius**: `--radius-control` (6px) for buttons and inputs, `--radius-field` (10px) for the chat composer only. Most surfaces have no radius and are separated by `--rule` lines, not shadows.
 
@@ -37,22 +37,14 @@ The page background is **white by product decision**, even when the OS is in dar
 - Buttons: `.btn` plus `.btn-primary` (one per view, the main action) or `.btn-quiet` (outlined, secondary).
 - Forms: `.field` (a label wrapping an input), `.field-row` (label + inline link), `.field-hint` (add `.is-error` to turn it red instead of adding a duplicate error line), `.field-error`, and `.form-error` (a server error, with a left danger rule and `role="alert"`).
 - `.muted`, `.visually-hidden`.
-- Password fields: wrap the input in `.input-reveal` with a `.reveal` button and put `appPasswordVisibility` (`core/directives/`) on the input; the label uses `for`/`id`, so the "Show"/"Hide" text doesn't leak into the field's accessible name.
 - Auth pages wrap their content in `<app-auth-shell>` (`auth/auth-shell/`). It provides the wordmark, the form column, and the sample transcript panel on wide screens. Keep `.auth-card` on the form: it styles the form, and the live-test scripts select on it.
 
 ## Layout rules
 
 - Chat (`chat/`): a sidebar (`16.5rem`, `--surface`) plus a transcript column capped at `48rem`. Below `48rem` the sidebar becomes a drawer (`sidebarOpen` signal, scrim, "Chats" button in `.mobile-bar`), and the speaker label stacks above the text.
 - Admin (`admin/usage/`): max width `64rem`. The table has no card around it, just a strong ink rule on top and `--rule` row lines. Number columns use `.num` (right-aligned, `tabular-nums`).
-- Chat sidebar: chats are grouped by recency (Today, Yesterday, Previous 7 days, Older) under small sentence-case `.group-label` headings - not uppercase. Grouping logic is `core/utils/session-groups.ts`.
-- Empty chat screen: the heading plus `.starters`, plain rule-separated text buttons (not cards) that fill the composer; the person still presses send.
-- Each assistant reply ends with a quiet `.actions` text button ("Copy", which turns into "Copied" for about 2 seconds). Always visible - no hover-only controls.
 - Content is left-aligned everywhere except the auth form, which is centered in its column on wide screens.
 - Everything must work at 390px wide with no horizontal scroll.
-
-## Rendering model replies (markdown)
-
-Assistant text goes through `<app-markdown [source]="...">` (`shared/markdown/`), never `{{ }}` or `innerHTML` directly. It is untrusted model output: raw HTML and images are shown as plain text (a remote image URL can leak data), links open in a new tab via a click handler, and Angular's sanitizer stays on as a second layer. Don't add `bypassSecurityTrust*` anywhere near it. Its stylesheet is unscoped (`ViewEncapsulation.None`, every rule under `.md`) because the rendered HTML isn't part of the template. The person's own messages stay plain pre-wrapped text.
 
 ## Motion
 
@@ -60,8 +52,6 @@ Only two animations exist: the "Thinking…" dots and the top loading bar. Both 
 
 ## Copy voice
 
-- Page titles come from the route (`title:` in `app.routes.ts`) via `AppTitleStrategy`: "Log in - AI Chat Assistant".
-- Don't show a number that isn't real: the usage page says "Not tracked" for cost instead of `$0.00`.
 - Sentence case. Active verbs that say what happens: "Create account", "Send reset link", "Save new password", "Apply dates", "Send again". A button's label and its result use the same word.
 - Errors say what happened and what to do next, and never apologize ("This message didn't send." plus a "Send again" button).
 - Empty states invite an action ("What are you working on?").
@@ -69,7 +59,6 @@ Only two animations exist: the "Thinking…" dots and the top loading bar. Both 
 
 ## Before you finish a UI change
 
-1. `npm run build` stays within the component style budget (6 kB warning, 10 kB error - raised from 4/8 when the chat screen grew).
+1. `npm run build` stays within the component style budget (4 kB warning).
 2. `npm test -- --watch=false --browsers=ChromeHeadless` passes.
-3. **Never write test data into the development database to get screenshots** (no seeded accounts, no direct SQL). Fake the API instead: run `ng serve` alone and answer `/api/*` with Puppeteer request interception (`page.setRequestInterception`), using a fake JWT with a future `exp` like the `fakeJwt()` spec helpers. Needs no backend and no MySQL. Chrome's clipboard checks also need the `clipboard-sanitized-write` permission granted.
-4. Screenshot it for real (puppeteer-core against the local Chrome, per CLAUDE.md) at desktop width and at 390px wide, with the OS in dark mode too (the page must stay white), and look at the screenshots before calling it done.
+3. Screenshot it for real (puppeteer-core against the local Chrome, per CLAUDE.md) at desktop width and at 390px wide, with the OS in dark mode too (the page must stay white), and look at the screenshots before calling it done.

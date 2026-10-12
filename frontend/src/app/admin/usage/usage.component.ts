@@ -47,8 +47,6 @@ export class UsageComponent {
     return Array.from(totals, ([day, tokens]) => ({ day, tokens })).sort((a, b) => a.day.localeCompare(b.day));
   });
 
-  readonly pageTokens = computed(() => this.items().reduce((sum, item) => sum + item.tokensUsed, 0));
-
   readonly maxDailyTokens = computed(() => Math.max(1, ...this.dailyTotals().map((d) => d.tokens)));
 
   constructor() {

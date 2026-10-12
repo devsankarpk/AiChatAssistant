@@ -5,7 +5,6 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
-import { PasswordVisibilityDirective } from '../../core/directives/password-visibility.directive';
 import { AuthShellComponent } from '../auth-shell/auth-shell.component';
 
 function passwordsMatch(control: AbstractControl): ValidationErrors | null {
@@ -16,7 +15,7 @@ function passwordsMatch(control: AbstractControl): ValidationErrors | null {
 
 @Component({
   selector: 'app-reset-password',
-  imports: [ReactiveFormsModule, RouterLink, AuthShellComponent, PasswordVisibilityDirective],
+  imports: [ReactiveFormsModule, RouterLink, AuthShellComponent],
   templateUrl: './reset-password.component.html',
   styleUrl: './reset-password.component.scss',
 })

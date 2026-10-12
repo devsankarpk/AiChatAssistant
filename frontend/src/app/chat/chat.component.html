@@ -9,19 +9,16 @@
     }
 
     <nav class="session-list" aria-label="Your chats">
-      @for (group of sessionGroups(); track group.label) {
-        <h2 class="group-label">{{ group.label }}</h2>
-        @for (session of group.sessions; track session.id) {
-          <button
-            type="button"
-            class="session-item"
-            [class.active]="session.id === selectedSessionId()"
-            [attr.aria-current]="session.id === selectedSessionId() ? 'page' : null"
-            (click)="selectSession(session.id)"
-          >
-            {{ session.title }}
-          </button>
-        }
+      @for (session of sessions(); track session.id) {
+        <button
+          type="button"
+          class="session-item"
+          [class.active]="session.id === selectedSessionId()"
+          [attr.aria-current]="session.id === selectedSessionId() ? 'page' : null"
+          (click)="selectSession(session.id)"
+        >
+          {{ session.title }}
+        </button>
       } @empty {
         @if (!sessionsLoading()) {
           <p class="empty-hint">Your chats will be listed here.</p>
@@ -67,35 +64,19 @@
       @if (!selectedSessionId() && messages().length === 0) {
         <div class="empty-state">
           <h1>What are you working on?</h1>
-          <p class="muted">Ask a question, paste something to rewrite, or think out loud.</p>
-          <ul class="starters" aria-label="Example prompts">
-            @for (starter of starters; track starter) {
-              <li><button type="button" (click)="useStarter(starter)">{{ starter }}</button></li>
-            }
-          </ul>
+          <p class="muted">Ask a question, paste something to rewrite, or think out loud. Each chat is saved in the list on the left.</p>
         </div>
       }
 
       @for (message of messages(); track message.id) {
         <div class="message" [class]="message.role" [class.pending]="message.pending" [class.failed]="message.failed">
           <span class="speaker">{{ message.role === 'user' ? 'You' : 'Assistant' }}</span>
-          <div class="body">
-            @if (message.role === 'assistant') {
-              <app-markdown class="text" [source]="message.content" />
-              <div class="actions">
-                <button type="button" (click)="copy(message)" [attr.aria-label]="copiedId() === message.id ? 'Reply copied' : 'Copy this reply'">
-                  {{ copiedId() === message.id ? 'Copied' : 'Copy' }}
-                </button>
+          <!-- No whitespace before the content: .text is pre-wrap, so it would render. -->
+          <div class="text">{{ message.content.trim() }}@if (message.failed) {
+              <div class="message-error">
+                <span>This message didn't send.</span>
+                <button type="button" class="btn btn-quiet" (click)="retry()">Send again</button>
               </div>
-            } @else {
-              <!-- No whitespace before the content: .text is pre-wrap, so it would render. -->
-              <div class="text">{{ message.content.trim() }}</div>
-              @if (message.failed) {
-                <div class="message-error">
-                  <span>This message didn't send.</span>
-                  <button type="button" class="btn btn-quiet" (click)="retry()">Send again</button>
-                </div>
-              }
             }
           </div>
         </div>
@@ -104,7 +85,7 @@
       @if (sending()) {
         <div class="message assistant thinking" role="status">
           <span class="speaker">Assistant</span>
-          <div class="body"><div class="text">Thinking<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></div></div>
+          <div class="text">Thinking<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></div>
         </div>
       }
 
@@ -119,7 +100,6 @@
         <label class="visually-hidden" for="composer-input">Message</label>
         <textarea
           id="composer-input"
-          #composerInput
           rows="1"
           placeholder="Write a message"
           [ngModel]="draft()"

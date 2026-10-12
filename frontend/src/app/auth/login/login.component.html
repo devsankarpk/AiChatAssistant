@@ -15,10 +15,7 @@
         <label for="login-password">Password</label>
         <a class="switch-link" routerLink="/forgot-password">Forgot password?</a>
       </div>
-      <div class="input-reveal">
-        <input id="login-password" appPasswordVisibility #pw="appPasswordVisibility" type="password" formControlName="password" autocomplete="current-password" />
-        <button type="button" class="reveal" aria-controls="login-password" (click)="pw.toggle()">{{ pw.visible() ? 'Hide' : 'Show' }}</button>
-      </div>
+      <input id="login-password" type="password" formControlName="password" autocomplete="current-password" />
     </div>
     @if (form.controls.password.invalid && form.controls.password.touched) {
       <p class="field-error">Enter your password.</p>
