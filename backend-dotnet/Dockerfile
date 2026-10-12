@@ -34,7 +34,7 @@ FROM mcr.microsoft.com/dotnet/runtime-deps:8.0 AS migrate
 WORKDIR /app
 ENV ASPNETCORE_ENVIRONMENT=Production
 COPY --from=bundle /out/efbundle ./efbundle
-USER $APP_UID
+USER app
 ENTRYPOINT ["./efbundle"]
 
 
@@ -44,5 +44,5 @@ COPY --from=build /out/api .
 ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 8080
-USER $APP_UID
+USER app
 ENTRYPOINT ["dotnet", "AiChatAssistant.Api.dll"]
