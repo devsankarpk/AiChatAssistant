@@ -39,6 +39,27 @@ describe('ChatComponent', () => {
     httpMock.expectNone(() => true);
   });
 
+  it('pins a Book appointment row at the top of the sidebar, linking to /appointments', () => {
+    const link: HTMLAnchorElement = fixture.nativeElement.querySelector('.sidebar a.pinned-link');
+
+    expect(link.textContent).toContain('Book appointment');
+    expect(link.getAttribute('href')).toBe('/appointments');
+    expect(fixture.nativeElement.querySelector('.sidebar').firstElementChild).toBe(link);
+  });
+
+  it('starts a new chat from an icon-only "+" button in the sidebar header', () => {
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.sidebar-head button.new-chat');
+
+    expect(button.getAttribute('aria-label')).toBe('New chat');
+    expect(button.textContent?.trim()).toBe('');
+    component.draft.set('half-typed');
+    spyOn(component, 'newChat');
+
+    button.click();
+
+    expect(component.newChat).toHaveBeenCalled();
+  });
+
   it('fills the composer when an example prompt is used', () => {
     component.useStarter(component.starters[0]);
     expect(component.draft()).toBe(component.starters[0]);

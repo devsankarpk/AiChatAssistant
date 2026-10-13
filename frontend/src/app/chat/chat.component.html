@@ -1,11 +1,20 @@
+<app-top-nav />
+
 <div class="chat-layout" [class.sidebar-open]="sidebarOpen()">
   <aside class="sidebar" id="chat-sidebar">
-    <p class="brand">AI Chat Assistant</p>
+    <!-- Pinned: stays put while the chat list below scrolls. A placeholder until booking is built. -->
+    <a class="pinned-link" routerLink="/appointments">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" stroke-width="1.4" fill="none" /><path d="M2 7h12M5.5 1.8v2.4M10.5 1.8v2.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none" /></svg>
+      <span>Book appointment</span>
+      <span class="soon">Soon</span>
+    </a>
 
-    <button type="button" class="btn btn-primary new-chat" (click)="newChat()">
-      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" /></svg>
-      New chat
-    </button>
+    <div class="sidebar-head">
+      <h2 class="sidebar-title">Chats</h2>
+      <button type="button" class="new-chat" aria-label="New chat" title="New chat" (click)="newChat()">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none" /></svg>
+      </button>
+    </div>
 
     @if (sessionsError()) {
       <p class="form-error" role="alert">{{ sessionsError() }}</p>

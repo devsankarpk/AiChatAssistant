@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 84 automated tests (26 .NET, 12 Python, 46 Angular), all passing. There is no browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 94 automated tests (26 .NET, 12 Python, 56 Angular), all passing. There is no browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -39,7 +39,7 @@ dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one cla
 cd ai-service-python && source .venv/bin/activate && pytest
 pytest tests/test_generate.py::test_returns_reply                      # one test
 
-# Angular (46 tests)
+# Angular (56 tests)
 cd frontend && npm test -- --watch=false --browsers=ChromeHeadless
 npm test -- --include='**/auth.service.spec.ts' --watch=false --browsers=ChromeHeadless   # one spec
 ```
@@ -154,6 +154,9 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | FE-03 | Theme | Defaults to light; toggle sets `data-theme` and is remembered; restores on startup; still works when storage throws | Angular | Automated: 4 specs in `theme.service.spec.ts` |
 | FE-04 | App shell | App component creates | Angular | Automated: `should create the app` |
 | FE-05 | Tab titles | Each route sets "Page - AI Chat Assistant" | Angular | Planned (T4): `AppTitleStrategy` spec |
+| FE-06 | Top navigation | A Chatbot tab links to `/`; it is the current page (`aria-current="page"`) on `/` and on `/?session=<id>`, and not on another page; projected controls appear at the right-hand end | Angular | Automated: 5 specs in `top-nav.component.spec.ts` |
+| FE-08 | Chat sidebar: pinned Book appointment row and "+" new-chat button | The first element in the sidebar is a link to `/appointments`; new chat is an icon-only button labelled "New chat" in the header and starts a new chat | Angular | Automated: `pins a Book appointment row at the top of the sidebar, linking to /appointments`, `starts a new chat from an icon-only "+" button in the sidebar header` |
+| FE-07 | Appointments placeholder page | Says booking is coming soon, links back to the chatbot, shows the top nav, Log out returns to login | Angular | Automated: 3 specs in `appointments.component.spec.ts` |
 
 ### 5.7 UI/UX (manual)
 
@@ -204,7 +207,6 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | DM-12 | Unread badge and toast | Badge updates live; toast shows sender and preview only when that conversation isn't open and visible | Angular | Planned (Phase 12) |
 | DM-13 | Typing indicator | Sent about every 3 s, clears after 4 s; rejected for non-participants | .NET + Angular | Planned (Phase 13) |
 | DM-14 | Delete own message | Sender only; content cleared on the server; both sides see "This message was deleted" | .NET + Angular | Planned (Phase 13) |
-| NAV-01 | Top nav and appointments page | Tabs navigate; the placeholder page renders; mobile layout intact | Angular | Planned (Phase 9) |
 | BRK-01 | Presence and push across two API replicas | Event reaches a user connected to the other replica | Manual | Planned (Phase 16) |
 | BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Planned (Phase 17) |
 | BRK-03 | Async AI reply (`Chat:AsyncReplies` on) | `202` then `AssistantReplied`; a redelivered job is a no-op; failure then retry then `AssistantFailed`; broker down gives `503` with the user message kept | .NET + Angular | Planned (Phase 18) |
