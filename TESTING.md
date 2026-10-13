@@ -186,7 +186,7 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 
 ## 7. Planned test cases for features not built yet
 
-These rows are filled in (and their test names recorded) when the feature phase is built. Source plans in `README.md`: "User-to-user chat (Phases 9-14)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
+These rows are filled in (and their test names recorded) when the feature phase is built. Phases are built in the order given by the Roadmap in `README.md` (next up: T2), not in number order; rows marked *because Phase N is built first* are obligations that a later phase picks up. Source plans in `README.md`: "User-to-user chat (Phases 9-14)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
@@ -222,7 +222,7 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | TOK-01 | Access token expires | The interceptor refreshes once and retries the request; a second `401` logs out | Angular | Planned (Phase 23) |
 | TOK-02 | Refresh token rotation | Each refresh returns a new token; reusing an old one is rejected and revokes the family | .NET | Planned (Phase 23) |
 | TOK-03 | Logout and password change | Refresh token revoked; old access token refused | .NET | Planned (Phase 23) |
-| TOK-04 | Open SignalR connection across a token refresh | Connection stays usable | Angular + .NET | Planned (Phase 23, needs Phase 11) |
+| TOK-04 | Open SignalR connection across a token refresh | Connection stays usable and uses the refreshed token | Angular + .NET | Planned (Phase 11, because Phase 23 is built first) |
 | CHM-01 | Rename a chat | Title changes; another user's chat gives `404` | .NET | Planned (Phase 24) |
 | CHM-02 | Delete a chat | Hidden from lists; messages not returned; `UsageLogs` rows kept | .NET | Planned (Phase 24) |
 | CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET | Planned (Phase 24) |
@@ -234,7 +234,10 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | STR-04 | Token-aware history trimming | Newest messages kept within the budget; an oversized history no longer causes a `502` | .NET | Planned (Phase 25) |
 | COST-01 | Cost calculation | Prompt and completion tokens times configured price, stored in `CostEstimate` | .NET | Planned (Phase 26) |
 | COST-02 | Usage aggregates | Totals per user and per day are computed server-side, not from the current page | .NET | Planned (Phase 26) |
-| COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403`; admins cannot read direct messages | .NET | Planned (Phase 26) |
+| COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403` | .NET | Planned (Phase 26) |
+| COST-05 | A disabled user opens the SignalR hub | Connection refused | .NET | Planned (Phase 11, because Phase 26 is built first) |
+| ACC-06 | Delete account for a user who has direct conversations | Their conversations and messages are removed or anonymised | .NET | Planned (Phase 10, because Phase 22 is built first) |
+| SEC-06 | The CSP allows the `/hubs/` WebSocket | The hub connects in the browser with no CSP violation | Manual | Planned (Phase 11, because Phase 21 is built first) |
 | COST-04 | Usage page cost | Shows a currency value instead of "Not tracked" once cost exists | Angular | Planned (Phase 26) |
 | OPS-06 | `/health/ready` | `200` when the database is reachable, `503` when it is not | .NET | Planned (Phase 27) |
 | OPS-07 | Correlation id | Each request has an id in the logs and the response header | .NET | Planned (Phase 27) |

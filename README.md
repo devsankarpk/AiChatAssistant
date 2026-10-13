@@ -416,6 +416,44 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 **Exit criteria:** Fresh clone + README gets a new dev to a working app. ✅ Met — verified via an actual fresh `git clone` into a clean directory, following section 0's steps literally (not from a pre-configured environment), through to a real chat exchange in the browser. See the note at the end of section 0 for exactly what that run covered.
 
+### Roadmap — execution order for the planned work
+
+Phases 1–8 and test phase T1 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+
+| Step | Phase | What it delivers | Needs first | Status |
+|---|---|---|---|---|
+| 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | **Next up** |
+| 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Planned |
+| 3 | **22** | Change password, profile, delete account, optional email verification | — | Planned |
+| 4 | **23** | Access and refresh tokens, real logout | 22 | Planned |
+| 5 | **24** | Chat rename, delete, search, paging | — | Planned |
+| 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | Planned |
+| 7 | **26** | Cost tracking, admin user management | — | Planned |
+| 8 | **27** | Health/readiness, metrics, CI, backups, retention, data export | — | Planned |
+| 9 | **28** | 404 page, accessibility check, optional i18n | — | Planned |
+| 10 | **9** | Top navigation, appointments placeholder | — | Planned |
+| 11 | **10** | Direct-messaging tables and REST | — | Planned |
+| 12 | **11** | SignalR, delivered and read ticks | 10 | Planned |
+| 13 | **12** | Messages UI with ticks, badge and toast | 11 | Planned |
+| 14 | **13** | Typing, online / last seen, delete message | 12 | Planned |
+| 15 | **14** | End-to-end check of the chat feature | 13 | Planned |
+| 16 | **15** | Redis and RabbitMQ foundation | 11 | Planned |
+| 17 | **17** | Async emails (RabbitMQ) | 15 | Planned |
+| 18 | **16** | Redis: SignalR backplane and presence | 11, 15 | Planned |
+| 19 | **18** | Async AI replies (revisit after streaming, Phase 25) | 11, 15 | Planned |
+| 20 | **19** | Direct-chat event fan-out | 11, 15 | Planned |
+| 21 | **20** | End-to-end check of the brokers | 16–19 | Planned |
+| 22 | **T3** | Python gap tests | — | Planned |
+| 23 | **T4** | Angular gap specs | — | Planned |
+| 24 | **T5** | Test close-out | T3, T4 | Planned |
+
+**Carry-overs created by this order** (work in an earlier phase that a later phase must honour; each is also a checklist item in the later phase):
+- **Phase 23 before 11:** the SignalR hub (Phase 11) must authenticate with the *refreshed* access token (`accessTokenFactory`), not a stale one.
+- **Phase 22 before 10:** Phase 10 must extend delete-account to remove or anonymise a user's direct conversations and messages.
+- **Phase 26 before 11:** the hub must reject connections from a disabled user.
+- **Phase 21 before 11:** the nginx Content-Security-Policy must allow the `/hubs/` WebSocket (`connect-src` for `wss:`/`ws:`), or the browser blocks the hub.
+- **Phase 21 before 16:** the rate limiter starts in memory and moves to Redis when Phase 16 lands.
+
 ### Post-plan — User-to-user chat (Phases 9–14) — **planned, not started**
 
 > Status: **planned.** Nothing in this section exists in the code yet; the checkboxes below are all open. The schema and contracts in sections 1 and 2 above describe what is built today; this section describes what is *about to be* added. Each phase is built, tested and reviewed on its own, one at a time.
@@ -476,6 +514,7 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 - [ ] Migration `AddDirectMessaging` (generated, **not** applied to the dev database without asking)
 - [ ] `DirectChatController`: name-only user search, list and start conversations, list and send messages, `404` for non-participants
 - [ ] DTOs and validators
+- [ ] *Carry-over from Phase 22:* delete-account also removes or anonymises the user's direct conversations and messages
 - [ ] Tests (xUnit, Moq, EF InMemory): pair normalised and idempotent; self, outsider and admin rules; search never returns emails or yourself; send stores a message with status Sent
 
 #### Phase 11 — Realtime, delivered and read *(backend)*
@@ -483,6 +522,7 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 - [ ] `DirectHub` at `/hubs/direct`, JWT via query string, per-user group, pending messages marked delivered on connect
 - [ ] Send marks **Delivered** when the recipient is online; `POST .../read` sets `read_at` and notifies the sender
 - [ ] `Program.cs` (SignalR, `MapHub`, CORS `AllowCredentials`) and an `nginx.conf` `/hubs/` WebSocket location with a long read timeout
+- [ ] *Carry-overs:* the hub authenticates with the refreshed access token (Phase 23), refuses disabled users (Phase 26), and the nginx CSP allows the WebSocket (Phase 21)
 - [ ] Tests: delivered only when online, connect delivers pending, read notifies the sender, multi-tab presence, `last_seen_at` written only on the last disconnect
 
 #### Phase 12 — Messages UI with ticks *(frontend)*
@@ -628,12 +668,13 @@ New feature phases (9–20) add their own rows to `TESTING.md` section 7 as they
 
 Already fine: Swagger is development-only, emails are trimmed and lower-cased, the password minimum is 8, and `/health` is liveness-only on purpose.
 
-**Suggested order** (a recommendation; you decide): finish test phase **T2** first, because rate-limit, header and error-shape behaviour need its `WebApplicationFactory` tests, then **21 → 22 → 23 → 24 → 25 → 26 → 27 → 28**, then the user-to-user chat (9–14), the brokers (15–20) and test phases T3–T5. Phases 9–20 do not depend on 21–28 and may be done earlier.
+**Order:** see the **Roadmap** above. Phases 21–28 now come *before* the chat and broker phases (9–20), and test phase T2 comes first because Phase 21's tests need its `WebApplicationFactory` setup.
 
 **Dependencies and interactions to remember**
 - **Phase 21 and Redis (Phase 16):** start with an in-memory rate limiter; switch the counters to Redis once the API runs more than one replica.
-- **Phase 23 and the SignalR hub (Phase 11):** the hub authenticates with the `access_token` query string, so token refresh must keep an open connection working.
-- **Phase 22 and direct messages (Phase 10 onwards):** delete-account must also handle a user's direct conversations (remove or anonymise) once they exist.
+- **Phase 23 and the SignalR hub (Phase 11):** the hub authenticates with the `access_token` query string. Phase 23 is built first, so Phase 11 must use the refreshed token (`accessTokenFactory`) and keep an open connection working across a refresh.
+- **Phase 22 and direct messages (Phase 10):** delete-account is built first, so Phase 10 must extend it to remove or anonymise a user's direct conversations and messages.
+- **Phase 21 and the hub (Phase 11):** the Content-Security-Policy added in Phase 21 must allow the `/hubs/` WebSocket (`connect-src` for `ws:`/`wss:`), and Phase 26's disabled users must be refused by the hub.
 - **Phase 24:** delete is a **soft delete** (`DeletedAt`), so `UsageLogs` history is kept.
 - **Phase 25 and Phase 18:** streaming and async replies through RabbitMQ are alternative designs for the same slow-reply problem. Streaming first is recommended; revisit Phase 18 afterwards (it would have to stream through SignalR).
 - **Phase 26 changes a contract:** Python returns prompt and completion tokens and the model, and pricing comes from configuration. README and CLAUDE.md are updated when it is built.
@@ -698,10 +739,10 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Backend + AI plumbing (Postman-testable) | 1–4 | Week 1 |
 | Angular UI | 5–6 | Week 2 |
 | Admin + polish | 7–8 | Week 3 |
-| User-to-user chat (planned) | 9–14 | one phase at a time, starting the day after planning |
-| Message brokers: Redis + RabbitMQ (planned) | 15–20 | after Phase 11 (SignalR) |
-| Test plan and gap tests (T1 done, T2–T5 planned) | T1–T5 | one phase at a time |
-| Hardening and product gaps (planned) | 21–28 | one phase at a time; start after T2 |
+| User-to-user chat (planned) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
+| Message brokers: Redis + RabbitMQ (planned) | 15–20 | after the chat phases (needs Phase 11 SignalR) |
+| Test plan and gap tests (T1 done, T2–T5 planned) | T1–T5 | T2 first; T3–T5 last (see the Roadmap) |
+| Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |
 
 ---
 
