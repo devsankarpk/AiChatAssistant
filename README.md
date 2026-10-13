@@ -153,6 +153,8 @@ won't pick this up on its own.
 
 ### Running the tests
 
+The full test plan, test-case catalogue and manual smoke checklist are in [`TESTING.md`](TESTING.md).
+
 ```bash
 # .NET (ChatController mocks IPythonAiClient, AuthController its own dependencies)
 cd backend-dotnet && dotnet test
@@ -565,6 +567,40 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 - [ ] This section and `CLAUDE.md` changed from *planned* to *done*
 - [ ] Docker test data deleted and the stack stopped; the dev database stays untouched unless asked
 
+### Post-plan — Test plan (Phases T1–T5)
+
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 84 automated tests (26 .NET, 12 Python, 46 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+
+#### Phase T1 — Test plan documented
+- [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
+- [x] Links from this README and `CLAUDE.md`
+
+#### Phase T2 — .NET gap tests
+- [ ] `AdminControllerTests` (page-size cap of 100, date filter, `from` > `to` is `400`, joined fields)
+- [ ] `TokenServiceTests` (claims, expiry, signature)
+- [ ] `PythonAiClientTests` with a stubbed `HttpMessageHandler` (snake_case body, `X-Internal-Key`, timeout and non-success become `PythonServiceUnavailableException`)
+- [ ] `ValidatorTests` (register, login, reset-password, send-message edge cases)
+- [ ] `ExceptionHandlingMiddlewareTests` (`500` in the standard shape, no stack trace)
+- [ ] `ErrorShapeIntegrationTests` with `WebApplicationFactory` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`): `401`, `403`, `404`, `/health`
+- [ ] `SmtpEmailSender` fail-fast test; history-window test in `ChatControllerTests`
+
+#### Phase T3 — Python gap tests
+- [ ] Malformed or missing body fields return `422`
+- [ ] `history` with an invalid role is rejected
+
+#### Phase T4 — Angular gap specs
+- [ ] `authGuard` / `adminGuard`, `jwt.ts`, `extractErrorMessage`, `AppTitleStrategy`
+- [ ] `ChatService` and `AdminService` (URLs, params, bodies)
+- [ ] More `ChatComponent` flows (send success, `503` failed state, retry, title refresh) and `UsageComponent` (paging, filter, "Not tracked")
+- [ ] Login and register error mapping on the page
+
+#### Phase T5 — Close-out
+- [ ] `TESTING.md` statuses changed from *Planned* to real test names; before/after counts recorded
+- [ ] Mutation spot-check: break one rule (for example the 100 page-size cap, or the `401` body), confirm the matching test fails, revert
+- [ ] Full run of all three suites
+
+New feature phases (9–20) add their own rows to `TESTING.md` section 7 as they are built.
+
 ---
 
 ## 3. Suggested pacing
@@ -576,6 +612,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 | Admin + polish | 7–8 | Week 3 |
 | User-to-user chat (planned) | 9–14 | one phase at a time, starting the day after planning |
 | Message brokers: Redis + RabbitMQ (planned) | 15–20 | after Phase 11 (SignalR) |
+| Test plan and gap tests (T1 done, T2–T5 planned) | T1–T5 | one phase at a time |
 
 ---
 
