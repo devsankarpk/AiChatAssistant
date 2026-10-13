@@ -418,7 +418,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8 and test phase T1 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phase 9 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -431,7 +431,7 @@ Phases 1–8 and test phase T1 are **done**. Everything below is **planned**, an
 | 7 | **26** | Cost tracking, admin user management | — | Planned |
 | 8 | **27** | Health/readiness, metrics, CI, backups, retention, data export | — | Planned |
 | 9 | **28** | 404 page, accessibility check, optional i18n | — | Planned |
-| 10 | **9** | Top navigation, appointments placeholder | — | Planned |
+| 10 | **9** | Top navigation, appointments placeholder | — | **Done** (early, at the user's request) |
 | 11 | **10** | Direct-messaging tables and REST | — | Planned |
 | 12 | **11** | SignalR, delivered and read ticks | 10 | Planned |
 | 13 | **12** | Messages UI with ticks, badge and toast | 11 | Planned |
@@ -503,11 +503,13 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 - **Presence is kept in memory**, so the API must stay at **one replica** (it already is, because the migration initContainer needs that). Scaling out needs a shared presence store, which Phase 16 (Redis) adds.
 - Online status and last seen are visible to people you share a conversation with, and cannot be hidden in v1.
 
-#### Phase 9 — Top navigation and appointments placeholder *(frontend only, no database)*
-- [ ] `shared/top-nav/`: **Chatbot** and **Book appointment** tabs (the Messages tab arrives in Phase 12, so there is no dead link before then)
-- [ ] `/appointments` route and page: "coming soon"
-- [ ] Chat layout adjusted for the bar above the sidebar; the mobile drawer still works
-- [ ] Spec for the top nav; screenshots at desktop and 390px width with the API faked
+#### Phase 9 — Top navigation and appointments placeholder *(frontend only, no database)* — **done**
+- [x] `shared/top-nav/`: a **Chatbot** tab (the Messages tab arrives in Phase 12, so there is no dead link before then)
+- [x] `/appointments` route and page: "coming soon"
+- [x] Chat layout adjusted for the bar above the sidebar; the mobile drawer still works
+- [x] Spec for the top nav; screenshots at desktop and 390px width with the API faked
+
+> Done. `shared/top-nav/` (brand, a Chatbot tab, a slot for page controls; `?session=` doesn't deactivate the tab) is used by the chat page and the new `/appointments` page (`appointments/`, guarded by `authGuard`). **Book appointment is a pinned row at the very top of the chat sidebar** (calendar icon and a "Soon" tag; it does not scroll with the chat list), and **New chat is a round icon-only "+" button at the top-right of the sidebar header**, next to the "Chats" title, like a messaging app. The sidebar lost its brand mark, since the top bar carries it. On screens narrower than 40rem the top bar's projected controls wrap onto their own row. 10 new specs (56 Angular tests total); verified with the API faked at desktop width, 390 px, in dark theme, with the mobile drawer, and by behaviour (the pinned row and header stay put while 45 chats scroll, "+" opens a new chat, the pinned row opens `/appointments`). The component style budget warning in `angular.json` is now 7 kB (error stays 10 kB). Done ahead of the Roadmap's order at the user's request (it has no dependencies); the Roadmap's "next up" is still T2.
 
 #### Phase 10 — Direct messaging data layer and REST *(backend, schema only)*
 - [ ] Models `DirectConversation` and `DirectMessage`, `User.LastSeenAt`, `AppDbContext` mapping
@@ -609,7 +611,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 
 ### Post-plan — Test plan (Phases T1–T5)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 84 automated tests (26 .NET, 12 Python, 46 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 94 automated tests (26 .NET, 12 Python, 56 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria

@@ -12,6 +12,7 @@ import { MessageResponse, SessionResponse } from '../core/models/chat.models';
 import { extractErrorMessage } from '../core/utils/http-error';
 import { groupSessionsByRecency } from '../core/utils/session-groups';
 import { MarkdownComponent } from '../shared/markdown/markdown.component';
+import { TopNavComponent } from '../shared/top-nav/top-nav.component';
 
 /** A message as rendered in the thread - `pending`/`failed` only ever exist client-side, for the
  * optimistic-render + retry UI; they never come from or go to the server. */
@@ -22,7 +23,7 @@ interface DisplayMessage extends MessageResponse {
 
 @Component({
   selector: 'app-chat',
-  imports: [FormsModule, RouterLink, MarkdownComponent],
+  imports: [FormsModule, RouterLink, MarkdownComponent, TopNavComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.scss',
 })

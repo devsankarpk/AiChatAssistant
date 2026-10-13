@@ -38,6 +38,12 @@ export const routes: Routes = [
     loadComponent: () => import('./chat/chat.component').then((m) => m.ChatComponent),
   },
   {
+    path: 'appointments',
+    title: 'Book appointment',
+    canActivate: [authGuard],
+    loadComponent: () => import('./appointments/appointments.component').then((m) => m.AppointmentsComponent),
+  },
+  {
     path: 'admin/usage',
     title: 'Usage logs',
     canActivate: [authGuard, adminGuard],

@@ -1,11 +1,13 @@
 :host {
-  display: block;
+  display: flex;
+  flex-direction: column;
   height: 100dvh;
 }
 
 .chat-layout {
   display: flex;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---------- Sidebar ---------- */
@@ -22,12 +24,71 @@
   overflow-y: auto;
 }
 
-.brand {
-  padding: 0 0.35rem;
+.pinned-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: none;
+
+  &:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+
+  svg {
+    flex-shrink: 0;
+    color: var(--accent);
+  }
+
+  .soon {
+    margin-left: auto;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
 }
 
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.25rem 0 0.35rem;
+}
+
+.sidebar-title {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+
+/* A round "+" in the top-right corner of the sidebar, like a messaging app's new-chat action. */
 .new-chat {
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+
+  &:hover {
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
 }
 
 .session-list {
