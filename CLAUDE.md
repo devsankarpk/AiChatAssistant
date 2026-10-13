@@ -19,6 +19,8 @@ Follow the phase-by-phase plan in `README.md` (Phases 1–8). Progress:
 - **Post-plan: Chat titles.** A chat is created as "New chat" and `ChatController.SendMessage` renames it from the user's message while the title is still that default (whitespace collapsed, max 60 chars, cut at a word with "…"). It's saved with the user message, before the Python call, so it survives a `503`. A custom title is never overwritten. Angular re-fetches the session list after that first send (`refreshTitleIfUntitled`) instead of changing the `.NET → Angular` contract. The `BackfillChatTitles` migration titled pre-existing chats from their first message (data-only, character-cut rather than word-cut).
 - **Post-plan: UI redesign.** The Angular UI was rebuilt in a modern SaaS look: Inter, slate surfaces, one indigo accent, soft shadows, message bubbles, a card-style auth shell, and an opt-in dark theme (`ThemeService`, `localStorage`-backed, light by default). The design system (tokens, components, layout, copy voice) is documented in `.claude/skills/ui-design/SKILL.md` — **read it before any frontend UI change**. Tokens are CSS variables in `frontend/src/styles.scss`. No behavior, routes, or API calls changed; class names used by the live-test scripts (`.auth-card`, `.form-error`, `.message`, `.sidebar-footer button`) were kept.
 - **Post-plan: UI polish.** Assistant replies render as markdown through `shared/markdown/MarkdownComponent` (new `marked` dependency; model output is untrusted, so raw HTML and images are shown as text and Angular's sanitizer stays on), with a Copy button per reply, chats grouped by date in the sidebar, example prompts on the empty screen, a show/hide toggle on password fields (`core/directives/password-visibility.directive.ts`), an SVG favicon, per-page tab titles (`core/app-title-strategy.ts`), and a usage page that says "Not tracked" for cost instead of `$0.00`. Frontend only: no API, route, or database changes. The component style budget in `angular.json` is now 6 kB warning / 10 kB error. Verified in a real browser with the API faked (Puppeteer request interception, no backend or DB); see the checklist in `.claude/skills/ui-design/SKILL.md`, which also records the new `--font-code` exception, the markdown safety rule, and "never seed the dev database for screenshots".
+- **Post-plan: User-to-user chat — PLANNED, Phases 9–14 NOT STARTED.** Nothing below exists in the code yet; the full plan, schema, endpoints and checklists are in `README.md` ("Post-plan — User-to-user chat"). Scope: one-to-one chat between any registered users (separate from the AI chatbot), WhatsApp-style ticks (one grey = sent, two grey = delivered, two blue = read), a top nav (Chatbot / Messages / Book appointment), plus typing indicator, online / last seen, and delete-own-message. SignalR (`/hubs/direct`) pushes events; sending stays on REST. "Book appointment" is only a "coming soon" placeholder page. Built one phase at a time and reviewed between phases: **9** top nav + appointments placeholder (frontend only), **10** direct-messaging tables + REST (schema only), **11** SignalR hub, presence, delivered/read, nginx `/hubs/`, **12** Messages UI + ticks + badge + toast, **13** typing / presence / delete, **14** end-to-end check on the Docker stack, docs, cleanup. Rules for this work: the migration is *generated* but never applied to the host dev MySQL without asking, and no rows are ever seeded there (verify on the Docker stack's own database, then clean it). When a phase is finished, tick its boxes in `README.md` and update this entry.
+- **Post-plan: Message brokers (Redis + RabbitMQ) — PLANNED, Phases 15–20 NOT STARTED.** No broker exists today (verified: no RabbitMQ/Redis/Kafka/MassTransit in the code or `docker-compose.yml`). Full plan and checklists: `README.md` ("Post-plan — Message brokers"). **Redis** = SignalR backplane + presence (lifts the 1-replica limit); **RabbitMQ** = async AI replies, async password-reset emails, direct-chat event fan-out (transactional outbox, ids/status only, never message text). Starts after Phase 11 (SignalR). Python is unchanged: it never touches the broker or MySQL. Async AI replies sit behind `Chat:AsyncReplies` (default off); when on, the send-message endpoint returns `202` `{ userMessage, replyStatus: "pending", jobId }` and the answer arrives as SignalR `AssistantReplied` / `AssistantFailed`. Library: MassTransit 8.x pinned, after a licence and MySQL-outbox check in Phase 15. Same working rules as the chat plan: build one phase at a time, migrations generated but never applied to the host dev MySQL without asking, no seeded rows, no real broker or LLM in tests.
 
 Local DB connection string lives (by project decision) in `backend-dotnet/src/AiChatAssistant.Api/appsettings.Development.json` under `ConnectionStrings:Default`, in Pomelo key=value form.
 
@@ -45,12 +47,17 @@ Key rules that span components:
 - Error responses from `.NET` use a consistent shape: `{ "error": { "code", "message" } }` - always, including unhandled exceptions (`ExceptionHandlingMiddleware`), missing/invalid-token `401`s and wrong-role `403`s (`JwtBearerEvents.OnChallenge`/`OnForbidden` in `Program.cs` - these bypass MVC entirely by default, which is what made them easy to miss), and unmatched routes (`app.MapFallback`).
 - JWT carries `sub`, `email`, `role`. Client-side JWT decoding is for UI conditionals only; real authorization is server-side (`[Authorize(Roles = "Admin")]`).
 - Session ownership is enforced on every chat endpoint: a user may only touch their own sessions unless they are `Admin`.
+- **(Planned, Phases 10–13)** Direct messages are private: an `Admin` has no special access and gets `404` for a conversation they are not part of, exactly like anyone else. User search is by name only and never returns emails.
+- **(Planned, Phase 11)** Presence (who is online) is an in-memory singleton, so the `api` must stay at **1 replica**. **Phase 16** replaces it with Redis (plus the SignalR backplane), which lifts that limit.
+- **(Planned, Phase 18)** With `Chat:AsyncReplies` on, an LLM failure no longer surfaces as `503` on the send request; it arrives as the SignalR `AssistantFailed` event and the job is marked failed. `503` still applies when the broker itself is unreachable at publish time (user message stays persisted). The nested-timeouts rule still governs the consumer's call to Python.
 
 ## Cross-service contracts
 
 `.NET → Python`: `POST /generate` with `{ session_id, history: [{role, content}], prompt }`
 `Python → .NET`: `{ reply, tokens_used }`
 `.NET → Angular` (send message): `{ userMessage, assistantMessage }`
+**Planned (Phases 10–13) `.NET → Angular` direct-chat contracts:** `GET /api/direct/users?search=` → `[{ id, name }]`; `GET /api/direct/conversations` → `[{ id, peer: { id, name }, lastMessage, unreadCount, peerOnline, peerLastSeenAt }]`; direct message → `{ id, conversationId, senderId, content, createdAt, status: "sent" | "delivered" | "read", deleted }`. SignalR hub `/hubs/direct`, server → client: `MessageReceived`, `MessageStatusChanged`, `MessagesRead`, `MessageDeleted`, `PeerTyping`, `PeerPresenceChanged`; client → server: `Typing(conversationId)`. The hub JWT travels as the `access_token` query string. These are not final until built; the README section is the source of truth until then.
+**Planned (Phase 18) change to the send-message contract**, only when `Chat:AsyncReplies` is on: `202` `{ userMessage, replyStatus: "pending", jobId }`, then SignalR `AssistantReplied { jobId, assistantMessage }` or `AssistantFailed { jobId, error }`. `.NET → Python` (`POST /generate`) is unchanged.
 
 Changing any of these requires updating both sides and the schema section of `README.md`.
 
@@ -87,8 +94,19 @@ npm test -- --include='**/auth.service.spec.ts'               # single spec
 npm run build
 ```
 
-**Full stack:** no `docker-compose.yml` - out of scope for this 8-phase plan (there's no later
-phase to add it in). Run MySQL + the three services individually; see README.md section 0.
+**Full stack:** either run MySQL + the three services individually (README.md section 0), or in
+containers:
+```
+./scripts/gen-docker-env.sh                                  # once; then set DEEPINFRA_API_KEY in docker.env
+docker compose --env-file docker.env up --build -d           # http://localhost:8080
+docker compose --env-file docker.env stop                    # keeps data; `down -v` deletes it
+```
+The compose stack has its own MySQL volume (not your host MySQL). Services: `mysql`, `migrate`
+(one-off EF migration bundle, built from `backend-dotnet/Dockerfile` target `migrate`), `ai-service`,
+`api`, `web` (nginx serves the Angular build and proxies `/api`, so the browser is same-origin).
+`web` is the only published port (8080). All config is the one gitignored `docker.env`
+(template `docker.env.example`). `AppDbContextFactory` (`Data/`, design-time only) exists so the
+migration bundle can build without a live MySQL.
 
 ## Configuration
 

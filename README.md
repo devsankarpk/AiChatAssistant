@@ -97,6 +97,31 @@ cd frontend && npm start
 
 Open `http://localhost:4200`, register an account, start chatting.
 
+### Run everything in Docker (alternative to running the three services by hand)
+
+One command starts MySQL, the database migration, the .NET API, the Python service and the Angular site (served by nginx) in containers. You do not need .NET, Python, Node or a local MySQL for this, only Docker.
+
+```bash
+./scripts/gen-docker-env.sh                       # once: creates docker.env (gitignored) with random secrets
+# edit docker.env and set DEEPINFRA_API_KEY=<your key>   (SMTP_* is optional, only for real reset emails)
+docker compose --env-file docker.env up --build -d
+```
+
+Open **http://localhost:8080**. Stop with `docker compose --env-file docker.env stop` (data is kept in the `mysql-data` volume); `docker compose --env-file docker.env down -v` also deletes the data.
+
+| Service | What it is |
+|---|---|
+| `mysql` | MySQL 8.4 with its own `mysql-data` volume. It is separate from any MySQL you run on your machine. |
+| `migrate` | One-off job: applies the EF Core migrations (a self-contained migration bundle, not run at API startup), then exits. |
+| `ai-service` | The Python/FastAPI LLM service. Not published to the host. |
+| `api` | The .NET API. Not published to the host; it has a liveness-only `/health`. |
+| `web` | nginx serving the Angular build and proxying `/api` to `api`, so the browser is same-origin and needs no CORS. Published on port 8080. |
+
+Notes:
+- All settings come from the one gitignored `docker.env` (template: `docker.env.example`). `INTERNAL_API_KEY` is generated once and shared by the API and the Python service.
+- The containers run as non-root users. nginx's `proxy_read_timeout` (75 s) must stay above the API's 60 s Python timeout.
+- To become an Admin in this stack, run the SQL from "Becoming an Admin" against the `mysql` container (`docker compose --env-file docker.env exec mysql mysql -uaichat -p AiChatAssistant`).
+
 ### Forgot password
 
 Sends a real email via SMTP (`SmtpEmailSender`) if you set the `Smtp:Username`/`Smtp:Password`
@@ -185,7 +210,7 @@ OpenAI / Anthropic API
 | Backend API | .NET 8, EF Core, ASP.NET Identity/JWT, FluentValidation, Serilog |
 | AI service | Python 3.11+, FastAPI, `openai` SDK (pointed at DeepInfra's OpenAI-compatible API), Uvicorn |
 | Database | MySQL 8, Pomelo.EntityFrameworkCore.MySql |
-| Infra (later) | Docker Compose |
+| Infra | Docker Compose (`docker-compose.yml`, Dockerfiles for the API, migration, Python service and web) |
 
 ### Repo structure
 
@@ -389,6 +414,157 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 **Exit criteria:** Fresh clone + README gets a new dev to a working app. ✅ Met — verified via an actual fresh `git clone` into a clean directory, following section 0's steps literally (not from a pre-configured environment), through to a real chat exchange in the browser. See the note at the end of section 0 for exactly what that run covered.
 
+### Post-plan — User-to-user chat (Phases 9–14) — **planned, not started**
+
+> Status: **planned.** Nothing in this section exists in the code yet; the checkboxes below are all open. The schema and contracts in sections 1 and 2 above describe what is built today; this section describes what is *about to be* added. Each phase is built, tested and reviewed on its own, one at a time.
+
+**Goal:** real chat between registered users (separate from the AI chatbot), with WhatsApp-style ticks — one grey tick = sent, two grey ticks = delivered, two blue ticks = read — plus a top navigation bar: **Chatbot**, **Messages**, **Book appointment**.
+
+**Decisions**
+- **Appointments:** the "Book appointment" tab is a "coming soon" placeholder for now. Real booking (doctors, slots, bookings) is a separate, later task.
+- **Who can chat:** any registered user can message any other, one-to-one only (no groups).
+- **Finding people:** search by **name**; results show the name only, never an email.
+- **Live updates:** SignalR (WebSocket). New messages and tick changes are pushed instantly.
+- **Extras in v1:** typing indicator, online / last seen, delete your own message.
+- **Alerts:** a live unread badge on the Messages tab, plus a toast (sender and a preview) when a message arrives and you are not looking at that conversation.
+- **Read receipts:** always on; there is no setting to turn them off.
+
+**Planned schema** (one new migration, `AddDirectMessaging`)
+```sql
+DirectConversations (id GUID, user_low_id, user_high_id, created_at)   -- UNIQUE (user_low_id, user_high_id): one conversation per pair
+DirectMessages (id BIGINT, conversation_id, sender_id, content, created_at,
+                delivered_at NULL, read_at NULL, deleted_at NULL)
+Users  + last_seen_at NULL
+```
+A message's tick state is derived: `read_at` set = read, else `delivered_at` set = delivered, else sent.
+
+**Tick rules**
+- **Sent** (one grey tick): the message is saved.
+- **Delivered** (two grey): the recipient had a live connection when it was saved, or connected later (pending messages are marked delivered on connect).
+- **Read** (two blue): the recipient has that conversation open with the tab visible; the client calls the read endpoint.
+- **Deleted:** only the sender can delete their own message. The text is cleared on the server, and both sides see "This message was deleted".
+
+**Planned REST endpoints** (all require a JWT; errors use the usual `{ error: { code, message } }` shape; a conversation you are not part of returns `404`, not `403`)
+
+| Method and path | Purpose |
+|---|---|
+| `GET /api/direct/users?search=` | Name search (min 2 characters, max 20 results), returns `{ id, name }`, never yourself |
+| `GET /api/direct/conversations` | Your conversations: peer, last message, unread count, `peerOnline`, `peerLastSeenAt` |
+| `POST /api/direct/conversations` | Start a conversation with `{ userId }` (idempotent; `400` for yourself, `404` for an unknown user) |
+| `GET /api/direct/conversations/{id}/messages` | Messages in a conversation (paged) |
+| `POST /api/direct/conversations/{id}/messages` | Send a message |
+| `POST /api/direct/conversations/{id}/read` | Mark the peer's messages as read |
+| `DELETE /api/direct/conversations/{id}/messages/{messageId}` | Delete your own message |
+
+**Planned SignalR hub:** `/hubs/direct` (JWT passed as the `access_token` query string, since browsers cannot set headers on a WebSocket). Server → client events: `MessageReceived`, `MessageStatusChanged`, `MessagesRead`, `MessageDeleted`, `PeerTyping`, `PeerPresenceChanged`. Client → server: `Typing(conversationId)`. Sending goes over REST, so validation and error handling stay in one place; the hub carries pushes.
+
+**Limits to know about**
+- **Direct messages are private.** Admins get no special access; an admin asking for someone else's conversation gets `404` like anyone else.
+- **Presence is kept in memory**, so the API must stay at **one replica** (it already is, because the migration initContainer needs that). Scaling out needs a shared presence store, which Phase 16 (Redis) adds.
+- Online status and last seen are visible to people you share a conversation with, and cannot be hidden in v1.
+
+#### Phase 9 — Top navigation and appointments placeholder *(frontend only, no database)*
+- [ ] `shared/top-nav/`: **Chatbot** and **Book appointment** tabs (the Messages tab arrives in Phase 12, so there is no dead link before then)
+- [ ] `/appointments` route and page: "coming soon"
+- [ ] Chat layout adjusted for the bar above the sidebar; the mobile drawer still works
+- [ ] Spec for the top nav; screenshots at desktop and 390px width with the API faked
+
+#### Phase 10 — Direct messaging data layer and REST *(backend, schema only)*
+- [ ] Models `DirectConversation` and `DirectMessage`, `User.LastSeenAt`, `AppDbContext` mapping
+- [ ] Migration `AddDirectMessaging` (generated, **not** applied to the dev database without asking)
+- [ ] `DirectChatController`: name-only user search, list and start conversations, list and send messages, `404` for non-participants
+- [ ] DTOs and validators
+- [ ] Tests (xUnit, Moq, EF InMemory): pair normalised and idempotent; self, outsider and admin rules; search never returns emails or yourself; send stores a message with status Sent
+
+#### Phase 11 — Realtime, delivered and read *(backend)*
+- [ ] `IPresenceTracker` and `IDirectNotifier` (wraps `IHubContext`), so controllers and tests need no hub
+- [ ] `DirectHub` at `/hubs/direct`, JWT via query string, per-user group, pending messages marked delivered on connect
+- [ ] Send marks **Delivered** when the recipient is online; `POST .../read` sets `read_at` and notifies the sender
+- [ ] `Program.cs` (SignalR, `MapHub`, CORS `AllowCredentials`) and an `nginx.conf` `/hubs/` WebSocket location with a long read timeout
+- [ ] Tests: delivered only when online, connect delivers pending, read notifies the sender, multi-tab presence, `last_seen_at` written only on the last disconnect
+
+#### Phase 12 — Messages UI with ticks *(frontend)*
+- [ ] `@microsoft/signalr`; an app-wide hub service (starts on login, stops on logout, auto-reconnect), a shared state service (conversations, unread total) and a REST service
+- [ ] `messages/` page: conversation list, name search to start a chat, thread, plain-text rendering, mark as read when the thread is open and the tab is visible
+- [ ] `shared/ticks/`: grey single tick, grey double tick, blue double tick, with accessible labels; new `--tick-read` colour token
+- [ ] **Messages** tab in the top nav with the live unread badge; toast when a message arrives and that conversation is not open
+- [ ] Specs for the ticks, unread and ordering logic, and the badge
+
+#### Phase 13 — Typing, online / last seen, delete
+- [ ] Hub `Typing` call (membership-checked, sent to the other person only), `PeerTyping` and `PeerPresenceChanged` events
+- [ ] `DELETE` endpoint: sender only, content cleared on the server, `MessageDeleted` pushed
+- [ ] UI: "typing…" line, online dot or "last seen …", delete action on your own messages, "This message was deleted" placeholder
+- [ ] Tests for typing, delete rules and presence events
+
+#### Phase 14 — End-to-end check, docs, cleanup
+- [ ] Docker stack rebuilt; two throwaway accounts in two browser windows; walk through every tick state, typing, presence, delete, badge and toast
+- [ ] This section and `CLAUDE.md` changed from *planned* to *done*, with anything that changed during the build
+- [ ] Test data deleted from the Docker stack's database and the stack stopped; the dev database stays untouched unless asked
+
+### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **planned, not started**
+
+> Status: **planned.** No message broker exists today: there is no RabbitMQ, Redis or Kafka in the code or in `docker-compose.yml`. Everything is a direct call (the API waits for Python for up to 60 s, and password-reset email is sent inline). Nothing in this section is built; the checkboxes are all open. This work builds on the user-to-user chat plan above and starts **after Phase 11** (SignalR must exist first).
+
+**Why both:** Redis holds fast, shared, short-lived state and pub/sub (the SignalR backplane, presence). RabbitMQ holds durable work and events (jobs, retries, dead letters, fan-out).
+
+**What each is used for**
+
+| Purpose | Broker | Result |
+|---|---|---|
+| SignalR scale-out and presence | Redis | Chat pushes reach users on any API instance, and presence survives restarts, so the API may run more than one replica |
+| Async AI replies | RabbitMQ | The send request returns at once; a consumer calls Python and the reply arrives over SignalR |
+| Async emails (password reset) | RabbitMQ | A slow mail server no longer slows or fails the request; retries and a dead-letter queue |
+| Direct-chat event fan-out | RabbitMQ | Message events (sent, delivered, read, deleted) are published to a topic exchange for any future subscriber |
+
+**Key design points**
+- **Python does not change.** It stays stateless: no database, no broker, no user concept. A .NET consumer calls `POST /generate` exactly as today and saves the assistant message and usage log.
+- **Async AI replies are behind a flag**, `Chat:AsyncReplies`, off by default. With it on, `POST /api/chat/sessions/{id}/messages` returns `202` `{ userMessage, replyStatus: "pending", jobId }`, and the answer arrives as the SignalR event `AssistantReplied` (or `AssistantFailed`). This changes the `.NET → Angular` send-message contract, so both sides change together.
+- **Idempotent jobs:** an `AiReplyJobs` table (id, session id, user message id, status, attempts, error, timestamps) makes a redelivered job a no-op once it is done, and lets a reload show a pending or failed reply.
+- **Retries and failure:** 2 retries with backoff, then a dead-letter queue, then the job is marked failed and the UI offers "Send again". Consumer prefetch is limited (about 4) to protect the LLM provider's rate limits. If the broker is unreachable when publishing, the API returns `503` and the user message stays saved, as it does today.
+- **Timeouts stay nested:** the consumer's call to Python keeps the existing budget (Python about 50 s worst case, inside .NET's 60 s).
+- **Emails:** `forgot-password` publishes only when the user exists and always returns the same generic message. The queued message holds a raw reset link, so the broker is internal-only with credentials and the message TTL equals the token's 1-hour expiry.
+- **Event fan-out uses a transactional outbox** (`OutboxMessages` table written in the same transaction as the change), so an event is never lost or invented. **Events carry ids and status only, never message text.** Version 1 ships one subscriber (a structured log/metrics consumer) to prove the fan-out.
+- **Library:** MassTransit 8.x, pinned. The first task of Phase 15 is to verify its current licence terms and that its outbox works with MySQL (Pomelo). Fallback: `RabbitMQ.Client` with a small wrapper and a hand-written outbox.
+- **Tests never touch a real broker:** the code depends on `IAiReplyQueue`, `IEmailQueue` and `IDirectEventPublisher` (mocked, like `IPythonAiClient`), and consumers are tested with the library's in-memory harness.
+- **Infra:** `redis` and `rabbitmq` services in `docker-compose.yml` with healthchecks; passwords come from the gitignored `docker.env`. New config keys: `RabbitMq:Host/Username/Password` and `Redis:ConnectionString` (secrets, same layering as `Jwt:Key`). `/health` stays liveness-only (no broker check), for the same reason it has no database check.
+
+**Planned schema additions** (migrations are generated, never applied to the dev database without asking)
+```sql
+AiReplyJobs (id GUID, session_id, user_message_id, status ENUM('pending','done','failed'), attempts, error NULL, created_at, updated_at)
+OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact shape follows the chosen library's outbox
+```
+
+**Order:** 15, then 17 (lowest risk), 16, 18, 19, then 20. Phases 16, 18 and 19 need SignalR (Phase 11).
+
+#### Phase 15 — Broker foundation *(no behaviour change)*
+- [ ] Verify MassTransit's licence terms and MySQL outbox support; pick the library
+- [ ] `redis` and `rabbitmq` in `docker-compose.yml` with healthchecks; passwords in `docker.env` generation and `docker.env.example`
+- [ ] Config keys and registration behind configuration; the app still works with the brokers switched off
+- [ ] README setup steps updated
+
+#### Phase 16 — Redis: SignalR backplane and presence
+- [ ] SignalR Redis backplane; `RedisPresenceTracker` (per-user connection set with a TTL and heartbeat); in-memory fallback when Redis is not configured
+- [ ] Tests; two API replicas in Docker prove a push crosses instances
+
+#### Phase 17 — RabbitMQ: async emails
+- [ ] `IEmailQueue`, `email.send` queue, consumer calling `IEmailSender`, retries, dead-letter queue, message TTL
+- [ ] `ForgotPassword` publishes only for existing users; same generic response either way
+- [ ] Tests: generic response, retries, dead-lettering
+
+#### Phase 18 — RabbitMQ: async AI replies
+- [ ] `AiReplyJobs` migration, flag `Chat:AsyncReplies`, `202` contract, consumer, idempotency, retries, dead-letter queue, SignalR `AssistantReplied` / `AssistantFailed`
+- [ ] Angular: pending, replied and failed states; specs and screenshots with the API faked
+- [ ] Tests: duplicate delivery is a no-op, failure then retry, broker down returns `503`
+
+#### Phase 19 — RabbitMQ: direct-chat event fan-out
+- [ ] `OutboxMessages` migration, dispatcher, `direct.events` topic exchange, log/metrics consumer
+- [ ] Tests: the event is written with the change, and the payload never contains message text
+
+#### Phase 20 — End-to-end check, docs, cleanup
+- [ ] Docker stack with two API replicas: stop RabbitMQ mid-reply, stop Redis, inspect a dead-letter queue, confirm presence across replicas
+- [ ] This section and `CLAUDE.md` changed from *planned* to *done*
+- [ ] Docker test data deleted and the stack stopped; the dev database stays untouched unless asked
+
 ---
 
 ## 3. Suggested pacing
@@ -398,6 +574,8 @@ interaction with routing/effects, not in `ChatService` or the backend:
 | Backend + AI plumbing (Postman-testable) | 1–4 | Week 1 |
 | Angular UI | 5–6 | Week 2 |
 | Admin + polish | 7–8 | Week 3 |
+| User-to-user chat (planned) | 9–14 | one phase at a time, starting the day after planning |
+| Message brokers: Redis + RabbitMQ (planned) | 15–20 | after Phase 11 (SignalR) |
 
 ---
 
