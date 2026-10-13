@@ -601,6 +601,94 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 
 New feature phases (9–20) add their own rows to `TESTING.md` section 7 as they are built.
 
+### Post-plan — Hardening and product gaps (Phases 21–28) — **planned, not started**
+
+> Status: **planned.** This section comes from a gap analysis of the finished app (Phases 1–8 and the post-plan work). Every gap below was checked against the code; none of the fixes exist yet and all checkboxes are open. Each phase is built, tested and reviewed on its own. Migrations are generated but never applied to the host dev database without asking.
+
+**What is missing today**
+
+| Area | Gap (verified in the code) | Why it matters | Phase |
+|---|---|---|---|
+| Abuse protection | No rate limiting on the API; no account lockout; no per-user chat quota | Login brute force; anyone can burn LLM credit | 21 |
+| Real client IP | No forwarded-headers config behind nginx; `UseHttpsRedirection` warns "Failed to determine the https port" in containers | An IP-based rate limit would only ever see nginx's address | 21 |
+| Security headers | None in `nginx.conf` (no CSP, `nosniff`, frame-ancestors, referrer policy); no HSTS; nginx version shown | Standard browser hardening is absent | 21 |
+| Account management | No change password, edit profile, delete account or email verification | Users can't fix or remove their own account; anyone can register someone else's address | 22 |
+| Registration enumeration | `POST /api/auth/register` returns `409 email_taken`, while forgot-password is deliberately generic | Inconsistent: registered emails can be discovered | 22 |
+| Tokens | One 60-minute JWT in `localStorage`; no refresh token; no real logout; a stolen or old token stays valid until it expires | Hard to revoke; hourly forced re-login; readable by any XSS | 23 |
+| Chat management | No rename, delete or search; the API has no PUT, PATCH or DELETE endpoints | Chats pile up forever | 24 |
+| Unbounded lists | List-sessions and get-messages return every row (no `Take` / `Skip`) | Slow with long chats or many chats | 24 |
+| Streaming | Replies appear only when complete ("Thinking…" until then); no Stop or Regenerate | Slow-feeling UX | 25 |
+| LLM context | History is the last 20 messages, up to 8000 characters each, not a token budget | Long chats can exceed the model's context and come back as `502` | 25 |
+| Cost | `CostEstimate` stays `0` and the usage page says "Not tracked"; usage totals cover the current page only | No view of spend | 26 |
+| Admin | No user management; becoming an Admin means raw SQL | Operationally awkward and error-prone | 26 |
+| Operations | No `/health/ready`, request or correlation ids, metrics, CI, backup procedure or retention policy for `UsageLogs`; no data export | Hard to run, monitor and recover in production | 27 |
+| Compliance | No privacy page, data export or delete-my-data flow | Needed once real users sign up | 22, 27 |
+| UX | The wildcard route silently redirects to `/` (no 404 page); no automated accessibility check; no i18n | Polish and inclusivity | 28 |
+| Appointment booking | Only a "coming soon" tab is planned (Phase 9) | Real booking (doctors, slots, bookings) needs its **own plan**, not yet written | — |
+
+Already fine: Swagger is development-only, emails are trimmed and lower-cased, the password minimum is 8, and `/health` is liveness-only on purpose.
+
+**Suggested order** (a recommendation; you decide): finish test phase **T2** first, because rate-limit, header and error-shape behaviour need its `WebApplicationFactory` tests, then **21 → 22 → 23 → 24 → 25 → 26 → 27 → 28**, then the user-to-user chat (9–14), the brokers (15–20) and test phases T3–T5. Phases 9–20 do not depend on 21–28 and may be done earlier.
+
+**Dependencies and interactions to remember**
+- **Phase 21 and Redis (Phase 16):** start with an in-memory rate limiter; switch the counters to Redis once the API runs more than one replica.
+- **Phase 23 and the SignalR hub (Phase 11):** the hub authenticates with the `access_token` query string, so token refresh must keep an open connection working.
+- **Phase 22 and direct messages (Phase 10 onwards):** delete-account must also handle a user's direct conversations (remove or anonymise) once they exist.
+- **Phase 24:** delete is a **soft delete** (`DeletedAt`), so `UsageLogs` history is kept.
+- **Phase 25 and Phase 18:** streaming and async replies through RabbitMQ are alternative designs for the same slow-reply problem. Streaming first is recommended; revisit Phase 18 afterwards (it would have to stream through SignalR).
+- **Phase 26 changes a contract:** Python returns prompt and completion tokens and the model, and pricing comes from configuration. README and CLAUDE.md are updated when it is built.
+- **Decisions to confirm at the start of a phase** (not made yet): registration enumeration (keep `409` or return a generic message, Phase 22); whether email verification is required (Phase 22); access token in `localStorage` or in memory with the refresh token in an httpOnly cookie (Phase 23); where the first Admin comes from (Phase 26).
+
+**Ideas not planned yet** (no phase; each needs a decision and its own plan before work starts): file or image upload in chats, a per-chat system prompt or persona, background or push notifications beyond the in-app toast (Phase 12), browser end-to-end tests with Playwright (end-to-end checks are a manual checklist in `TESTING.md` for now), and real doctor-appointment booking (doctors, slots, bookings).
+
+#### Phase 21 — Security hardening *(backend + nginx)*
+- [ ] API rate limiting: per-IP on login, register and forgot-password; a per-user chat quota; `429` in the standard error shape
+- [ ] Forwarded-headers and trusted-proxy configuration so the real client IP is used; fix the HTTPS-redirect warning in containers
+- [ ] Account lockout after repeated failed logins (with a clear message and a timed unlock)
+- [ ] nginx security headers (CSP, `X-Content-Type-Options`, frame-ancestors, referrer policy, `server_tokens off`); HSTS in production
+- [ ] Tests with `WebApplicationFactory` (needs test phase T2)
+
+#### Phase 22 — Account management *(backend + frontend)*
+- [ ] Change password (requires the current password), edit profile name, delete account with confirmation
+- [ ] Email verification (optional, behind a setting); decide the registration-enumeration behaviour
+- [ ] Angular profile page; privacy note
+- [ ] Tests: wrong current password, delete removes the user's data, enumeration behaviour as decided
+
+#### Phase 23 — Sessions and tokens *(backend + frontend)*
+- [ ] Short-lived access token (about 15 minutes) and a rotating refresh token (`RefreshTokens` table, only a hash stored)
+- [ ] Real logout endpoint that revokes the refresh token; tokens invalid after a password change
+- [ ] Token storage decision applied; the Angular interceptor refreshes once and retries on `401`
+- [ ] Tests: rotation, reuse of an old refresh token is rejected, revoke on logout and password change
+
+#### Phase 24 — Chat management and pagination *(backend + frontend)*
+- [ ] `PATCH` rename and `DELETE` (soft delete via `DeletedAt`) for sessions; `GET` search by title
+- [ ] Paged sessions and cursor-paged messages (`?before=&limit=`); Angular infinite scroll and a confirm-delete dialog
+- [ ] Tests: ownership `404`, deleted chats hidden but usage logs kept, paging bounds
+
+#### Phase 25 — Streaming replies and LLM robustness *(Python + backend + frontend)*
+- [ ] Python `POST /generate/stream` (server-sent events); .NET proxies it as `text/event-stream` and saves the final message
+- [ ] Angular renders the reply as it arrives, with Stop and Regenerate
+- [ ] Token-aware history trimming in place of the fixed 20-message window
+- [ ] Keep the nested-timeouts rule and "a failure returns `503` and the user message stays saved"
+- [ ] Tests: stream happy path, abort mid-stream, upstream error mid-stream, trimming keeps the newest messages within budget
+
+#### Phase 26 — Cost tracking and admin user management *(Python + backend + frontend)*
+- [ ] Python returns prompt and completion tokens and the model; pricing from configuration; `UsageLogs.CostEstimate` filled in
+- [ ] Usage page shows cost; server-side aggregates per user and per day; CSV export
+- [ ] Admin users page: list, change role, disable user (`DisabledAt`; login and existing tokens rejected); a first-Admin bootstrap setting replaces the raw-SQL steps
+- [ ] Tests: cost maths, aggregates, disabled users cannot log in or use an old token, admins cannot read direct messages
+
+#### Phase 27 — Operations and compliance
+- [ ] `/health/ready` (database, optionally Python); request and correlation ids in logs; a metrics endpoint (OpenTelemetry or Prometheus)
+- [ ] Test-only CI workflow (tests on pull requests)
+- [ ] MySQL backup and restore script plus a runbook; configurable retention for `UsageLogs`; user data export
+- [ ] Production deployment guide (HTTPS termination, secrets, CORS)
+
+#### Phase 28 — UX and accessibility *(frontend)*
+- [ ] A real 404 page instead of the silent redirect
+- [ ] Automated accessibility check (axe-core) plus a manual keyboard and screen-reader pass
+- [ ] Optional i18n scaffold; edit-and-resend a message if Phase 25 didn't cover it
+
 ---
 
 ## 3. Suggested pacing
@@ -613,6 +701,7 @@ New feature phases (9–20) add their own rows to `TESTING.md` section 7 as they
 | User-to-user chat (planned) | 9–14 | one phase at a time, starting the day after planning |
 | Message brokers: Redis + RabbitMQ (planned) | 15–20 | after Phase 11 (SignalR) |
 | Test plan and gap tests (T1 done, T2–T5 planned) | T1–T5 | one phase at a time |
+| Hardening and product gaps (planned) | 21–28 | one phase at a time; start after T2 |
 
 ---
 

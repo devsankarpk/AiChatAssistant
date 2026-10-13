@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 84 automated tests (26 .NET, 12 Python, 46 Angular), all passing. There is no browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). Test gaps are listed in section 6 and are being closed phase by phase (T2 to T5, see `README.md`).
+**Status today:** 84 automated tests (26 .NET, 12 Python, 46 Angular), all passing. There is no browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -186,7 +186,7 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 
 ## 7. Planned test cases for features not built yet
 
-These rows are filled in (and their test names recorded) when the feature phase is built. Source plans: `README.md`, "User-to-user chat (Phases 9-14)" and "Message brokers (Phases 15-20)".
+These rows are filled in (and their test names recorded) when the feature phase is built. Source plans in `README.md`: "User-to-user chat (Phases 9-14)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
@@ -209,6 +209,39 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Planned (Phase 17) |
 | BRK-03 | Async AI reply (`Chat:AsyncReplies` on) | `202` then `AssistantReplied`; a redelivered job is a no-op; failure then retry then `AssistantFailed`; broker down gives `503` with the user message kept | .NET + Angular | Planned (Phase 18) |
 | BRK-04 | Direct-chat events | Written in the same transaction as the change; payload never contains message text | .NET | Planned (Phase 19) |
+| SEC-01 | More than the allowed login attempts from one IP | `429` in the standard error shape, then allowed again after the window | .NET | Planned (Phase 21) |
+| SEC-02 | Behind the proxy, `X-Forwarded-For` | The limiter keys on the real client IP, not the proxy address | .NET | Planned (Phase 21) |
+| SEC-03 | Repeated failed logins for one account | Account locked for the configured time; correct password still refused while locked | .NET | Planned (Phase 21) |
+| SEC-04 | Per-user chat quota exceeded | `429`, user message not sent to the LLM | .NET | Planned (Phase 21) |
+| SEC-05 | Response headers from nginx | CSP, `X-Content-Type-Options`, frame-ancestors and referrer policy present; no server version | Manual | Planned (Phase 21) |
+| ACC-01 | Change password with the wrong current password | `400`, nothing changes | .NET | Planned (Phase 22) |
+| ACC-02 | Change password successfully | Old password stops working; other sessions' tokens are rejected | .NET | Planned (Phase 22) |
+| ACC-03 | Delete account | User and their chats, messages and tokens removed; cannot log in afterwards | .NET | Planned (Phase 22) |
+| ACC-04 | Register with an existing email | Behaviour as decided in Phase 22 (generic response or `409`), covered by a test either way | .NET | Planned (Phase 22) |
+| ACC-05 | Profile page | Name edit, change-password form validation and confirm-delete dialog | Angular | Planned (Phase 22) |
+| TOK-01 | Access token expires | The interceptor refreshes once and retries the request; a second `401` logs out | Angular | Planned (Phase 23) |
+| TOK-02 | Refresh token rotation | Each refresh returns a new token; reusing an old one is rejected and revokes the family | .NET | Planned (Phase 23) |
+| TOK-03 | Logout and password change | Refresh token revoked; old access token refused | .NET | Planned (Phase 23) |
+| TOK-04 | Open SignalR connection across a token refresh | Connection stays usable | Angular + .NET | Planned (Phase 23, needs Phase 11) |
+| CHM-01 | Rename a chat | Title changes; another user's chat gives `404` | .NET | Planned (Phase 24) |
+| CHM-02 | Delete a chat | Hidden from lists; messages not returned; `UsageLogs` rows kept | .NET | Planned (Phase 24) |
+| CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET | Planned (Phase 24) |
+| CHM-04 | Paged sessions and messages | Page size capped; `before` cursor returns older messages without gaps or duplicates | .NET | Planned (Phase 24) |
+| CHM-05 | Infinite scroll and confirm-delete | Older messages load on scroll; delete needs confirmation | Angular | Planned (Phase 24) |
+| STR-01 | Stream a reply | Chunks arrive in order; the final message is saved once | Python + .NET | Planned (Phase 25) |
+| STR-02 | Stop mid-stream | Generation stops; behaviour for the partial text as decided in Phase 25 | .NET + Angular | Planned (Phase 25) |
+| STR-03 | Upstream error mid-stream | Error event delivered; the user message stays saved | Python + .NET | Planned (Phase 25) |
+| STR-04 | Token-aware history trimming | Newest messages kept within the budget; an oversized history no longer causes a `502` | .NET | Planned (Phase 25) |
+| COST-01 | Cost calculation | Prompt and completion tokens times configured price, stored in `CostEstimate` | .NET | Planned (Phase 26) |
+| COST-02 | Usage aggregates | Totals per user and per day are computed server-side, not from the current page | .NET | Planned (Phase 26) |
+| COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403`; admins cannot read direct messages | .NET | Planned (Phase 26) |
+| COST-04 | Usage page cost | Shows a currency value instead of "Not tracked" once cost exists | Angular | Planned (Phase 26) |
+| OPS-06 | `/health/ready` | `200` when the database is reachable, `503` when it is not | .NET | Planned (Phase 27) |
+| OPS-07 | Correlation id | Each request has an id in the logs and the response header | .NET | Planned (Phase 27) |
+| OPS-08 | Backup and restore | The script produces a dump that restores into an empty database | Manual | Planned (Phase 27) |
+| OPS-09 | Usage-log retention | Rows older than the configured age are purged; newer rows kept | .NET | Planned (Phase 27) |
+| A11Y-01 | Unknown URL | A real 404 page with a link home (no silent redirect) | Angular | Planned (Phase 28) |
+| A11Y-02 | Automated accessibility scan (axe-core) on login, chat and usage pages | No serious or critical violations | Angular | Planned (Phase 28) |
 
 ## 8. Manual smoke checklist and exit criteria
 
