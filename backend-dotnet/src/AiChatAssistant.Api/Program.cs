@@ -3,6 +3,7 @@ using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
 using AiChatAssistant.Api.Dtos.Chat;
+using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Middleware;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Validators;
@@ -37,6 +38,8 @@ builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();
 builder.Services.AddScoped<IValidator<SendMessageRequest>, SendMessageRequestValidator>();
+builder.Services.AddScoped<IValidator<StartConversationRequest>, StartConversationRequestValidator>();
+builder.Services.AddScoped<IValidator<SendDirectMessageRequest>, SendDirectMessageRequestValidator>();
 
 // Python AI service client. InternalApiKey is the shared secret from CLAUDE.md's X-Internal-Key
 // contract - it must match ai-service-python's INTERNAL_API_KEY exactly.

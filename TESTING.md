@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 94 automated tests (26 .NET, 12 Python, 56 Angular), all passing. There is no browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 129 automated tests (61 .NET, 12 Python, 56 Angular), all passing. There is no browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (26 tests)
+# .NET (61 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -178,6 +178,29 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | OPS-04 | Restart keeps data | `stop` then `up` keeps users and chats; `down -v` removes them | Manual |
 | OPS-05 | MySQL stopped while the API runs | Requests fail with the standard error shape; recover after MySQL returns | Manual |
 
+### 5.9 DIRECT CHAT, REST only (.NET `DirectChatControllerTests`, Phase 10)
+
+| ID | Scenario | Expected result | Layer | Status |
+|---|---|---|---|---|
+| DM-01 | Start a conversation | Created with `201`; the pair is stored lower id first whoever starts it | .NET | Automated: `StartConversation_CreatesIt_StoresThePairLowerIdFirst_AndReturns201` |
+| DM-02 | Start it again, from either side | Same conversation returned with `200`; still exactly one row | .NET | Automated: `StartConversation_IsIdempotent_WhoeverStartsIt` |
+| DM-03 | Start a chat with yourself, an unknown user, or an invalid id | `400` / `404` / `400`; nothing created | .NET | Automated: `StartConversation_Returns400_ForYourself`, `StartConversation_Returns404_ForAnUnknownUser`, `StartConversation_Returns400_ForAnInvalidUserId` |
+| DM-04 | Someone outside the conversation, or an Admin, sends or reads | `404` (direct messages are private; no Admin exception); nothing stored | .NET | Automated: `SendMessage_Returns404_ForSomeoneWhoIsNotInTheConversation`, `SendMessage_Returns404_ForAnAdminWhoIsNotInTheConversation_BecauseDirectMessagesArePrivate`, `GetMessages_Returns404_ForAnOutsider_AndForAnAdmin` |
+| DM-05 | User search | Matches the name only (case-insensitive, anywhere in the name); returns only `{ id, name }`; never the caller; email text never matches | .NET | Automated: `SearchUsers_MatchesByName_AndReturnsOnlyIdAndName`, `SearchUsers_DoesNotMatchOnEmail_SoAnEmailCannotBeProbed`, `SearchUsers_NeverReturnsTheCaller`, `SearchUsers_IsCaseInsensitive_AndMatchesAnywhereInTheName` |
+| DM-06 | Search term under 2 characters (null, blank, 1 character) | `400` | .NET | Automated: `SearchUsers_Returns400_ForATermShorterThanTwoCharacters` (5 cases) |
+| DM-07 | More than 20 matches | At most 20 results, in name order | .NET | Automated: `SearchUsers_ReturnsAtMostTwentyResults_InNameOrder` |
+| DM-08 | Send a message | `201`, stored trimmed with status **sent** | .NET | Automated: `SendMessage_StoresTheMessageAsSent_Trimmed_AndReturns201` |
+| DM-09 | Send empty, whitespace-only, over-length, or to an unknown conversation | `400` / `400` / `400` (exactly 8000 is accepted) / `404`; nothing stored | .NET | Automated: `SendMessage_Returns400_ForEmptyOrWhitespaceContent`, `SendMessage_Returns400_ForOver8000Characters_AndAcceptsExactly8000`, `SendMessage_Returns404_ForAnUnknownConversation` |
+| DM-10 | List conversations | Only the caller's; newest activity first; last message and unread count; your own messages are not unread; an empty conversation is listed | .NET | Automated: `ListConversations_ReturnsOnlyTheCallersConversations_NewestActivityFirst_WithUnreadCounts`, `ListConversations_DoesNotCountYourOwnMessagesAsUnread_AndShowsAnEmptyConversation` |
+| DM-11 | Peer presence fields before the realtime layer exists | `peerOnline` is false; `peerLastSeenAt` comes from the user | .NET | Automated: `ListConversations_ReportsThePeerAsOffline_UntilPresenceExists` |
+| DM-12 | Read messages | Oldest first, identical for both participants | .NET | Automated: `GetMessages_ReturnsTheConversationOldestFirst_ForEitherParticipant` |
+| DM-13 | Page backwards with `before` | Three pages of 10 cover 25 messages with no gaps or duplicates | .NET | Automated: `GetMessages_PagesBackwardsWithTheBeforeCursor_WithoutGapsOrDuplicates` |
+| DM-14 | Page size | Default 50; zero or negative uses 50; capped at 100 | .NET | Automated: `GetMessages_UsesADefaultPageOf50_AndCapsALimitAt100` (4 cases) |
+| DM-15 | Tick status and deleted messages | Status derived from the timestamps (sent, delivered, read); a deleted message shows no text and `deleted: true` | .NET | Automated: `GetMessages_DerivesTheStatusFromTimestamps_AndClearsDeletedContent` |
+| DM-16 | Unique pair index, foreign-key cascade, new tables and column on real MySQL | Duplicate pair rejected (error 1062); deleting a user removes their conversations and messages; `DirectConversations`, `DirectMessages` and `Users.LastSeenAt` exist | Manual | Manual: verified on the Docker stack's MySQL on 2026-10-14 (the in-memory test provider cannot enforce either rule); `TheModelDeclaresAUniqueIndexOnTheUserPair_SoTheDatabaseCanRejectDuplicates` checks the model |
+
+Not yet covered: the concurrent double-start race (two people start the same chat at the same instant, the unique index rejects one, the controller reopens the winner) because it needs a real database and parallel requests. It is exercised end to end in Phase 14.
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -193,11 +216,6 @@ These rows are filled in (and their test names recorded) when the feature phase 
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
-| DM-01 | Start a conversation twice with the same person | Same conversation returned (idempotent); the pair is stored lower id first | .NET | Planned (Phase 10) |
-| DM-02 | Message yourself / unknown user | `400` / `404` | .NET | Planned (Phase 10) |
-| DM-03 | Outsider or admin reads someone else's conversation | `404` for both (messages are private) | .NET | Planned (Phase 10) |
-| DM-04 | User search | Matches name only, returns `{ id, name }`, never emails, never yourself, min 2 characters, max 20 results | .NET | Planned (Phase 10) |
-| DM-05 | Send a message | Stored with status **sent** | .NET | Planned (Phase 10) |
 | DM-06 | Send while the recipient is online | Status **delivered**, sender notified | .NET | Planned (Phase 11) |
 | DM-07 | Recipient connects later | Pending messages marked delivered; sender notified | .NET | Planned (Phase 11) |
 | DM-08 | Recipient reads the thread | Status **read**, sender notified, unread count clears | .NET | Planned (Phase 11) |
@@ -238,7 +256,7 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | COST-02 | Usage aggregates | Totals per user and per day are computed server-side, not from the current page | .NET | Planned (Phase 26) |
 | COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403` | .NET | Planned (Phase 26) |
 | COST-05 | A disabled user opens the SignalR hub | Connection refused | .NET | Planned (Phase 11, because Phase 26 is built first) |
-| ACC-06 | Delete account for a user who has direct conversations | Their conversations and messages are removed or anonymised | .NET | Planned (Phase 10, because Phase 22 is built first) |
+| ACC-06 | Delete account for a user who has direct conversations | Their conversations and messages are removed or anonymised | .NET | Planned (Phase 22). The foreign keys already cascade (verified on real MySQL in Phase 10); this row covers the delete-account feature itself |
 | SEC-06 | The CSP allows the `/hubs/` WebSocket | The hub connects in the browser with no CSP violation | Manual | Planned (Phase 11, because Phase 21 is built first) |
 | COST-04 | Usage page cost | Shows a currency value instead of "Not tracked" once cost exists | Angular | Planned (Phase 26) |
 | OPS-06 | `/health/ready` | `200` when the database is reachable, `503` when it is not | .NET | Planned (Phase 27) |
