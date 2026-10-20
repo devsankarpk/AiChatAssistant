@@ -2,21 +2,25 @@ using AiChatAssistant.Api.Controllers;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Models;
+using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Tests.TestSupport;
 using AiChatAssistant.Api.Validators;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 
 namespace AiChatAssistant.Api.Tests;
 
 /// <summary>
-/// Direct (user-to-user) chat: REST only, Phase 10. Real validators and an in-memory AppDbContext;
-/// nothing here is faked because there is nothing external to fake yet (no hub, no broker).
+/// Direct (user-to-user) chat REST endpoints. Real validators, a real in-memory presence tracker and an
+/// in-memory AppDbContext; only the SignalR push (IDirectNotifier) is mocked, so no hub is needed.
 /// </summary>
 public class DirectChatControllerTests : IDisposable
 {
     private readonly AppDbContext _db = TestDbContextFactory.Create();
+    private readonly InMemoryPresenceTracker _presence = new();
+    private readonly Mock<IDirectNotifier> _notifier = new();
     private readonly User _alice;
     private readonly User _bob;
     private readonly User _carol;
@@ -39,7 +43,9 @@ public class DirectChatControllerTests : IDisposable
         var controller = new DirectChatController(
             _db,
             new StartConversationRequestValidator(),
-            new SendDirectMessageRequestValidator());
+            new SendDirectMessageRequestValidator(),
+            _presence,
+            _notifier.Object);
         controller.SetUser(ClaimsPrincipalFactory.Create(caller.Id, caller.Email, roles));
         return controller;
     }
@@ -423,6 +429,161 @@ public class DirectChatControllerTests : IDisposable
         Assert.Equal(string.Empty, messages[3].Content);
         Assert.True(messages[3].Deleted);
         Assert.False(messages[2].Deleted);
+    }
+
+    // ---- delivered: sending while the recipient is online ------------------------------------
+
+    [Fact]
+    public async Task SendMessage_IsDelivered_WhenTheRecipientIsOnline_AndTheRecipientIsNotified()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        _presence.UserConnected(_bob.Id, "bob-tab-1");
+
+        var result = await CreateController(_alice).SendMessage(conversation.Id, new SendDirectMessageRequest { Content = "you there?" }, default);
+
+        var response = Assert.IsType<DirectMessageResponse>(Assert.IsType<ObjectResult>(result.Result).Value);
+        Assert.Equal("delivered", response.Status);
+        Assert.NotNull(Assert.Single(_db.DirectMessages).DeliveredAt);
+        _notifier.Verify(n => n.MessageReceivedAsync(_bob.Id, It.Is<DirectMessageResponse>(m => m.Content == "you there?" && m.Status == "delivered"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SendMessage_StaysSent_WhenTheRecipientIsOffline_ButStillTriesToNotify()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+
+        var result = await CreateController(_alice).SendMessage(conversation.Id, new SendDirectMessageRequest { Content = "call me" }, default);
+
+        var response = Assert.IsType<DirectMessageResponse>(Assert.IsType<ObjectResult>(result.Result).Value);
+        Assert.Equal("sent", response.Status);
+        Assert.Null(Assert.Single(_db.DirectMessages).DeliveredAt);
+        _notifier.Verify(n => n.MessageReceivedAsync(_bob.Id, It.IsAny<DirectMessageResponse>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SendMessage_OnlyTheRecipientBeingOnlineCounts_NotTheSender()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        _presence.UserConnected(_alice.Id, "alice-tab-1"); // the sender is online, the recipient is not
+
+        var result = await CreateController(_alice).SendMessage(conversation.Id, new SendDirectMessageRequest { Content = "hi" }, default);
+
+        Assert.Equal("sent", Assert.IsType<DirectMessageResponse>(Assert.IsType<ObjectResult>(result.Result).Value).Status);
+    }
+
+    // ---- read: two blue ticks ----------------------------------------------------------------
+
+    [Fact]
+    public async Task MarkRead_MarksThePeersMessagesRead_ImpliesDelivered_AndNotifiesBothSides()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var first = SeedMessage(conversation, _alice, "one");
+        var second = SeedMessage(conversation, _alice, "two");
+
+        var result = await CreateController(_bob).MarkRead(conversation.Id, default);
+
+        var response = Assert.IsType<MarkReadResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(2, response.ReadCount);
+        Assert.Equal(second.Id, response.UpToMessageId);
+        Assert.All(_db.DirectMessages, m =>
+        {
+            Assert.NotNull(m.ReadAt);
+            Assert.NotNull(m.DeliveredAt); // never read-but-not-delivered
+        });
+        // The sender sees the ticks turn blue; the reader's other tabs clear their unread count.
+        _notifier.Verify(n => n.MessagesStatusChangedAsync(_alice.Id, conversation.Id, It.Is<IReadOnlyList<long>>(ids => ids.SequenceEqual(new[] { first.Id, second.Id })), "read", It.IsAny<CancellationToken>()), Times.Once);
+        _notifier.Verify(n => n.MessagesReadAsync(_bob.Id, conversation.Id, second.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task MarkRead_DoesNotTouchTheCallersOwnMessages()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var mine = SeedMessage(conversation, _bob, "I wrote this");
+        SeedMessage(conversation, _alice, "from Alice");
+
+        await CreateController(_bob).MarkRead(conversation.Id, default);
+
+        Assert.Null(_db.DirectMessages.Single(m => m.Id == mine.Id).ReadAt);
+    }
+
+    [Fact]
+    public async Task MarkRead_ReadsNothingTwice_AndNotifiesNobodyWhenThereIsNothingNew()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        SeedMessage(conversation, _alice, "once");
+        var bob = CreateController(_bob);
+
+        await bob.MarkRead(conversation.Id, default);
+        _notifier.Invocations.Clear();
+        var again = await bob.MarkRead(conversation.Id, default);
+
+        var response = Assert.IsType<MarkReadResponse>(Assert.IsType<OkObjectResult>(again.Result).Value);
+        Assert.Equal(0, response.ReadCount);
+        Assert.Null(response.UpToMessageId);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task MarkRead_SkipsDeletedMessages()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var deleted = SeedMessage(conversation, _alice, "oops");
+        deleted.DeletedAt = DateTime.UtcNow;
+        deleted.Content = string.Empty;
+        _db.SaveChanges();
+
+        var result = await CreateController(_bob).MarkRead(conversation.Id, default);
+
+        Assert.Equal(0, Assert.IsType<MarkReadResponse>(Assert.IsType<OkObjectResult>(result.Result).Value).ReadCount);
+    }
+
+    [Fact]
+    public async Task MarkRead_Returns404_ForAnOutsider_AndForAnAdmin_AndChangesNothing()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        SeedMessage(conversation, _alice, "private");
+
+        var outsider = await CreateController(_carol).MarkRead(conversation.Id, default);
+        var admin = await CreateController(_admin, Role.Admin).MarkRead(conversation.Id, default);
+
+        Assert.IsType<NotFoundObjectResult>(outsider.Result);
+        Assert.IsType<NotFoundObjectResult>(admin.Result);
+        Assert.Null(Assert.Single(_db.DirectMessages).ReadAt);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task MarkRead_ClearsTheUnreadCountInTheConversationList()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        SeedMessage(conversation, _alice, "a");
+        SeedMessage(conversation, _alice, "b");
+        var bob = CreateController(_bob);
+        Assert.Equal(2, Assert.Single(Value(await bob.ListConversations(default))).UnreadCount);
+
+        await bob.MarkRead(conversation.Id, default);
+
+        Assert.Equal(0, Assert.Single(Value(await bob.ListConversations(default))).UnreadCount);
+    }
+
+    // ---- presence in the conversation list ---------------------------------------------------
+
+    [Fact]
+    public async Task ListConversations_ShowsThePeerOnline_WhileTheyAreConnected_AndOfflineAfterTheLastTabCloses()
+    {
+        SeedConversation(_alice, _bob);
+        var alice = CreateController(_alice);
+
+        _presence.UserConnected(_bob.Id, "tab-1");
+        _presence.UserConnected(_bob.Id, "tab-2");
+        Assert.True(Assert.Single(Value(await alice.ListConversations(default))).PeerOnline);
+
+        _presence.UserDisconnected(_bob.Id, "tab-1");
+        Assert.True(Assert.Single(Value(await alice.ListConversations(default))).PeerOnline); // still has a tab
+
+        _presence.UserDisconnected(_bob.Id, "tab-2");
+        Assert.False(Assert.Single(Value(await alice.ListConversations(default))).PeerOnline);
     }
 
     // ---- schema rules the controller relies on (the in-memory provider does not enforce unique

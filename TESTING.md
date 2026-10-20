@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 129 automated tests (61 .NET, 12 Python, 56 Angular), all passing. There is no browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 163 automated tests (95 .NET, 12 Python, 56 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent full-application run, with results and findings, is in **section 9**. Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (61 tests)
+# .NET (95 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -66,6 +66,7 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | AUTH-10 | Request a reset twice | Earlier unused token is invalidated | .NET | Automated: `ForgotPassword_InvalidatesAnyEarlierUnusedToken_WhenRequestedAgain` |
 | AUTH-11 | Reset password with a valid token | Password changes; the old password stops working | .NET | Automated: `ResetPassword_ChangesThePassword_AndTheOldPasswordNoLongerWorks` |
 | AUTH-12 | Reset with an unknown / reused / expired token | `400` in each case | .NET | Automated: `ResetPassword_Returns400_ForAnUnknownToken`, `..._WhenTheSameTokenIsUsedTwice`, `..._ForAnExpiredToken` |
+| AUTH-23 | Forgot password when sending the email fails (SMTP down, bad credentials, not configured) | Same `200` and the same generic message as for an unknown email, so no account is revealed; the failure is logged by user id; a cancelled request still cancels | .NET | Automated: `ForgotPassword_ReturnsTheSameGenericMessage_WhenSendingTheEmailFails_SoNoAccountIsRevealed`, `ForgotPassword_StillPropagatesCancellation_RatherThanSwallowingIt` |
 | AUTH-13 | Token claims and expiry | `sub`, `email`, `role` present; expiry from config; wrong key fails validation | .NET | Planned (T2): `TokenServiceTests` |
 | AUTH-14 | Register / login / reset-password input edge cases | Length, email format, whitespace rejected with `400` | .NET | Planned (T2): `ValidatorTests` |
 | AUTH-15 | `AuthService` session handling | Starts logged out; register/login store token and user; logout clears; expired token is cleared; valid stored session survives a reload | Angular | Automated: 6 specs in `auth.service.spec.ts` |
@@ -141,7 +142,7 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | ERR-03 | Unknown route | `404` with the standard body | .NET | Planned (T2) |
 | ERR-04 | Unhandled exception | `500` with the standard body, no stack trace | .NET | Planned (T2): `ExceptionHandlingMiddlewareTests` |
 | ERR-05 | `/health` | `200`, no database check | .NET | Planned (T2) |
-| ERR-06 | SMTP not configured | Fails fast with a clear error | .NET | Planned (T2): `SmtpEmailSender` fail-fast test |
+| ERR-06 | SMTP username or password missing, empty or whitespace | Fails fast with a clear message naming the setting and its environment variable; never attempts a mail login | .NET | Automated: `ABlankOrMissingUsername_FailsFastWithAClearMessage_NotAGmailLoginAttempt` (3 cases), `ABlankOrMissingPassword_FailsFastWithAClearMessage` (3 cases) in `SmtpEmailSenderTests` |
 | ERR-07 | Global error interceptor | Tracks loading on success and failure; toasts and re-throws on an unexpected `500`; no toast for handled `503` or validation `400`; stale session logs out, toasts and redirects to login; other hosts untouched | Angular | Automated: 6 specs in `error.interceptor.spec.ts` |
 | ERR-08 | `extractErrorMessage` | Handles the API error shape, plain text, network errors | Angular | Planned (T4) |
 
@@ -201,6 +202,21 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 
 Not yet covered: the concurrent double-start race (two people start the same chat at the same instant, the unique index rejects one, the controller reopens the winner) because it needs a real database and parallel requests. It is exercised end to end in Phase 14.
 
+### 5.10 REALTIME DIRECT CHAT: delivered and read ticks, presence (.NET, Phase 11)
+
+| ID | Scenario | Expected result | Layer | Status |
+|---|---|---|---|---|
+| RT-01 | Send while the recipient is online | Status **delivered** at once; the recipient is pushed `MessageReceived` | .NET | Automated: `SendMessage_IsDelivered_WhenTheRecipientIsOnline_AndTheRecipientIsNotified` |
+| RT-02 | Send while the recipient is offline, or only the sender is online | Status stays **sent**; a push is still attempted; the sender's own presence does not count | .NET | Automated: `SendMessage_StaysSent_WhenTheRecipientIsOffline_ButStillTriesToNotify`, `SendMessage_OnlyTheRecipientBeingOnlineCounts_NotTheSender` |
+| RT-03 | A user connects | Joins their personal group, goes online, and everything waiting for them becomes **delivered** (each sender is told, once per conversation); own, already-delivered, deleted and other people's messages are left alone; a second connection does nothing | .NET | Automated: `Connecting_JoinsThePersonalGroup_GoesOnline_AndDeliversWhatWasWaiting`, `ConnectingMarksEverythingWaitingForTheUserAsDelivered_AndTellsEachSender`, `ItLeavesAlone_TheUsersOwnMessages_AlreadyDeliveredOnes_DeletedOnes_AndOtherPeoplesConversations`, `ASecondConnection_FindsNothingLeftToDo_AndNotifiesNobody` |
+| RT-04 | `POST .../read` | The peer's unread messages become **read** (and delivered); the sender gets `MessageStatusChanged`, the reader's other tabs get `MessagesRead`; own messages and deleted ones are untouched; reading again does nothing and pushes nothing; the unread count clears | .NET | Automated: `MarkRead_MarksThePeersMessagesRead_ImpliesDelivered_AndNotifiesBothSides`, `MarkRead_DoesNotTouchTheCallersOwnMessages`, `MarkRead_ReadsNothingTwice_AndNotifiesNobodyWhenThereIsNothingNew`, `MarkRead_SkipsDeletedMessages`, `MarkRead_ClearsTheUnreadCountInTheConversationList` |
+| RT-05 | An outsider or an Admin marks a conversation read | `404`, nothing changes, nothing is pushed | .NET | Automated: `MarkRead_Returns404_ForAnOutsider_AndForAnAdmin_AndChangesNothing` |
+| RT-06 | Presence with several tabs | Online on the first connection, offline only when the last closes; unknown connections change nothing; users are independent; the conversation list shows `peerOnline` accordingly | .NET | Automated: 4 tests in `PresenceTrackerTests`, `ListConversations_ShowsThePeerOnline_WhileTheyAreConnected_AndOfflineAfterTheLastTabCloses` |
+| RT-07 | Last seen | Written only when the last tab closes; never for a connection that was never seen | .NET | Automated: `LastSeenIsWrittenOnlyWhenTheLastTabCloses`, `DisconnectingSomeoneWhoWasNeverConnected_DoesNotTouchLastSeen` |
+| RT-08 | A hub connection with no user id | Aborted, never counted online, no group joined | .NET | Automated: `AConnectionWithoutAUserId_IsAbortedAndNeverCountsAsOnline` |
+| RT-09 | The push layer | Events go to the right personal group under the agreed names (`MessageReceived`, `MessageStatusChanged`, `MessagesRead`); a failing push never throws into the request | .NET | Automated: 4 tests in `SignalRDirectNotifierTests`, `ThePersonalGroupNameIsStable` |
+| RT-10 | The whole flow over real WebSockets through nginx | Sent, delivered, read, presence and deliver-on-reconnect all behave as above; the hub refuses a token-less connection | Manual | Manual: 10 checks in section 9.2 (`E2E-RT-01` to `E2E-RT-10`, `E2E-DM-06`), all passed on 2026-10-20 |
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -216,15 +232,10 @@ These rows are filled in (and their test names recorded) when the feature phase 
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
-| DM-06 | Send while the recipient is online | Status **delivered**, sender notified | .NET | Planned (Phase 11) |
-| DM-07 | Recipient connects later | Pending messages marked delivered; sender notified | .NET | Planned (Phase 11) |
-| DM-08 | Recipient reads the thread | Status **read**, sender notified, unread count clears | .NET | Planned (Phase 11) |
-| DM-09 | Presence with several tabs | Online on the first connection; offline and `LastSeenAt` written only when the last one closes | .NET | Planned (Phase 11) |
-| DM-10 | Hub authentication | JWT via `access_token` query string accepted; no token rejected | .NET | Planned (Phase 11) |
-| DM-11 | Ticks component | One grey tick = sent, two grey = delivered, two blue = read, deleted shows none; accessible labels | Angular | Planned (Phase 12) |
-| DM-12 | Unread badge and toast | Badge updates live; toast shows sender and preview only when that conversation isn't open and visible | Angular | Planned (Phase 12) |
-| DM-13 | Typing indicator | Sent about every 3 s, clears after 4 s; rejected for non-participants | .NET + Angular | Planned (Phase 13) |
-| DM-14 | Delete own message | Sender only; content cleared on the server; both sides see "This message was deleted" | .NET + Angular | Planned (Phase 13) |
+| MSG-01 | Ticks component | One grey tick = sent, two grey = delivered, two blue = read, deleted shows none; accessible labels | Angular | Planned (Phase 12) |
+| MSG-02 | Unread badge and toast | Badge updates live; toast shows sender and preview only when that conversation isn't open and visible | Angular | Planned (Phase 12) |
+| MSG-03 | Typing indicator | Sent about every 3 s, clears after 4 s; rejected for non-participants | .NET + Angular | Planned (Phase 13) |
+| MSG-04 | Delete own message | Sender only; content cleared on the server; both sides see "This message was deleted" | .NET + Angular | Planned (Phase 13) |
 | BRK-01 | Presence and push across two API replicas | Event reaches a user connected to the other replica | Manual | Planned (Phase 16) |
 | BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Planned (Phase 17) |
 | BRK-03 | Async AI reply (`Chat:AsyncReplies` on) | `202` then `AssistantReplied`; a redelivered job is a no-op; failure then retry then `AssistantFailed`; broker down gives `503` with the user message kept | .NET + Angular | Planned (Phase 18) |
@@ -281,3 +292,138 @@ Run on the Docker stack after a change that touches more than one layer. Use thr
 9. Stop the stack (`stop`), start it again, confirm data survived (OPS-04). Finally delete the test data (`down -v` or SQL on the container).
 
 **Exit criteria for a finished phase:** all three suites pass; every behaviour the phase added has a catalogue row pointing at a real test name; no `Planned` row remains for that phase; the suite counts in the header of this file are up to date.
+
+## 9. Latest full-application test run (2026-10-20)
+
+Run after Phase 11 (SignalR, delivered and read ticks), against the **real Docker stack** (MySQL 8.4, migration bundle, .NET API, Python service, nginx + Angular), with a **real DeepInfra LLM call**, real WebSockets through nginx, and a real headless Chrome. Throwaway accounts only; every test row was deleted afterwards (users, chats, messages, roles), the schema and the 2 seeded roles were kept, and the stack was stopped. The host dev MySQL was not touched.
+
+### 9.1 Automated suites (re-run after the F1 fix)
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **95 passed, 0 failed** (26 before Phase 10 + 35 Phase 10 + 26 Phase 11 + 8 for the F1 fix) |
+| Python (`pytest`) | **12 passed, 0 failed** |
+| Angular unit (`ng test`, ChromeHeadless) | **56 passed, 0 failed** |
+| Angular production build | Succeeded, no warnings |
+| **Total** | **163 passed, 0 failed** |
+
+### 9.2 End-to-end checks against the running stack: API, AI and realtime (37/37 passed)
+
+**Platform**
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-PLAT-01 | Web app is served (index.html) through nginx | PASS | HTTP 200 |
+| E2E-PLAT-02 | SPA deep link falls back to index.html | PASS | HTTP 200 |
+
+**Errors**
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-ERR-01 | Unauthenticated protected call returns 401 in the { error: { code, message } } shape | PASS | 401 unauthorized |
+| E2E-ERR-02 | Unknown API route returns 404 in the standard shape | PASS | 404 not_found |
+
+**Auth**
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-AUTH-01 | Register three users (Alice, Bob, Carol) | PASS | statuses 201,201,201 |
+| E2E-AUTH-02 | Duplicate email is rejected with 409 email_taken | PASS | 409 |
+| E2E-AUTH-03 | Weak password is rejected with 400 | PASS | 400 |
+| E2E-AUTH-04 | Login with the right password returns a token | PASS | 200 |
+| E2E-AUTH-05 | Login with a wrong password returns 401 | PASS | 401 |
+| E2E-AUTH-06 | GET /auth/me returns the caller from the token | PASS | e2e.alice.1792480460255@example.test |
+| E2E-AUTH-07 | Forgot password gives the same generic answer for a known and an unknown email | PASS | 200 + identical message (no user enumeration) |
+| E2E-AUTH-08 | Reset password with an invalid token returns 400 | PASS | 400 |
+
+**AI chat**
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-CHAT-01 | Create a chat session ("New chat") | PASS | id 62894b75-a77c-48ec-9356-0c861fd85df8 |
+| E2E-CHAT-02 | Send a message and get a REAL LLM reply (DeepInfra) through Python | PASS | HTTP 200 in 1346 ms, reply: "Table" |
+| E2E-CHAT-03 | Both messages are stored and the chat is auto-titled from the first message | PASS | 2 messages, title "Reply with exactly one word: pong" |
+| E2E-CHAT-04 | Another user cannot read someone else's chat (404, not 403) | PASS | 404 |
+| E2E-CHAT-05 | Empty message is rejected with 400 | PASS | 400 |
+
+**Admin**
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-ADM-01 | A normal user gets 403 on the usage endpoint | PASS | 403 forbidden |
+| E2E-ADM-02 | After the Admin role is granted (SQL, as in the README) and a fresh login, usage shows the chat call | PASS | totalCount 1, tokens 173, user Alice Rao |
+| E2E-ADM-03 | Date filter with from later than to returns 400 | PASS | 400 |
+| E2E-ADM-04 | Page size is capped at 100 | PASS | pageSize 100 |
+
+**Direct chat**
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-DM-01 | People search: name only, no email, never yourself | PASS | fields: id,name only; email never matches |
+| E2E-DM-02 | Start a conversation (201) and reopen it from the other side (200, same id) | PASS | idempotent |
+| E2E-DM-03 | Chat with yourself is 400; an unknown user is 404 | PASS | 400 / 404 |
+| E2E-DM-04 | Privacy: an outsider and an ADMIN (Alice) both get 404 on a conversation they are not in | PASS | 404 x4 (admin has no special access) |
+| E2E-DM-05 | Message validation: empty and over-8000-character content are rejected | PASS | 400 / 400 |
+| E2E-DM-06 | Hub rejects a connection without a token (401) | PASS | 401 |
+
+**Realtime**
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-RT-01 | Alice connects to /hubs/direct over a real WebSocket (through nginx) | PASS | connected, transport WebSockets |
+| E2E-RT-02 | ONE grey tick: Alice sends while Bob is offline -> status "sent" | PASS | status sent, peerOnline=false |
+| E2E-RT-03 | TWO grey ticks: when Bob connects, Alice is told m1 is now "delivered" | PASS | pushed + persisted as delivered |
+| E2E-RT-04 | Online peer: Alice sends m2 -> status "delivered" at once, Bob receives it live | PASS | delivered immediately; MessageReceived pushed |
+| E2E-RT-05 | Presence: Alice sees Bob online while he is connected | PASS | peerOnline=true; Bob unread=2 |
+| E2E-RT-06 | TWO BLUE ticks: Bob reads -> Alice told "read" for m1 and m2; Bob's other tab clears unread | PASS | read pushed to sender; MessagesRead pushed to reader's other tab; unread=0 |
+| E2E-RT-07 | Reading again is a no-op (readCount 0) and pushes nothing | PASS | readCount 0, no event |
+| E2E-RT-08 | Reverse direction: Bob sends m3 to online Alice -> delivered and pushed | PASS | delivered + pushed |
+| E2E-RT-09 | Presence/last seen: Bob stays online with one tab left; offline only after the last tab; lastSeenAt set | PASS | offline after last tab; lastSeenAt 2026-10-20T07:14:30.342205 |
+| E2E-RT-10 | Deliver-on-reconnect works for messages sent while offline (Bob offline -> Alice sends -> Bob reconnects) | PASS | delivered on reconnect |
+
+### 9.3 End-to-end checks in a real browser: UI (14/14 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-UI-01 | Register page: create an account through the form and land on the chat page | PASS | redirected to / |
+| E2E-UI-02 | Login page: wrong password shows an inline error, no navigation | PASS | inline error: Email or password is incorrect. |
+| E2E-UI-03 | Chat page: top bar, pinned Book appointment row at the top, round "+" new-chat button | PASS | plus button 36x36, round, aria-label "New chat" |
+| E2E-UI-04 | Chat: "+" creates a new empty chat, opens it (?session=<id>), and adds a "New chat" row | PASS | POST 201; rows 0->1; opened empty "New chat" |
+| E2E-UI-05 | Chat: send a message in the UI and see a REAL AI reply rendered as markdown | PASS | assistant reply rendered (markdown) after sending from the composer |
+| E2E-UI-06 | Chat: the sidebar title updates from the first message and groups under Today | PASS | "Give me a two item bullet list about fruit. Use markdown…" under Today |
+| E2E-UI-07 | Chat: Copy button on a reply shows "Copied" | PASS | label "Copied" |
+| E2E-UI-08 | Pinned "Book appointment" row opens the placeholder page; top bar has Log out + theme toggle | PASS | heading "Doctor appointments are coming soon"; buttons: Dark theme, Log out |
+| E2E-UI-09 | Dark theme toggle switches the theme and survives a reload | PASS | data-theme=dark before and after reload |
+| E2E-UI-10 | Reload keeps the user logged in; Log out returns to /login and protects / | PASS | session persisted across reload; logout + guard redirect OK |
+| E2E-UI-11 | Admin: "Usage logs" link is visible for an Admin and the usage page lists the AI calls | PASS | 2 usage rows; stat cards 2 / 370 |
+| E2E-UI-12 | Admin: a non-admin is redirected away from /admin/usage | PASS | redirected to / |
+| E2E-UI-13 | Mobile (390 px): no horizontal scroll on login, chat and appointments; drawer opens | PASS | no overflow; drawer opened |
+| E2E-UI-14 | No uncaught JavaScript errors on any page during the whole run | PASS | 0 uncaught page errors |
+
+Server log check for this run: no unhandled exceptions; nginx logged 4 WebSocket upgrades (`101`) and the expected `401` for a token-less negotiate; the only `fail:` line is the handled, logged forgot-password send failure (SMTP is unset in this environment); the only warnings are the two start-up warnings in F3.
+
+### 9.4 Findings
+
+| # | Severity | Finding | Evidence and cause | Suggested fix |
+|---|---|---|---|---|
+| F1 | **Medium (real defect, predates Phase 11). FIXED, see 9.6** | `POST /api/auth/forgot-password` returns **500** for a registered email when the email cannot be sent, but 200 for an unknown email. Besides breaking the feature, this **reveals which emails have accounts**, defeating the "same generic answer" rule. Failed `E2E-AUTH-07`. | The Docker stack has no SMTP settings, and compose passes them as empty strings (`Smtp__Username: ${SMTP_USERNAME:-}`). `SmtpEmailSender` treats an empty string as configured, tries Gmail, and Gmail rejects it (`5.7.8 Username and Password not accepted`). `AuthController.ForgotPassword` does not catch the send failure. | Treat blank `Smtp:Username`/`Smtp:Password` as missing (fail fast with a clear log), and catch send failures in `ForgotPassword`: log the error and still return the generic message. Phase 17 (async emails) also removes the coupling. Add a unit test where `IEmailSender` throws. |
+| F2 | Low (behaviour since Phase 6) | Every click on the new-chat "+" immediately creates a database row ("New chat") and opens it, even if the user never types. Empty chats accumulate. | Observed: one click gave `POST /api/chat/sessions` 201 and a second sidebar row. (My earlier message that "+" shows an empty new-chat screen was inaccurate for the real app.) | Phase 24 (chat management): create the chat on the first message, or let users delete empty chats. |
+| F3 | Info | The API logs two start-up warnings in containers: HTTPS redirection cannot find an HTTPS port, and Data Protection keys are stored in a non-persistent folder. | Both appear on every start. The app does not use cookies or anti-forgery, so Data Protection has no effect today. | HTTPS warning: Phase 21. Data Protection: persist keys or switch the middleware off if it is not needed. |
+| F4 | Limitation (by design, Phase 11) | A sender's **other tabs** do not get a live copy of a message sent from one tab (only the recipient is pushed `MessageReceived`). | Design choice in `DirectChatController.SendMessage`. | Phase 12: reload the conversation on focus, or push a `MessageSent` event to the sender's group. |
+
+### 9.5 Not covered by this run
+
+- **Direct-chat UI** (conversation list, thread, tick icons, unread badge, toast): not built until Phase 12. The realtime behaviour was tested with a real SignalR client instead.
+- **Real forgot-password email and the reset-password happy path:** no SMTP credentials in this environment (see F1). The unit tests cover the reset logic.
+- **Typing indicator, delete message, presence events:** Phase 13.
+- **Rate limiting, lockout, refresh tokens, streaming, cost, admin user management, brokers:** planned, not built.
+- Load, security and penetration testing are out of scope (section 1).
+
+### 9.6 Follow-up: F1 fixed and re-verified
+
+The **first run** of this section found 36/37 API checks (`E2E-AUTH-07` failed) and 12/13 UI checks (`E2E-UI-04` had a wrong expectation about "+", corrected; an empty "no JavaScript errors" check was replaced by a real one). F1 (forgot-password `500` for registered emails when SMTP fails) was then fixed, and the **whole run above was repeated against a freshly rebuilt stack: 37/37 and 14/14, plus all 163 automated tests.** What the fix changed:
+- `SmtpEmailSender` now treats a blank, whitespace or missing `Smtp:Username` / `Smtp:Password` as not configured and fails fast with a clear message (no Gmail login attempt).
+- `AuthController.ForgotPassword` catches a failed send, logs it by user id, and returns the same generic `200` as for an unknown email. A cancelled request still cancels.
+- 8 new .NET tests (`AUTH-23`, `ERR-06`): .NET is now **95 passed**, 163 automated tests overall.
+- Verified on the real Docker stack (rebuilt, SMTP still unset): registered email `200`, unknown email `200`, **identical bodies**; the API log shows `Could not send the password reset email for user <id>` with `Smtp:Username is not configured`. All throwaway users and data were deleted and the stack stopped afterwards.
+- Still true: with no SMTP credentials no email is sent (`E2E-AUTH-07` now passes, but the real email and the reset-password happy path still need real credentials to test). The remaining enumeration paths, the registration `409` and the slower response for known emails, are Phase 22 and Phase 17.

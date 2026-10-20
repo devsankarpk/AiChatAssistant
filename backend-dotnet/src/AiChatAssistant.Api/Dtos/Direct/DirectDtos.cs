@@ -54,9 +54,21 @@ public class ConversationResponse
 
     public int UnreadCount { get; set; }
 
-    /// <summary>Always false until live presence exists (Phase 11).</summary>
+    /// <summary>True while the peer has at least one live connection (from the in-memory presence tracker).</summary>
     public bool PeerOnline { get; set; }
 
-    /// <summary>Null until live presence exists (Phase 11).</summary>
+    /// <summary>When the peer's last connection closed; null if they have never connected since Phase 11.</summary>
     public DateTime? PeerLastSeenAt { get; set; }
+}
+
+/// <summary>Result of marking a conversation read.</summary>
+public class MarkReadResponse
+{
+    public Guid ConversationId { get; set; }
+
+    /// <summary>How many of the peer's messages were newly marked read (0 when nothing was unread).</summary>
+    public int ReadCount { get; set; }
+
+    /// <summary>The newest message that was marked read; null when ReadCount is 0.</summary>
+    public long? UpToMessageId { get; set; }
 }

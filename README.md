@@ -137,6 +137,8 @@ On some networks, .NET's TLS revocation check can't reach the mail provider's OC
 the connection fails with an `SslHandshakeException` even though the certificate is valid -
 `SmtpEmailSender` already disables revocation checking for this reason (see its comment).
 
+**No SMTP configured?** The reset email is simply not sent: `POST /api/auth/forgot-password` still returns the same generic `200` for every email (so no account is revealed) and the API logs `Could not send the password reset email for user <id>` with the reason. Set `SMTP_USERNAME` and `SMTP_PASSWORD` (a Gmail App Password) to send real emails. (A bug where this returned `500` for registered emails was found in the 2026-10-20 test run and fixed; see `TESTING.md` section 9.6.)
+
 ### Becoming an Admin
 
 There's no self-serve path (by design - see `AuthController.Register` in CLAUDE.md's notes). Grant
@@ -418,7 +420,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8, test phase T1 and Phases 9–10 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phases 9–11 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -433,7 +435,7 @@ Phases 1–8, test phase T1 and Phases 9–10 are **done**. Everything below is 
 | 9 | **28** | 404 page, accessibility check, optional i18n | — | Planned |
 | 10 | **9** | Top navigation, appointments placeholder | — | **Done** (early, at the user's request) |
 | 11 | **10** | Direct-messaging tables and REST | — | **Done** (early, at the user's request) |
-| 12 | **11** | SignalR, delivered and read ticks | 10 | Planned |
+| 12 | **11** | SignalR, delivered and read ticks | 10 | **Done** (early, at the user's request) |
 | 13 | **12** | Messages UI with ticks, badge and toast | 11 | Planned |
 | 14 | **13** | Typing, online / last seen, delete message | 12 | Planned |
 | 15 | **14** | End-to-end check of the chat feature | 13 | Planned |
@@ -521,13 +523,15 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 
 > Done. **Schema:** migration `20261014165721_AddDirectMessaging` adds `Users.LastSeenAt` and the tables `DirectConversations` (unique lower/higher user-id pair) and `DirectMessages` (`DeliveredAt`, `ReadAt`, `DeletedAt` nullable; the tick state is derived from them). The migration is **applied only to the Docker stack's database**; it has **not** been applied to your local dev MySQL. Run `dotnet ef database update --project src/AiChatAssistant.Api` (from `backend-dotnet/`) when you want it there. **Endpoints** (all require a JWT; `404` for anyone who is not a participant, Admins included): `GET /api/direct/users?search=` (name-only, 2+ characters, max 20, `{ id, name }`), `GET /api/direct/conversations` (peer, last message, unread count, `peerOnline` always `false` and `peerLastSeenAt` until Phase 11), `POST /api/direct/conversations` (`{ userId }`; `201` created, `200` already existed, `400` for yourself, `404` for an unknown user), `GET /api/direct/conversations/{id}/messages?before=&limit=` (oldest first within the page; default 50, max 100), `POST /api/direct/conversations/{id}/messages` (`201`, status `sent`). Not built yet: read receipts and delivered status (Phase 11), delete message and typing (Phase 13). 35 new .NET tests (61 total); the unique index, cascade and new tables were also verified against real MySQL in the Docker stack, with throwaway rows deleted afterwards. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
-#### Phase 11 — Realtime, delivered and read *(backend)*
-- [ ] `IPresenceTracker` and `IDirectNotifier` (wraps `IHubContext`), so controllers and tests need no hub
-- [ ] `DirectHub` at `/hubs/direct`, JWT via query string, per-user group, pending messages marked delivered on connect
-- [ ] Send marks **Delivered** when the recipient is online; `POST .../read` sets `read_at` and notifies the sender
-- [ ] `Program.cs` (SignalR, `MapHub`, CORS `AllowCredentials`) and an `nginx.conf` `/hubs/` WebSocket location with a long read timeout
-- [ ] *Carry-overs:* the hub authenticates with the refreshed access token (Phase 23), refuses disabled users (Phase 26), and the nginx CSP allows the WebSocket (Phase 21)
-- [ ] Tests: delivered only when online, connect delivers pending, read notifies the sender, multi-tab presence, `last_seen_at` written only on the last disconnect
+#### Phase 11 — Realtime, delivered and read *(backend)* — **done**
+- [x] `IPresenceTracker` and `IDirectNotifier` (wraps `IHubContext`), so controllers and tests need no hub
+- [x] `DirectHub` at `/hubs/direct`, JWT via query string, per-user group, pending messages marked delivered on connect
+- [x] Send marks **Delivered** when the recipient is online; `POST .../read` sets `read_at` and notifies the sender
+- [x] `Program.cs` (SignalR, `MapHub`, CORS `AllowCredentials`) and an `nginx.conf` `/hubs/` WebSocket location with a long read timeout
+- [x] *Carry-overs:* these three obligations belong to phases that are not built yet, so they are tracked there and in `TESTING.md` rather than here: the hub must use the refreshed access token (Phase 23, row TOK-04), refuse disabled users (Phase 26, row COST-05), and the nginx CSP must allow the WebSocket (Phase 21, row SEC-06)
+- [x] Tests: delivered only when online, connect delivers pending, read notifies the sender, multi-tab presence, `last_seen_at` written only on the last disconnect
+
+> Done. **Realtime:** `Hubs/DirectHub` at `/hubs/direct` (`[Authorize]`; the JWT comes as the `access_token` query string, accepted only for `/hubs` paths via `JwtBearerEvents.OnMessageReceived`; each connection joins the group `user-<id>`). `Services/InMemoryPresenceTracker` (`IPresenceTracker`: first connection = online, last disconnect = offline and writes `User.LastSeenAt`), `Services/SignalRDirectNotifier` (`IDirectNotifier`: best-effort pushes that never throw into a request) and `Services/DirectDeliveryService` (on connect, everything waiting for the user becomes delivered and each sender is told). **Ticks:** sending while the recipient is online stores `DeliveredAt` at once (status `delivered`); otherwise `sent`, and it becomes `delivered` when they connect. New endpoint `POST /api/direct/conversations/{id}/read` marks the peer's unread messages read (`ReadAt`, and `DeliveredAt` if empty) and returns `{ conversationId, readCount, upToMessageId }`; non-participants and Admins get `404`. **Events** (server to client): `MessageReceived` (the message, to the recipient), `MessageStatusChanged` `{ conversationId, messageIds, status }` with status `delivered` or `read` (to the sender), `MessagesRead` `{ conversationId, upToMessageId }` (to the reader's own other tabs, to clear their unread count). `peerOnline` in the conversation list now reflects live presence. **Infra:** CORS now allows credentials (SignalR negotiate), and `frontend/nginx.conf` has a `/hubs/` location with WebSocket upgrade headers and a 1-hour read timeout. **Limits:** presence is in memory, so the `api` must stay at one replica until Phase 16; a sender's other tabs don't get a live copy of their own message (Phase 12 can refetch or add an event). 26 new .NET tests (87 total). Verified end to end on the Docker stack with a real SignalR client over real WebSockets through nginx: all 10 realtime checks passed (see `TESTING.md` section 9). Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
 #### Phase 12 — Messages UI with ticks *(frontend)*
 - [ ] `@microsoft/signalr`; an app-wide hub service (starts on login, stops on logout, auto-reconnect), a shared state service (conversations, unread total) and a REST service
@@ -613,7 +617,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 
 ### Post-plan — Test plan (Phases T1–T5)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 129 automated tests (61 .NET, 12 Python, 56 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 163 automated tests (95 .NET, 12 Python, 56 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria

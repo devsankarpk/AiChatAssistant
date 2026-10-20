@@ -2,6 +2,7 @@ using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Models;
+using AiChatAssistant.Api.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -27,15 +28,21 @@ public class DirectChatController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IValidator<StartConversationRequest> _startValidator;
     private readonly IValidator<SendDirectMessageRequest> _sendValidator;
+    private readonly IPresenceTracker _presence;
+    private readonly IDirectNotifier _notifier;
 
     public DirectChatController(
         AppDbContext db,
         IValidator<StartConversationRequest> startValidator,
-        IValidator<SendDirectMessageRequest> sendValidator)
+        IValidator<SendDirectMessageRequest> sendValidator,
+        IPresenceTracker presence,
+        IDirectNotifier notifier)
     {
         _db = db;
         _startValidator = startValidator;
         _sendValidator = sendValidator;
+        _presence = presence;
+        _notifier = notifier;
     }
 
     /// <summary>Find people to message by name. Matches the name only, so an email can never be probed.</summary>
@@ -94,7 +101,7 @@ public class DirectChatController : ControllerBase
                     ? null
                     : ToMessageResponse(r.Id, r.Last.Id, r.Last.SenderId, r.Last.Content, r.Last.CreatedAt, r.Last.DeliveredAt, r.Last.ReadAt, r.Last.DeletedAt),
                 UnreadCount = r.Unread,
-                PeerOnline = false,
+                PeerOnline = _presence.IsOnline(r.PeerId),
                 PeerLastSeenAt = r.PeerLastSeenAt,
             })
             .ToList();
@@ -173,7 +180,7 @@ public class DirectChatController : ControllerBase
             Peer = new PeerResponse { Id = peer.Id, Name = peer.Name },
             LastMessage = last is null ? null : ToMessageResponse(last),
             UnreadCount = unread,
-            PeerOnline = false,
+            PeerOnline = _presence.IsOnline(peer.Id),
             PeerLastSeenAt = peer.LastSeenAt,
         };
 
@@ -226,17 +233,71 @@ public class DirectChatController : ControllerBase
             return ConversationNotFound();
         }
 
+        var callerId = User.GetUserId();
+        var recipientId = conversation.UserLowId == callerId ? conversation.UserHighId : conversation.UserLowId;
+
         var message = new DirectMessage
         {
             ConversationId = id,
-            SenderId = User.GetUserId(),
+            SenderId = callerId,
             Content = request.Content.Trim(),
         };
         _db.DirectMessages.Add(message);
         await _db.SaveChangesAsync(cancellationToken);
 
-        // Status is "sent" here. "Delivered" and "read" arrive with the realtime layer (Phase 11).
-        return StatusCode(StatusCodes.Status201Created, ToMessageResponse(message));
+        // One grey tick (sent) is the message being saved. Two grey ticks (delivered) is the recipient
+        // having a live connection right now; if they connect later, the hub marks it delivered then.
+        if (_presence.IsOnline(recipientId))
+        {
+            message.DeliveredAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        var response = ToMessageResponse(message);
+        await _notifier.MessageReceivedAsync(recipientId, response, cancellationToken);
+
+        return StatusCode(StatusCodes.Status201Created, response);
+    }
+
+    /// <summary>
+    /// The caller has this conversation open and visible: mark everything the other person sent as
+    /// read (two blue ticks for them). Idempotent; reports how many messages were newly read.
+    /// </summary>
+    [HttpPost("conversations/{id:guid}/read")]
+    public async Task<ActionResult<MarkReadResponse>> MarkRead(Guid id, CancellationToken cancellationToken)
+    {
+        var conversation = await GetParticipantConversationAsync(id, cancellationToken);
+        if (conversation is null)
+        {
+            return ConversationNotFound();
+        }
+
+        var callerId = User.GetUserId();
+        var unread = await _db.DirectMessages
+            .Where(m => m.ConversationId == id && m.SenderId != callerId && m.ReadAt == null && m.DeletedAt == null)
+            .ToListAsync(cancellationToken);
+
+        if (unread.Count == 0)
+        {
+            return Ok(new MarkReadResponse { ConversationId = id, ReadCount = 0, UpToMessageId = null });
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var message in unread)
+        {
+            message.ReadAt = now;
+            message.DeliveredAt ??= now; // reading implies it was delivered
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var peerId = conversation.UserLowId == callerId ? conversation.UserHighId : conversation.UserLowId;
+        var ids = unread.Select(m => m.Id).OrderBy(i => i).ToList();
+        var upTo = ids[^1];
+
+        await _notifier.MessagesStatusChangedAsync(peerId, id, ids, "read", cancellationToken);
+        await _notifier.MessagesReadAsync(callerId, id, upTo, cancellationToken);
+
+        return Ok(new MarkReadResponse { ConversationId = id, ReadCount = ids.Count, UpToMessageId = upTo });
     }
 
     /// <summary>
