@@ -8,6 +8,7 @@ using AiChatAssistant.Api.Validators;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace AiChatAssistant.Api.Tests;
@@ -37,7 +38,8 @@ public class AuthControllerTests : IDisposable
             new RegisterRequestValidator(),
             new LoginRequestValidator(),
             new ForgotPasswordRequestValidator(),
-            new ResetPasswordRequestValidator());
+            new ResetPasswordRequestValidator(),
+            NullLogger<AuthController>.Instance);
 
     [Fact]
     public async Task Register_CreatesUser_AssignsDefaultUserRole_AndReturnsToken()
@@ -173,6 +175,40 @@ public class AuthControllerTests : IDisposable
         _emailSender.Verify(
             e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task ForgotPassword_ReturnsTheSameGenericMessage_WhenSendingTheEmailFails_SoNoAccountIsRevealed()
+    {
+        _db.Users.Add(new User { Name = "Known", Email = "known@example.com", PasswordHash = "x" });
+        _db.SaveChanges();
+        _emailSender
+            .Setup(e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("SMTP is down or not configured"));
+        var controller = CreateController();
+
+        var known = await controller.ForgotPassword(new ForgotPasswordRequest { Email = "known@example.com" }, CancellationToken.None);
+        var unknown = await controller.ForgotPassword(new ForgotPasswordRequest { Email = "nobody@example.com" }, CancellationToken.None);
+
+        // Identical status and body for a registered and an unregistered email, even though sending failed.
+        var knownOk = Assert.IsType<OkObjectResult>(known.Result);
+        var unknownOk = Assert.IsType<OkObjectResult>(unknown.Result);
+        Assert.Equal(
+            Assert.IsType<AuthMessageResponse>(unknownOk.Value).Message,
+            Assert.IsType<AuthMessageResponse>(knownOk.Value).Message);
+    }
+
+    [Fact]
+    public async Task ForgotPassword_StillPropagatesCancellation_RatherThanSwallowingIt()
+    {
+        _db.Users.Add(new User { Name = "Known", Email = "known@example.com", PasswordHash = "x" });
+        _db.SaveChanges();
+        _emailSender
+            .Setup(e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => CreateController().ForgotPassword(new ForgotPasswordRequest { Email = "known@example.com" }, CancellationToken.None));
     }
 
     [Fact]

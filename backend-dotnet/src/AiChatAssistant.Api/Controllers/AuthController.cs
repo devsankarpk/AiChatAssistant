@@ -24,6 +24,7 @@ public class AuthController : ControllerBase
     private readonly ITokenService _tokenService;
     private readonly IEmailSender _emailSender;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<AuthController> _logger;
     private readonly IValidator<RegisterRequest> _registerValidator;
     private readonly IValidator<LoginRequest> _loginValidator;
     private readonly IValidator<ForgotPasswordRequest> _forgotPasswordValidator;
@@ -37,7 +38,8 @@ public class AuthController : ControllerBase
         IValidator<RegisterRequest> registerValidator,
         IValidator<LoginRequest> loginValidator,
         IValidator<ForgotPasswordRequest> forgotPasswordValidator,
-        IValidator<ResetPasswordRequest> resetPasswordValidator)
+        IValidator<ResetPasswordRequest> resetPasswordValidator,
+        ILogger<AuthController> logger)
     {
         _db = db;
         _tokenService = tokenService;
@@ -47,6 +49,7 @@ public class AuthController : ControllerBase
         _loginValidator = loginValidator;
         _forgotPasswordValidator = forgotPasswordValidator;
         _resetPasswordValidator = resetPasswordValidator;
+        _logger = logger;
     }
 
     [HttpPost("register")]
@@ -159,7 +162,18 @@ public class AuthController : ControllerBase
 
         var frontendBaseUrl = (_configuration["Frontend:BaseUrl"] ?? "http://localhost:4200").TrimEnd('/');
         var resetLink = $"{frontendBaseUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}";
-        await _emailSender.SendPasswordResetEmailAsync(user.Email, user.Name, resetLink, cancellationToken);
+        try
+        {
+            await _emailSender.SendPasswordResetEmailAsync(user.Email, user.Name, resetLink, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A mail failure (SMTP down, bad credentials, not configured) must not change the answer: a
+            // 500 here, against a 200 for an unknown email, would reveal which emails have accounts -
+            // the exact thing the generic message exists to prevent. Log it for the operator instead.
+            // Logged by user id, not email address.
+            _logger.LogError(ex, "Could not send the password reset email for user {UserId}", user.Id);
+        }
 
         return Ok(new AuthMessageResponse(genericMessage));
     }
