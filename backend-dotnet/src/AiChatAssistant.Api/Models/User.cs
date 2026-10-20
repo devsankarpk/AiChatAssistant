@@ -12,6 +12,9 @@ public class User
 
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>When the user's last live connection closed (written from Phase 11; null until then).</summary>
+    public DateTime? LastSeenAt { get; set; }
+
     public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
 
     public ICollection<ChatSession> ChatSessions { get; set; } = new List<ChatSession>();

@@ -3,6 +3,8 @@ using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
 using AiChatAssistant.Api.Dtos.Chat;
+using AiChatAssistant.Api.Dtos.Direct;
+using AiChatAssistant.Api.Hubs;
 using AiChatAssistant.Api.Middleware;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Validators;
@@ -37,6 +39,15 @@ builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();
 builder.Services.AddScoped<IValidator<SendMessageRequest>, SendMessageRequestValidator>();
+builder.Services.AddScoped<IValidator<StartConversationRequest>, StartConversationRequestValidator>();
+builder.Services.AddScoped<IValidator<SendDirectMessageRequest>, SendDirectMessageRequestValidator>();
+
+// Realtime direct chat (Phase 11). Presence is in memory, so the api must stay at one replica until
+// Phase 16 moves presence and the SignalR backplane to Redis.
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IPresenceTracker, InMemoryPresenceTracker>();
+builder.Services.AddSingleton<IDirectNotifier, SignalRDirectNotifier>();
+builder.Services.AddScoped<IDirectDeliveryService, DirectDeliveryService>();
 
 // Python AI service client. InternalApiKey is the shared secret from CLAUDE.md's X-Internal-Key
 // contract - it must match ai-service-python's INTERNAL_API_KEY exactly.
@@ -84,6 +95,17 @@ builder.Services.AddAuthentication(options =>
         // tokens indistinguishable from each other while debugging.
         options.Events = new JwtBearerEvents
         {
+            // Browsers cannot set an Authorization header on a WebSocket, so the SignalR client sends the
+            // JWT as ?access_token=... . Accept it from the query string for the hub path only.
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            },
             OnAuthenticationFailed = context =>
             {
                 context.HttpContext.RequestServices
@@ -125,7 +147,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy(FrontendCorsPolicy, policy => policy
         .WithOrigins(allowedOrigins)
         .AllowAnyHeader()
-        .AllowAnyMethod());
+        .AllowAnyMethod()
+        // SignalR's negotiate request is sent with credentials; with explicit origins this is allowed.
+        .AllowCredentials());
 });
 
 builder.Services.AddControllers();
@@ -190,6 +214,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<DirectHub>("/hubs/direct");
 app.MapHealthChecks("/health");
 
 // A route matching nothing above (typo'd path, wrong method, ...) would otherwise fall through

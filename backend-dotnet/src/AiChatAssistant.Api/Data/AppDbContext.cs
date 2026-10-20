@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<UsageLog> UsageLogs => Set<UsageLog>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -110,6 +112,41 @@ public class AppDbContext : DbContext
                 .HasForeignKey(t => t.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(t => t.UserId);
+        });
+
+        modelBuilder.Entity<DirectConversation>(entity =>
+        {
+            entity.ToTable("DirectConversations");
+            entity.Property(c => c.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            // Deleting a user removes their direct conversations (and, below, the messages in them).
+            entity.HasOne(c => c.UserLow)
+                .WithMany()
+                .HasForeignKey(c => c.UserLowId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(c => c.UserHigh)
+                .WithMany()
+                .HasForeignKey(c => c.UserHighId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // One conversation per pair, stored lower id first.
+            entity.HasIndex(c => new { c.UserLowId, c.UserHighId }).IsUnique();
+            entity.HasIndex(c => c.UserHighId);
+        });
+
+        modelBuilder.Entity<DirectMessage>(entity =>
+        {
+            entity.ToTable("DirectMessages");
+            entity.Property(m => m.Content).HasColumnType("text").IsRequired();
+            entity.Property(m => m.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.HasOne(m => m.Conversation)
+                .WithMany(c => c.Messages)
+                .HasForeignKey(m => m.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(m => m.Sender)
+                .WithMany()
+                .HasForeignKey(m => m.SenderId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(m => new { m.ConversationId, m.Id });
+            entity.HasIndex(m => m.SenderId);
         });
     }
 }

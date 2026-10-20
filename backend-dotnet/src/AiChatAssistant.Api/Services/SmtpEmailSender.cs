@@ -27,12 +27,10 @@ public class SmtpEmailSender : IEmailSender
     {
         var host = _configuration["Smtp:Host"] ?? "smtp.gmail.com";
         var port = _configuration.GetValue("Smtp:Port", 587);
-        var username = _configuration["Smtp:Username"]
-            ?? throw new InvalidOperationException(
-                "Smtp:Username is not configured. Set it via 'dotnet user-secrets set \"Smtp:Username\" \"<value>\"' in Development, or the Smtp__Username environment variable elsewhere.");
-        var password = _configuration["Smtp:Password"]
-            ?? throw new InvalidOperationException(
-                "Smtp:Password is not configured. Set it via 'dotnet user-secrets set \"Smtp:Password\" \"<value>\"' in Development, or the Smtp__Password environment variable elsewhere.");
+        // Blank counts as missing. Containers pass unset secrets as empty strings (compose's
+        // ${SMTP_USERNAME:-}), and treating "" as configured made us try Gmail with no credentials.
+        var username = RequiredSetting("Smtp:Username", "Smtp__Username");
+        var password = RequiredSetting("Smtp:Password", "Smtp__Password");
         var fromEmail = _configuration["Smtp:FromEmail"] ?? username;
         var fromName = _configuration["Smtp:FromName"] ?? "AI Chat Assistant";
 
@@ -60,5 +58,17 @@ public class SmtpEmailSender : IEmailSender
         await client.DisconnectAsync(true, cancellationToken);
 
         _logger.LogInformation("Password reset email sent to {ToEmail}", toEmail);
+    }
+
+    private string RequiredSetting(string key, string environmentVariable)
+    {
+        var value = _configuration[key];
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException(
+                $"{key} is not configured. Set it via 'dotnet user-secrets set \"{key}\" \"<value>\"' in Development, or the {environmentVariable} environment variable elsewhere.");
+        }
+
+        return value;
     }
 }
