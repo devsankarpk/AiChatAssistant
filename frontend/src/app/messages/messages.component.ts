@@ -42,6 +42,8 @@ export class MessagesComponent implements OnDestroy {
   readonly draft = signal('');
   readonly sending = signal(false);
   readonly sendError = signal<string | null>(null);
+  /** The message whose "Delete for everyone?" step is showing (one at a time). */
+  readonly confirmingDeleteId = signal<number | null>(null);
 
   readonly searchTerm = signal('');
   /** The people matching `term`; kept with its term so "no one found" is not flashed while a search is pending. */
@@ -71,6 +73,7 @@ export class MessagesComponent implements OnDestroy {
       const id = this.selectedId();
       untracked(() => {
         this.sendError.set(null);
+        this.confirmingDeleteId.set(null);
         this.state.openConversation(id).catch(() => {
           // A conversation id that no longer exists (or is not ours): leave the dead link.
           if (id) {
@@ -130,6 +133,37 @@ export class MessagesComponent implements OnDestroy {
     }
   }
 
+  /** Typing in the box tells the other person (the state service sends it at most every few seconds). */
+  onDraftChange(value: string): void {
+    this.draft.set(value);
+    const id = this.selectedId();
+    if (id && value.trim()) {
+      this.state.notifyTyping(id);
+    }
+  }
+
+  askDelete(messageId: number): void {
+    this.confirmingDeleteId.set(messageId);
+  }
+
+  cancelDelete(): void {
+    this.confirmingDeleteId.set(null);
+  }
+
+  async confirmDelete(messageId: number): Promise<void> {
+    const id = this.selectedId();
+    if (!id) {
+      return;
+    }
+    try {
+      await this.state.deleteMessage(id, messageId);
+    } catch (err) {
+      this.sendError.set(err instanceof HttpErrorResponse ? extractErrorMessage(err) : "Couldn't delete that message.");
+    } finally {
+      this.confirmingDeleteId.set(null);
+    }
+  }
+
   onDraftKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -146,6 +180,32 @@ export class MessagesComponent implements OnDestroy {
 
   initial(name: string): string {
     return name.trim().charAt(0).toUpperCase();
+  }
+
+  /** The line under the name in the thread header: typing, online, or when they were last seen. */
+  presenceText(conversation: ConversationResponse): string {
+    if (this.state.isTyping(conversation.id)) {
+      return 'typing…';
+    }
+    if (conversation.peerOnline) {
+      return 'Online';
+    }
+    return conversation.peerLastSeenAt ? this.lastSeenText(conversation.peerLastSeenAt) : '';
+  }
+
+  lastSeenText(iso: string): string {
+    const date = new Date(iso);
+    const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return `Last seen today at ${time}`;
+    }
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `Last seen yesterday at ${time}`;
+    }
+    return `Last seen ${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
   }
 
   /** "You: hi", "Priya: hi", or a note for an empty or deleted last message. */

@@ -24,6 +24,30 @@ public class SignalRDirectNotifier : IDirectNotifier
     public Task MessagesReadAsync(int readerId, Guid conversationId, long upToMessageId, CancellationToken cancellationToken = default) =>
         SendAsync(readerId, "MessagesRead", new { conversationId, upToMessageId }, cancellationToken);
 
+    public Task MessageDeletedAsync(int userId, Guid conversationId, long messageId, CancellationToken cancellationToken = default) =>
+        SendAsync(userId, "MessageDeleted", new { conversationId, messageId }, cancellationToken);
+
+    public Task PeerTypingAsync(int recipientId, Guid conversationId, int typingUserId, CancellationToken cancellationToken = default) =>
+        SendAsync(recipientId, "PeerTyping", new { conversationId, userId = typingUserId }, cancellationToken);
+
+    public async Task PeerPresenceChangedAsync(IReadOnlyCollection<int> peerIds, int userId, bool online, DateTime? lastSeenAt, CancellationToken cancellationToken = default)
+    {
+        if (peerIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _hub.Clients.Groups(peerIds.Select(DirectHub.GroupFor).ToList())
+                .SendAsync("PeerPresenceChanged", new { userId, online, lastSeenAt }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not push PeerPresenceChanged for user {UserId}", userId);
+        }
+    }
+
     private async Task SendAsync(int userId, string method, object payload, CancellationToken cancellationToken)
     {
         try

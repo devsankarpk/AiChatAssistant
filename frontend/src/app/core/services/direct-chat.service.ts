@@ -43,6 +43,11 @@ export class DirectChatService {
     return this.http.post<DirectMessageResponse>(`${this.base}/conversations/${conversationId}/messages`, { content });
   }
 
+  /** Delete one of your own messages for everyone (the server clears its text). */
+  deleteMessage(conversationId: string, messageId: number): Observable<DirectMessageResponse> {
+    return this.http.delete<DirectMessageResponse>(`${this.base}/conversations/${conversationId}/messages/${messageId}`);
+  }
+
   markRead(conversationId: string): Observable<MarkReadResponse> {
     return this.http.post<MarkReadResponse>(`${this.base}/conversations/${conversationId}/read`, {});
   }

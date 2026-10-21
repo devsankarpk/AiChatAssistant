@@ -2,7 +2,14 @@ import { Injectable, InjectionToken, inject, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { DirectMessageResponse, MessagesReadEvent, StatusChangedEvent } from '../models/direct.models';
+import {
+  DirectMessageResponse,
+  MessageDeletedEvent,
+  MessagesReadEvent,
+  PeerPresenceEvent,
+  PeerTypingEvent,
+  StatusChangedEvent,
+} from '../models/direct.models';
 import { AuthService } from './auth.service';
 
 /** The few SignalR connection methods we use, so tests can supply a fake without the real library. */
@@ -12,6 +19,7 @@ export interface HubLike {
   onclose(callback: () => void): void;
   start(): Promise<void>;
   stop(): Promise<void>;
+  invoke(method: string, ...args: unknown[]): Promise<unknown>;
 }
 
 export type HubFactory = (url: string, accessTokenFactory: () => string) => Promise<HubLike>;
@@ -55,6 +63,9 @@ export class DirectHubService {
   readonly messageReceived$ = new Subject<DirectMessageResponse>();
   readonly statusChanged$ = new Subject<StatusChangedEvent>();
   readonly messagesRead$ = new Subject<MessagesReadEvent>();
+  readonly messageDeleted$ = new Subject<MessageDeletedEvent>();
+  readonly peerTyping$ = new Subject<PeerTypingEvent>();
+  readonly peerPresence$ = new Subject<PeerPresenceEvent>();
   /** Emits after the browser reconnected: events may have been missed, so listeners should refetch. */
   readonly reconnected$ = new Subject<void>();
 
@@ -78,6 +89,9 @@ export class DirectHubService {
       hub.on('MessageReceived', (message: DirectMessageResponse) => this.messageReceived$.next(message));
       hub.on('MessageStatusChanged', (event: StatusChangedEvent) => this.statusChanged$.next(event));
       hub.on('MessagesRead', (event: MessagesReadEvent) => this.messagesRead$.next(event));
+      hub.on('MessageDeleted', (event: MessageDeletedEvent) => this.messageDeleted$.next(event));
+      hub.on('PeerTyping', (event: PeerTypingEvent) => this.peerTyping$.next(event));
+      hub.on('PeerPresenceChanged', (event: PeerPresenceEvent) => this.peerPresence$.next(event));
       hub.onreconnected(() => {
         this.connected.set(true);
         this.reconnected$.next();
@@ -97,6 +111,18 @@ export class DirectHubService {
       this.scheduleRetry();
     } finally {
       this.connecting = false;
+    }
+  }
+
+  /** Tells the other person we are typing. Best effort: dropped silently when not connected or on any error. */
+  async sendTyping(conversationId: string): Promise<void> {
+    if (!this.hub || !this.connected()) {
+      return;
+    }
+    try {
+      await this.hub.invoke('Typing', conversationId);
+    } catch {
+      // A missed "typing…" is harmless.
     }
   }
 

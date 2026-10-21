@@ -119,6 +119,24 @@
   background: var(--surface);
 }
 
+.avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* Online: a green dot on the corner of the avatar. */
+.dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--online);
+}
+
 .conv-main {
   display: flex;
   flex-direction: column;
@@ -157,6 +175,11 @@
   font-size: var(--step--1);
 }
 
+.conv-preview.typing {
+  color: var(--accent);
+  font-style: italic;
+}
+
 .unread {
   min-width: 1.35rem;
   padding: 0.05rem 0.4rem;
@@ -187,9 +210,31 @@
   background: var(--surface);
 }
 
+.thread-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .thread-title {
   margin: 0;
   font-size: var(--step-1);
+  line-height: 1.2;
+}
+
+.thread-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+
+  &.online {
+    color: var(--online);
+  }
+
+  &.typing {
+    color: var(--accent);
+    font-style: italic;
+  }
 }
 
 .back {
@@ -256,6 +301,51 @@
   align-items: center;
   align-self: flex-end;
   gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+/* Text-style buttons inside a bubble: Delete (own messages), and its confirm step. */
+.link {
+  align-self: flex-end;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text);
+  }
+
+  &.danger {
+    color: var(--danger);
+  }
+}
+
+/* Delete shows on hover or keyboard focus, and always on touch screens where there is no hover. */
+.delete {
+  opacity: 0;
+}
+
+.bubble:hover .delete,
+.bubble:focus-within .delete {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .delete {
+    opacity: 1;
+  }
+}
+
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 0.5rem;
   color: var(--text-muted);
   font-size: 0.6875rem;
 }

@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, flush, tick } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { BehaviorSubject, Subject, of, throwError } from 'rxjs';
 
@@ -25,11 +25,17 @@ describe('MessagesComponent', () => {
   let chat: jasmine.SpyObj<DirectChatService>;
   let router: Router;
   let query: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
+  let sendTyping: jasmine.Spy;
+  let peerTyping$: Subject<{ conversationId: string; userId: number }>;
+  let peerPresence$: Subject<{ userId: number; online: boolean; lastSeenAt: string | null }>;
 
   async function setup(conversations: ConversationResponse[], thread: DirectMessageResponse[] = [], selected: string | null = null) {
     chat = jasmine.createSpyObj<DirectChatService>('DirectChatService', [
-      'listConversations', 'getMessages', 'sendMessage', 'markRead', 'startConversation', 'searchUsers',
+      'listConversations', 'getMessages', 'sendMessage', 'markRead', 'startConversation', 'searchUsers', 'deleteMessage',
     ]);
+    sendTyping = jasmine.createSpy('sendTyping').and.resolveTo();
+    peerTyping$ = new Subject();
+    peerPresence$ = new Subject();
     chat.listConversations.and.returnValue(of(conversations));
     chat.getMessages.and.returnValue(of(thread));
     chat.markRead.and.returnValue(of({ conversationId: 'c1', readCount: 0, upToMessageId: null }));
@@ -47,6 +53,7 @@ describe('MessagesComponent', () => {
           useValue: {
             start: () => Promise.resolve(), stop: () => Promise.resolve(),
             messageReceived$: new Subject(), statusChanged$: new Subject(), messagesRead$: new Subject(), reconnected$: new Subject(),
+            messageDeleted$: new Subject(), peerTyping$: peerTyping$, peerPresence$: peerPresence$, sendTyping,
           },
         },
         { provide: AuthService, useValue: { user: signal({ id: ME, name: 'Me', email: 'me@example.test', roles: ['User'] }) } },
@@ -243,6 +250,136 @@ describe('MessagesComponent', () => {
     fixture.componentInstance.onDraftKeydown(enter);
     expect(enter.defaultPrevented).toBeTrue();
     expect(chat.sendMessage).toHaveBeenCalledOnceWith('c1', 'hello');
+  });
+
+  // ---- presence, typing, delete ------------------------------------------------------------
+
+  it('shows "Online" and a green dot when the other person is connected', async () => {
+    await setup([{ ...conv('c1', 'Alice Rao'), peerOnline: true }], [], 'c1');
+
+    expect(el.querySelector('.thread-status')?.textContent?.trim()).toBe('Online');
+    expect(el.querySelector('.thread-status')?.classList.contains('online')).toBeTrue();
+    expect(el.querySelector('.thread-head .dot')).not.toBeNull();
+    expect(rows()[0].querySelector('.dot')?.getAttribute('aria-label')).toBe('Online');
+  });
+
+  it('shows when they were last seen when they are offline, and nothing if they have never connected', async () => {
+    const earlier = new Date(); earlier.setHours(9, 5, 0, 0);
+    await setup([{ ...conv('c1', 'Alice Rao'), peerLastSeenAt: earlier.toISOString() }], [], 'c1');
+    expect(el.querySelector('.thread-status')?.textContent).toContain('Last seen today at');
+    expect(el.querySelector('.thread-head .dot')).toBeNull();
+  });
+
+  it('shows no status line for someone who has never been seen', async () => {
+    await setup([conv('c1', 'Alice Rao')], [], 'c1');
+
+    expect(el.querySelector('.thread-status')).toBeNull();
+  });
+
+  it('describes older last-seen times as "yesterday" or a date', async () => {
+    await setup([conv('c1', 'Alice Rao')]);
+    const c = fixture.componentInstance;
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 9);
+
+    expect(c.lastSeenText(yesterday.toISOString())).toContain('Last seen yesterday at');
+    // The order of day and month follows the browser's locale ("Oct 12" or "12 Oct"), so accept either.
+    expect(c.lastSeenText(lastWeek.toISOString())).toMatch(/^Last seen (\d{1,2} [A-Z][a-z]{2}|[A-Z][a-z]{2} \d{1,2})$/);
+  });
+
+  it('shows "typing…" in the thread header and in the list while the other person types, then goes back', fakeAsync(() => {
+    void setup([{ ...conv('c1', 'Alice Rao'), peerOnline: true }], [], 'c1');
+    flush();
+    fixture.componentInstance.state.start();
+    flush();
+
+    peerTyping$.next({ conversationId: 'c1', userId: 51 });
+    fixture.detectChanges();
+    expect(el.querySelector('.thread-status')?.textContent?.trim()).toBe('typing…');
+    expect(rows()[0].querySelector('.conv-preview')?.textContent?.trim()).toBe('typing…');
+
+    tick(4000);
+    fixture.detectChanges();
+    expect(el.querySelector('.thread-status')?.textContent?.trim()).toBe('Online');
+    expect(rows()[0].querySelector('.conv-preview')?.textContent?.trim()).not.toBe('typing…');
+    fixture.componentInstance.state.stop();
+  }));
+
+  it('tells the other person you are typing, once for a burst of keystrokes, and not for an empty box', async () => {
+    await setup([conv('c1', 'Alice Rao')], [], 'c1');
+    const c = fixture.componentInstance;
+
+    c.onDraftChange('');
+    c.onDraftChange('   ');
+    expect(sendTyping).not.toHaveBeenCalled();
+
+    c.onDraftChange('h');
+    c.onDraftChange('he');
+    c.onDraftChange('hel');
+
+    expect(sendTyping).toHaveBeenCalledOnceWith('c1');
+    expect(c.draft()).toBe('hel');
+  });
+
+  it('offers Delete only on your own messages that are not already deleted', async () => {
+    await setup(
+      [conv('c1', 'Alice Rao')],
+      [msg(1, 50), msg(2, ME), msg(3, ME, { content: '', deleted: true })],
+      'c1',
+    );
+
+    const deletable = bubbles().map((b) => !!b.querySelector('.delete'));
+
+    expect(deletable).toEqual([false, true, false]); // theirs, mine, mine-but-deleted
+    expect(bubbles()[1].querySelector('.delete')?.getAttribute('aria-label')).toBe('Delete this message');
+  });
+
+  it('asks "Delete for everyone?" first, and Cancel backs out without deleting', async () => {
+    await setup([conv('c1', 'Alice Rao')], [msg(2, ME)], 'c1');
+
+    (bubbles()[0].querySelector('.delete') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(bubbles()[0].querySelector('.confirm')?.textContent).toContain('Delete for everyone?');
+
+    const cancel = Array.from(bubbles()[0].querySelectorAll<HTMLButtonElement>('.confirm button')).find((b) => b.textContent?.trim() === 'Cancel')!;
+    cancel.click();
+    fixture.detectChanges();
+
+    expect(chat.deleteMessage).not.toHaveBeenCalled();
+    expect(bubbles()[0].querySelector('.confirm')).toBeNull();
+    expect(bubbles()[0].querySelector('.delete')).not.toBeNull();
+  });
+
+  it('confirming deletes the message and shows the placeholder with no text, no ticks and no Delete', async () => {
+    await setup([conv('c1', 'Alice Rao')], [msg(2, ME, { content: 'regret' })], 'c1');
+    chat.deleteMessage.and.returnValue(of(msg(2, ME, { content: '', deleted: true })));
+    (bubbles()[0].querySelector('.delete') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    (bubbles()[0].querySelector('.confirm .danger') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(chat.deleteMessage).toHaveBeenCalledOnceWith('c1', 2);
+    expect(bubbles()[0].textContent).toContain('This message was deleted');
+    expect(bubbles()[0].textContent).not.toContain('regret');
+    expect(bubbles()[0].querySelector('app-ticks')).toBeNull();
+    expect(bubbles()[0].querySelector('.delete')).toBeNull();
+  });
+
+  it('a failed delete keeps the message and shows an error', async () => {
+    await setup([conv('c1', 'Alice Rao')], [msg(2, ME, { content: 'still here' })], 'c1');
+    chat.deleteMessage.and.returnValue(throwError(() => new Error('network')));
+    (bubbles()[0].querySelector('.delete') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    (bubbles()[0].querySelector('.confirm .danger') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(bubbles()[0].textContent).toContain('still here');
+    expect(el.querySelector('.form-error')?.textContent).toContain("Couldn't delete that message.");
+    expect(bubbles()[0].querySelector('.confirm')).toBeNull();
   });
 
   // ---- people search -----------------------------------------------------------------------

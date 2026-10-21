@@ -66,6 +66,14 @@ describe('DirectChatService', () => {
     req.flush({});
   });
 
+  it('deletes a message with DELETE on the message url', () => {
+    service.deleteMessage('c1', 42).subscribe();
+
+    const req = http.expectOne(`${base}/conversations/c1/messages/42`);
+    expect(req.request.method).toBe('DELETE');
+    req.flush({});
+  });
+
   it('marks a conversation read with an empty POST', () => {
     service.markRead('c1').subscribe();
 

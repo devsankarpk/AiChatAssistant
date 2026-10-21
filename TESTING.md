@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 238 automated tests (95 .NET, 12 Python, 131 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 10** (Phase 12, latest) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 296 automated tests (122 .NET, 12 Python, 162 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 11** (Phase 13, latest), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (95 tests)
+# .NET (122 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -39,7 +39,7 @@ dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one cla
 cd ai-service-python && source .venv/bin/activate && pytest
 pytest tests/test_generate.py::test_returns_reply                      # one test
 
-# Angular (131 tests)
+# Angular (162 tests)
 cd frontend && npm test -- --watch=false --browsers=ChromeHeadless
 npm test -- --include='**/auth.service.spec.ts' --watch=false --browsers=ChromeHeadless   # one spec
 ```
@@ -237,6 +237,45 @@ Not yet covered: the concurrent double-start race (two people start the same cha
 | UIM-14 | App shell | The live connection is started when someone signs in and stopped when they sign out, and kept off while signed out | Angular | Automated: 3 specs in `app.component.spec.ts` |
 | UIM-15 | Two real browsers on the real stack | Sent, delivered and read ticks, toast, badge, reload, dark theme, mobile, sign-out | Manual | Manual: 17 checks in section 10.2, all passed on 2026-10-21 |
 
+### 5.12 TYPING, ONLINE / LAST SEEN, DELETE, UTC TIMES (Phase 13)
+
+Test cases, with the automated test (or manual check) that covers each. "Hub" = the SignalR server hub; all .NET tests use an in-memory database and mocked pushes, no real network.
+
+| ID | Test case (scenario) | Expected result | Layer | Status |
+|---|---|---|---|---|
+| TYP-01 | A participant types: the hub is told `Typing(conversationId)` | `PeerTyping` is pushed to the **other** participant only, in either direction, and nothing else is pushed | .NET | Automated: `Typing_IsForwardedToTheOtherParticipantOnly`, `Typing_WorksBothWays` |
+| TYP-02 | Someone outside the conversation, an unknown conversation id, or a connection with no user id sends `Typing` | Silently ignored: no push, no error (a probe learns nothing about which ids exist) | .NET | Automated: `Typing_FromSomeoneOutsideTheConversation_IsIgnored_NotForwardedAndNoError`, `Typing_ForAnUnknownConversation_IsIgnored`, `Typing_WithoutAUserId_IsIgnored` |
+| TYP-03 | The other person types | "typing…" shows in the thread header and in the list preview; it clears after 4 quiet seconds; each new signal restarts the 4 seconds; your own signal is ignored; each conversation is independent | Angular | Automated: 3 specs in `direct-state.service.spec.ts` (shows and clears, keeps showing, own signal and separate conversations) |
+| TYP-04 | Their message arrives, or they go offline, or you sign out | "typing…" is cleared at once; no timers are left running after sign-out | Angular | Automated: 3 specs in `direct-state.service.spec.ts` |
+| TYP-05 | You type | One signal for a burst of keystrokes, at most one every 3 seconds per conversation; none for an empty or whitespace box; sending a message resets the throttle | Angular | Automated: 3 specs in `direct-state.service.spec.ts`, `tells the other person you are typing, once for a burst of keystrokes, and not for an empty box` in `messages.component.spec.ts` |
+| TYP-06 | The hub client sends typing | Invokes `Typing` with the conversation id; sends nothing before it is connected or after stop; swallows a failed call | Angular | Automated: 3 specs in `direct-hub.service.spec.ts` |
+| TYP-07 | Real keystrokes in two real browsers | The header and list show "typing…" on the other screen; 35 keystrokes send exactly 1 signal and a second burst after a quiet spell sends the 2nd (counted from the real WebSocket frames) | Manual | Manual: `E2E-M13-02` to `E2E-M13-05` |
+| PRS-01 | A user's first connection | `PeerPresenceChanged(online)` is pushed to every person who shares a conversation with them, and to no one else | .NET | Automated: `ComingOnline_IsBroadcastToEveryoneWhoSharesAConversation_AndNoOneElse` |
+| PRS-02 | A second tab opens, or one of two tabs closes | No broadcast (they did not come online or go offline) | .NET | Automated: `ASecondTab_DoesNotBroadcastAgain`, first half of `GoingOffline_IsBroadcastOnlyWhenTheLastTabCloses_WithTheSameLastSeenAsStored` |
+| PRS-03 | The last tab closes | `PeerPresenceChanged(offline, lastSeenAt)` is pushed, and `lastSeenAt` equals the value stored on the user | .NET | Automated: `GoingOffline_IsBroadcastOnlyWhenTheLastTabCloses_WithTheSameLastSeenAsStored` |
+| PRS-04 | A person with no conversations connects | Nothing is pushed to anyone (empty recipient list) | .NET | Automated: `APersonWithNoConversations_BroadcastsToNobody` |
+| PRS-05 | The presence event arrives in the browser | Online and last seen update for the right person only; a "came online" event keeps the earlier last-seen time | Angular | Automated: 2 specs in `direct-state.service.spec.ts` |
+| PRS-06 | The thread header and list | "Online" in green with a dot; "Last seen today at …", "yesterday at …" or a date; no line at all for someone never seen; "typing…" overrides the rest; no dot when offline | Angular | Automated: 4 specs in `messages.component.spec.ts` (online, last seen, never seen, older times in either locale order) |
+| PRS-07 | Two real browsers | No status line for a never-connected person; "Online" and a green dot appear live when they sign in; "Last seen today at 20:48" appears live when they sign out and is identical after a reload | Manual | Manual: `E2E-M13-01`, `E2E-M13-11` |
+| DEL-01 | The sender deletes their message | `200`; response has `deleted: true` and empty content; the database row has `Content` empty and `DeletedAt` set (the text is really gone) | .NET | Automated: `DeleteMessage_BySender_ClearsTheTextForGood_AndReturnsItAsDeleted` |
+| DEL-02 | Who is told | `MessageDeleted` is pushed to the other person and to the sender (their other tabs) | .NET | Automated: `DeleteMessage_PushesMessageDeletedToBothPeople` |
+| DEL-03 | Deleting the same message again | `200`, still deleted, and no second push | .NET | Automated: `DeleteMessage_Twice_IsAHarmlessNoOp_WithNoSecondPush` |
+| DEL-04 | The other participant tries to delete it | `403 forbidden` ("You can only delete your own messages."), nothing changes, nothing is pushed | .NET | Automated: `DeleteMessage_ByTheOtherParticipant_Returns403_AndChangesNothing` |
+| DEL-05 | An outsider or an Admin tries | `404` (direct messages stay private), nothing changes | .NET | Automated: `DeleteMessage_ByAnOutsiderOrAnAdmin_Returns404_AndChangesNothing` |
+| DEL-06 | An unknown message id, or a message that belongs to another conversation | `404` in both cases, the other conversation's message is untouched | .NET | Automated: `DeleteMessage_Returns404_ForAnUnknownMessage_AndForOneInAnotherConversation` |
+| DEL-07 | Deleting an unread message | The recipient's unread count drops by one | .NET | Automated: `DeleteMessage_RemovesAnUnreadMessageFromTheRecipientsUnreadCount` |
+| DEL-08 | After deletion, both people load the thread and list | Placeholder with empty text, `deleted: true`, in the thread and in the list preview | .NET | Automated: `DeleteMessage_ShowsAsADeletedPlaceholderToBothPeople_WithNoText` |
+| DEL-09 | The push reaches the browser | The message becomes a placeholder in the thread and the list preview; the unread count is recounted when it was the other person's message; a deletion of your own message from another tab needs no recount; an unknown message id is harmless | Angular | Automated: 3 specs in `direct-state.service.spec.ts` |
+| DEL-10 | You delete through the state service | Text cleared in the thread and the list preview; a failed delete leaves the message and rejects | Angular | Automated: 2 specs in `direct-state.service.spec.ts`, `deletes a message with DELETE on the message url` in `direct-chat.service.spec.ts` |
+| DEL-11 | The Delete button and its confirm step | Delete only on your own, not-yet-deleted messages (accessible label); "Delete for everyone?" asks first; Cancel backs out; Confirm shows the placeholder with no text, no ticks and no Delete; a failed delete keeps the text and shows an error | Angular | Automated: 4 specs in `messages.component.spec.ts` |
+| DEL-12 | The pushes themselves | `MessageDeleted`, `PeerTyping` (to the recipient only) and `PeerPresenceChanged` (one call, one group per peer, nothing when there are no peers) go to the right groups under the agreed names | .NET + Angular | Automated: 4 new specs in `SignalRDirectNotifierTests`, `forwards the delete, typing and presence events too` in `direct-hub.service.spec.ts` |
+| DEL-13 | Two real browsers | Cancel keeps it; confirm removes it from both screens live, and the original text is nowhere in either page or in the database; the other person has no Delete button and the API answers `403`; deleting an unread message lowers the other person's badge from 2 to 1 live | Manual | Manual: `E2E-M13-06` to `E2E-M13-10` |
+| UTC-01 | A date read from the database | Marked UTC without changing the moment; sent to the browser with a trailing `Z` | .NET | Automated: `ReadingADateFromTheDatabase_MarksItUtc_WithoutChangingTheValue`, `ADateReadFromTheDatabase_IsSentToTheBrowserWithATrailingZ` |
+| UTC-02 | A date written to the database | A local time is converted to UTC; a UTC time is left alone; a nullable date keeps `null` | .NET | Automated: `WritingALocalDate_ConvertsItToUtc_AndLeavesAUtcDateAlone`, `ANullableDate_KeepsNull_AndMarksAValueUtc` |
+| UTC-03 | Every date column in the model, now and in future | Uses the UTC converter, so a new column cannot be missed | .NET | Automated: `EveryDateColumnInTheModel_UsesTheUtcConverter_SoNoneCanBeMissed` |
+| UTC-04 | A new row's creation time | Comes from the app in UTC, not from the database server's clock or time zone, for all 7 tables with a `CreatedAt` | .NET | Automated: `NewRows_GetTheirCreationTimeFromTheApp_InUtc_NotFromTheDatabaseClock` |
+| UTC-05 | A real browser in a non-UTC time zone (this machine is IST, UTC+5:30) | The same time live and after a reload; "Last seen today at 20:48" matches the real clock | Manual | Manual: `E2E-M13-11` (this failed before the fix, see finding F8) |
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -252,8 +291,6 @@ These rows are filled in (and their test names recorded) when the feature phase 
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
-| MSG-03 | Typing indicator | Sent about every 3 s, clears after 4 s; rejected for non-participants | .NET + Angular | Planned (Phase 13) |
-| MSG-04 | Delete own message | Sender only; content cleared on the server; both sides see "This message was deleted" | .NET + Angular | Planned (Phase 13) |
 | BRK-01 | Presence and push across two API replicas | Event reaches a user connected to the other replica | Manual | Planned (Phase 16) |
 | BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Planned (Phase 17) |
 | BRK-03 | Async AI reply (`Chat:AsyncReplies` on) | `202` then `AssistantReplied`; a redelivered job is a no-op; failure then retry then `AssistantFailed`; broker down gives `503` with the user message kept | .NET + Angular | Planned (Phase 18) |
@@ -508,12 +545,69 @@ Phase 12 changed these Angular specs: new `ticks` (5), `direct-chat.service` (6)
 |---|---|---|---|---|
 | F5 | Fixed during the phase | A duplicate delivery of the same message for a conversation whose thread was not loaded still showed a **second toast** (the unread count was right). | Caught by the unit test `ignores a duplicate delivery of the same message`; `DirectStateService.onMessageReceived` now drops a message equal to the conversation's last message. | None needed (fixed and tested). |
 | F4 | Mitigated (see 9.4) | A sender's other tabs do not receive a live copy of a message sent from one tab. | The tab resyncs the list and open thread when it becomes visible again and after a reconnect. | A `MessageSent` push to the sender's group if instant sync across tabs is wanted. |
-| F6 | Low | Presence (online dot, last seen) and the typing indicator are not shown yet. | Planned for Phase 13 (`PeerPresenceChanged`, `Typing`). | Phase 13. |
+| F6 | Resolved in Phase 13 | Presence (online dot, last seen) and the typing indicator were not shown yet. | Built in Phase 13 (`PeerPresenceChanged`, `Typing`). | None needed. |
 | F7 | Info | Toasts have no click-through to the conversation. | `ToastService` shows text only. | Optional: make a message toast a link to `/messages?c=<id>`. |
 
 ### 10.5 Not covered by this run
 
-- **Delete message, typing, online/last seen:** Phase 13.
+- **Delete message, typing, online/last seen:** built in Phase 13 (section 11).
 - **Hidden-tab behaviour in a real browser:** covered by unit tests (visibility is faked); headless Chrome could not simulate a background tab here.
 - **Real password-reset emails:** no SMTP credentials in this environment.
 - **Very large conversations** (the 50-message page and "Show earlier messages") were unit-tested but not exercised against a real conversation of more than 50 messages.
+
+## 11. Phase 13 test run (2026-10-21)
+
+Run after Phase 13 (typing indicator, online / last seen, delete message) against the **real Docker stack** (MySQL, migration, .NET API, Python service, nginx + Angular), with **two real Chrome browsers acting as two people** (separate profiles, real WebSockets through nginx), a real DeepInfra LLM call in the regression run, and typing signals counted from the real WebSocket frames. Throwaway accounts only; all test data was deleted afterwards and the stack stopped. The host dev MySQL was not touched. No database migration was needed in Phase 13 (`dotnet ef migrations has-pending-model-changes`: no changes).
+
+### 11.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **122 passed, 0 failed** (95 before + 27 new: delete 8, hub typing 5, presence broadcasts 4, push events 4, UTC dates 6) |
+| Python (`pytest`) | **12 passed, 0 failed** (unchanged) |
+| Angular unit (`ng test`, ChromeHeadless) | **162 passed, 0 failed** (131 before + 31 new: state service 16, Messages page 10, hub service 4, REST service 1) |
+| Angular production build | Succeeded, no warnings. Initial bundle 326.2 kB; the Messages page chunk is 20.0 kB |
+| Database migration drift | None: Phase 13 and the UTC fix change no tables or columns |
+| **Total** | **296 passed, 0 failed** |
+
+### 11.2 Phase 13 in two browsers (13/13 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-M13-01 | No status line for someone who has never connected; then "Online" and a green dot appear live when Bob signs in | PASS | status "Online", green dot in header and list, colour rgb(22, 163, 74) |
+| E2E-M13-02 | "typing…" appears on Alice's screen (header and list) while Bob types without sending | PASS | header "typing…" and list preview "typing…" while Bob's message is unsent |
+| E2E-M13-03 | Throttle: a burst of 35 keystrokes sends ONE typing signal; after a quiet spell the next burst sends the second | PASS | bursts of 35 and 20 keystrokes -> 2 signals in total |
+| E2E-M13-04 | "typing…" clears by itself about 4 s after Bob stops (back to "Online") | PASS | cleared 2.6 s after the last typing signal was seen |
+| E2E-M13-05 | Sending ends the typing state at once and the message appears on Alice's screen | PASS | message shown, status "Online" (no stale "typing…") |
+| E2E-M13-06 | Delete asks first ("Delete for everyone?"); Cancel keeps the message | PASS | confirm text: "Delete for everyone?DeleteCancel"; Cancel kept the message |
+| E2E-M13-07 | Confirming Delete: the text disappears on Alice's screen AND, live, on Bob's screen (placeholder, no text, no ticks) | PASS | both screens show "This message was deleted"; the original text is nowhere in either page |
+| E2E-M13-08 | The text is really gone from the database (content empty, DeletedAt set), not just hidden | PASS | content=[] deleted=yes; rows still containing the old text: 0 |
+| E2E-M13-09 | The other person cannot delete it: no Delete button on their view, and the API says 403 | PASS | API 403 forbidden: "You can only delete your own messages." |
+| E2E-M13-10 | Deleting an UNREAD message lowers the other person's unread badge live (Bob is on the chatbot page) | PASS | Bob's badge 2 -> 1 without a refresh |
+| E2E-M13-11 | When Bob signs out Alice sees "Last seen today at …" live; the green dot goes; a reload keeps it | PASS | "Last seen today at 20:48" live, and the same after a reload |
+| E2E-M13-12 | Dark theme and mobile (390 px): the status line, delete placeholder and presence stay readable (screenshots) | PASS | no overflow at 390 px |
+| E2E-M13-13 | No uncaught JavaScript errors in either browser during the whole run | PASS | 0 uncaught page errors |
+
+### 11.3 Regression: Phase 12 (ticks, badge, toast) in two browsers (17/17 passed)
+
+All 17 checks of section 10.2 were repeated unchanged on the rebuilt stack and passed (sent, delivered and read ticks, unread badge on every page, toast, reload, dark theme, mobile, sign-out, chatbot page intact, no JavaScript errors).
+
+### 11.4 Regression: older features in a real browser (11/11 passed)
+
+Register through the form, a real LLM reply rendered as markdown, auto-titled chats, "+" creating a chat, the pinned Book appointment page, the Messages tab from another page, theme toggle remembered, admin Usage logs after the SQL role grant (its dates now correct), non-admin redirect, wrong-password error, forgot-password page, no JavaScript errors: **all 11 passed**.
+
+### 11.5 Findings
+
+| # | Severity | Finding | Evidence and cause | Resolution |
+|---|---|---|---|---|
+| F8 | **Medium (real bug, predates Phase 13, found by this run)** | **Every time shown after a reload was off by the viewer's UTC offset** (5½ hours on this IST machine): message times, conversation list times, last seen, usage-page dates. A time pushed live was correct, so the same value showed two different times. | The API sent `"2026-10-21T15:13:56"` with no `Z`: dates are stored in UTC but EF reads `datetime(6)` back as "Unspecified", so JSON had no zone marker and browsers read it as local time. Check `E2E-M13-11` failed ("20:42" live, "15:12" after reload). | **Fixed in this phase:** every date is now marked UTC by an EF value converter (`UtcDateTimeConverter`, applied to every `DateTime` column by convention) so the API sends `...Z`; and `CreatedAt` is set by the app in UTC instead of the database server's clock. 6 regression tests (`UTC-01` to `UTC-04`); the same browser check now passes (20:48 live and after reload). **Effect on existing data:** rows created before the fix by a database server that is not on UTC (for example a host MySQL on local time) will show shifted times; the Docker stack's MySQL is on UTC, so it is unaffected. |
+| F9 | Info (test setup, not the app) | The first run of this phase's browser script failed 9 checks because I did not clean the database after the previous run, so Alice's search found an older "Bob Tester". | The clean-up step was missing between runs. | Re-run on a clean database: 13/13. The script now cleans between runs. |
+| F10 | Low | Typing signals are not rate limited on the server (a malicious signed-in client could send many). | The client sends one every 3 s; the server forwards each one to the other participant only. | Covered by API rate limiting in Phase 21. |
+| F11 | Info | A last-seen time is visible to everyone who shares a conversation, and cannot be hidden. | Documented design limit (README, direct chat plan). | A privacy setting is not planned. |
+
+### 11.6 Not covered by this run
+
+- **Hidden-tab behaviour** in a real browser: unit-tested only (visibility is faked).
+- **A conversation of more than 50 messages** against the real server (the paging is unit-tested).
+- **Real password-reset emails:** no SMTP credentials in this environment.
+- **Older API-level checks** (the 37-check API run of section 9): not repeated, because no endpoint they cover changed except through the UTC converter, which the browser regression run exercised end to end (auth, chat with a real LLM reply, admin usage, direct chat).

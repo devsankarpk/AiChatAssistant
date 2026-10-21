@@ -301,6 +301,46 @@ public class DirectChatController : ControllerBase
     }
 
     /// <summary>
+    /// Delete one of your own messages for everyone. The text is cleared on the server (it is really gone,
+    /// not just hidden), and both people see "This message was deleted". Idempotent: deleting it again is
+    /// a no-op. Only the sender may delete; the other participant gets 403, outsiders and Admins get 404.
+    /// </summary>
+    [HttpDelete("conversations/{id:guid}/messages/{messageId:long}")]
+    public async Task<ActionResult<DirectMessageResponse>> DeleteMessage(Guid id, long messageId, CancellationToken cancellationToken)
+    {
+        var conversation = await GetParticipantConversationAsync(id, cancellationToken);
+        if (conversation is null)
+        {
+            return ConversationNotFound();
+        }
+
+        var message = await _db.DirectMessages.FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == id, cancellationToken);
+        if (message is null)
+        {
+            return NotFound(new ErrorResponse("message_not_found", "Message not found."));
+        }
+
+        var callerId = User.GetUserId();
+        if (message.SenderId != callerId)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new ErrorResponse("forbidden", "You can only delete your own messages."));
+        }
+
+        if (message.DeletedAt is null)
+        {
+            message.DeletedAt = DateTime.UtcNow;
+            message.Content = string.Empty;
+            await _db.SaveChangesAsync(cancellationToken);
+
+            var peerId = conversation.UserLowId == callerId ? conversation.UserHighId : conversation.UserLowId;
+            await _notifier.MessageDeletedAsync(peerId, id, messageId, cancellationToken);
+            await _notifier.MessageDeletedAsync(callerId, id, messageId, cancellationToken); // the sender's other tabs
+        }
+
+        return Ok(ToMessageResponse(message));
+    }
+
+    /// <summary>
     /// The conversation, but only if the caller is one of its two participants. Anyone else - including
     /// an Admin - gets null (so 404, never 403: we don't reveal that the conversation exists).
     /// </summary>

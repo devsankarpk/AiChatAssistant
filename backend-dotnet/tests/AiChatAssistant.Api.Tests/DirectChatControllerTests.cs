@@ -586,6 +586,125 @@ public class DirectChatControllerTests : IDisposable
         Assert.False(Assert.Single(Value(await alice.ListConversations(default))).PeerOnline);
     }
 
+    // ---- delete your own message ------------------------------------------------------------
+
+    [Fact]
+    public async Task DeleteMessage_BySender_ClearsTheTextForGood_AndReturnsItAsDeleted()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var message = SeedMessage(conversation, _alice, "secret plan");
+
+        var result = await CreateController(_alice).DeleteMessage(conversation.Id, message.Id, default);
+
+        var response = Value(result);
+        Assert.True(response.Deleted);
+        Assert.Equal(string.Empty, response.Content);
+        var stored = _db.DirectMessages.Single(m => m.Id == message.Id);
+        Assert.NotNull(stored.DeletedAt);
+        Assert.Equal(string.Empty, stored.Content); // gone from the database, not just hidden
+    }
+
+    [Fact]
+    public async Task DeleteMessage_PushesMessageDeletedToBothPeople()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var message = SeedMessage(conversation, _alice, "oops");
+
+        await CreateController(_alice).DeleteMessage(conversation.Id, message.Id, default);
+
+        _notifier.Verify(n => n.MessageDeletedAsync(_bob.Id, conversation.Id, message.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _notifier.Verify(n => n.MessageDeletedAsync(_alice.Id, conversation.Id, message.Id, It.IsAny<CancellationToken>()), Times.Once); // the sender's other tabs
+    }
+
+    [Fact]
+    public async Task DeleteMessage_Twice_IsAHarmlessNoOp_WithNoSecondPush()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var message = SeedMessage(conversation, _alice, "oops");
+        var alice = CreateController(_alice);
+
+        await alice.DeleteMessage(conversation.Id, message.Id, default);
+        var again = await alice.DeleteMessage(conversation.Id, message.Id, default);
+
+        Assert.True(Value(again).Deleted);
+        _notifier.Verify(n => n.MessageDeletedAsync(It.IsAny<int>(), It.IsAny<Guid>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Exactly(2)); // only the first delete pushed
+    }
+
+    [Fact]
+    public async Task DeleteMessage_ByTheOtherParticipant_Returns403_AndChangesNothing()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var message = SeedMessage(conversation, _alice, "Alice's words");
+
+        var result = await CreateController(_bob).DeleteMessage(conversation.Id, message.Id, default);
+
+        var forbidden = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        var stored = _db.DirectMessages.Single(m => m.Id == message.Id);
+        Assert.Null(stored.DeletedAt);
+        Assert.Equal("Alice's words", stored.Content);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task DeleteMessage_ByAnOutsiderOrAnAdmin_Returns404_AndChangesNothing()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var message = SeedMessage(conversation, _alice, "private");
+
+        var outsider = await CreateController(_carol).DeleteMessage(conversation.Id, message.Id, default);
+        var admin = await CreateController(_admin, Role.Admin).DeleteMessage(conversation.Id, message.Id, default);
+
+        Assert.IsType<NotFoundObjectResult>(outsider.Result);
+        Assert.IsType<NotFoundObjectResult>(admin.Result);
+        Assert.Null(_db.DirectMessages.Single(m => m.Id == message.Id).DeletedAt);
+        _notifier.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task DeleteMessage_Returns404_ForAnUnknownMessage_AndForOneInAnotherConversation()
+    {
+        var mine = SeedConversation(_alice, _bob);
+        var other = SeedConversation(_alice, _carol);
+        var elsewhere = SeedMessage(other, _alice, "in the Carol chat");
+
+        var unknown = await CreateController(_alice).DeleteMessage(mine.Id, 999999, default);
+        var wrongConversation = await CreateController(_alice).DeleteMessage(mine.Id, elsewhere.Id, default); // Alice sent it, but not in this conversation
+
+        Assert.IsType<NotFoundObjectResult>(unknown.Result);
+        Assert.IsType<NotFoundObjectResult>(wrongConversation.Result);
+        Assert.Null(_db.DirectMessages.Single(m => m.Id == elsewhere.Id).DeletedAt);
+    }
+
+    [Fact]
+    public async Task DeleteMessage_RemovesAnUnreadMessageFromTheRecipientsUnreadCount()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var first = SeedMessage(conversation, _alice, "one");
+        SeedMessage(conversation, _alice, "two");
+        Assert.Equal(2, Assert.Single(Value(await CreateController(_bob).ListConversations(default))).UnreadCount);
+
+        await CreateController(_alice).DeleteMessage(conversation.Id, first.Id, default);
+
+        Assert.Equal(1, Assert.Single(Value(await CreateController(_bob).ListConversations(default))).UnreadCount);
+    }
+
+    [Fact]
+    public async Task DeleteMessage_ShowsAsADeletedPlaceholderToBothPeople_WithNoText()
+    {
+        var conversation = SeedConversation(_alice, _bob);
+        var message = SeedMessage(conversation, _alice, "regret");
+        await CreateController(_alice).DeleteMessage(conversation.Id, message.Id, default);
+
+        var asBob = Value(await CreateController(_bob).GetMessages(conversation.Id, null, null, default));
+        var last = Assert.Single(Value(await CreateController(_bob).ListConversations(default))).LastMessage!;
+
+        Assert.True(Assert.Single(asBob).Deleted);
+        Assert.Equal(string.Empty, asBob[0].Content);
+        Assert.True(last.Deleted);
+        Assert.Equal(string.Empty, last.Content);
+    }
+
     // ---- schema rules the controller relies on (the in-memory provider does not enforce unique
     // ---- indexes, so enforcement itself is verified against real MySQL in the Docker stack) ----
 

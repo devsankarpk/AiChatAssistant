@@ -45,7 +45,12 @@
           [attr.aria-current]="conversation.id === selectedId() ? 'page' : null"
           (click)="open(conversation.id)"
         >
-          <span class="avatar" aria-hidden="true">{{ initial(conversation.peer.name) }}</span>
+          <span class="avatar-wrap">
+            <span class="avatar" aria-hidden="true">{{ initial(conversation.peer.name) }}</span>
+            @if (conversation.peerOnline) {
+              <span class="dot" role="img" aria-label="Online"></span>
+            }
+          </span>
           <span class="conv-main">
             <span class="conv-top">
               <span class="conv-name">{{ conversation.peer.name }}</span>
@@ -57,7 +62,11 @@
               @if (conversation.lastMessage && conversation.lastMessage.senderId === me() && !conversation.lastMessage.deleted) {
                 <app-ticks [status]="conversation.lastMessage.status" />
               }
-              <span class="conv-preview">{{ preview(conversation) }}</span>
+              @if (state.isTyping(conversation.id)) {
+                <span class="conv-preview typing">typing…</span>
+              } @else {
+                <span class="conv-preview">{{ preview(conversation) }}</span>
+              }
               @if (conversation.unreadCount > 0) {
                 <span class="unread" [attr.aria-label]="conversation.unreadCount + ' unread'">{{
                   conversation.unreadCount > 99 ? '99+' : conversation.unreadCount
@@ -78,8 +87,18 @@
     @if (selected(); as conversation) {
       <header class="thread-head">
         <button type="button" class="btn btn-quiet back" (click)="back()">Chats</button>
-        <span class="avatar" aria-hidden="true">{{ initial(conversation.peer.name) }}</span>
-        <h2 class="thread-title">{{ conversation.peer.name }}</h2>
+        <span class="avatar-wrap">
+          <span class="avatar" aria-hidden="true">{{ initial(conversation.peer.name) }}</span>
+          @if (conversation.peerOnline) {
+            <span class="dot" aria-hidden="true"></span>
+          }
+        </span>
+        <div class="thread-who">
+          <h2 class="thread-title">{{ conversation.peer.name }}</h2>
+          @if (presenceText(conversation); as status) {
+            <p class="thread-status" [class.typing]="state.isTyping(conversation.id)" [class.online]="conversation.peerOnline && !state.isTyping(conversation.id)" aria-live="polite">{{ status }}</p>
+          }
+        </div>
       </header>
 
       <div class="thread" aria-live="polite">
@@ -100,6 +119,17 @@
                   <app-ticks [status]="message.status" />
                 }
               </span>
+              @if (message.senderId === me() && !message.deleted) {
+                @if (confirmingDeleteId() === message.id) {
+                  <span class="confirm" role="group" aria-label="Confirm delete">
+                    <span>Delete for everyone?</span>
+                    <button type="button" class="link danger" (click)="confirmDelete(message.id)">Delete</button>
+                    <button type="button" class="link" (click)="cancelDelete()">Cancel</button>
+                  </span>
+                } @else {
+                  <button type="button" class="link delete" aria-label="Delete this message" (click)="askDelete(message.id)">Delete</button>
+                }
+              }
             </div>
           </div>
         } @empty {
@@ -120,7 +150,7 @@
             placeholder="Write a message"
             name="draft"
             [ngModel]="draft()"
-            (ngModelChange)="draft.set($event)"
+            (ngModelChange)="onDraftChange($event)"
             (keydown)="onDraftKeydown($event)"
           ></textarea>
           <button type="submit" class="btn btn-primary" [disabled]="sending() || !draft().trim()">Send</button>

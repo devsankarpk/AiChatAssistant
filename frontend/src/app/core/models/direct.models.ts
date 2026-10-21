@@ -51,3 +51,22 @@ export interface MessagesReadEvent {
   conversationId: string;
   upToMessageId: number;
 }
+
+/** `MessageDeleted`: the text of this message is gone for everyone. */
+export interface MessageDeletedEvent {
+  conversationId: string;
+  messageId: number;
+}
+
+/** `PeerTyping`: the other person is typing in this conversation. */
+export interface PeerTypingEvent {
+  conversationId: string;
+  userId: number;
+}
+
+/** `PeerPresenceChanged`: someone you share a conversation with came online or went offline. */
+export interface PeerPresenceEvent {
+  userId: number;
+  online: boolean;
+  lastSeenAt: string | null;
+}

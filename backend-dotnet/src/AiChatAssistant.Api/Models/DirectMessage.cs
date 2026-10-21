@@ -15,7 +15,7 @@ public class DirectMessage
 
     public string Content { get; set; } = string.Empty;
 
-    public DateTime CreatedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? DeliveredAt { get; set; }
 

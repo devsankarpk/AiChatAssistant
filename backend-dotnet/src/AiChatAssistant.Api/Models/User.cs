@@ -10,7 +10,7 @@ public class User
 
     public string PasswordHash { get; set; } = string.Empty;
 
-    public DateTime CreatedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>When the user's last live connection closed (written from Phase 11; null until then).</summary>
     public DateTime? LastSeenAt { get; set; }

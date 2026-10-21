@@ -7,7 +7,10 @@ import {
   ConversationResponse,
   DirectMessageResponse,
   DirectMessageStatus,
+  MessageDeletedEvent,
   MessagesReadEvent,
+  PeerPresenceEvent,
+  PeerTypingEvent,
   StatusChangedEvent,
 } from '../models/direct.models';
 import { extractErrorMessage } from '../utils/http-error';
@@ -18,6 +21,10 @@ import { ToastService } from './toast.service';
 
 const PAGE_SIZE = 50;
 const PREVIEW_LENGTH = 80;
+/** How long "typing…" stays up after the last typing signal (the sender repeats it every few seconds). */
+const TYPING_SHOWN_MS = 4000;
+/** The most often we tell the other person that we are typing. */
+const TYPING_SEND_INTERVAL_MS = 3000;
 
 /** A tick state only ever moves forward: a late "delivered" must not undo "read". */
 const STATUS_RANK: Record<DirectMessageStatus, number> = { sent: 0, delivered: 1, read: 2 };
@@ -48,6 +55,7 @@ export class DirectStateService {
   private readonly threadsSignal = signal<Record<string, DirectMessageResponse[]>>({});
   private readonly hasMoreSignal = signal<Record<string, boolean>>({});
   private readonly openIdSignal = signal<string | null>(null);
+  private readonly typingSignal = signal<Record<string, true>>({});
 
   /** In display order: most recently active first. */
   readonly conversations = this.conversationsSignal.asReadonly();
@@ -59,6 +67,8 @@ export class DirectStateService {
 
   private started = false;
   private subscriptions: Subscription[] = [];
+  private readonly typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly lastTypingSentAt = new Map<string, number>();
 
   /** Starts the live connection and loads the list. Safe to call repeatedly. */
   start(): void {
@@ -71,6 +81,9 @@ export class DirectStateService {
       this.hub.statusChanged$.subscribe((e) => this.onStatusChanged(e)),
       this.hub.messagesRead$.subscribe((e) => this.onMessagesRead(e)),
       this.hub.reconnected$.subscribe(() => void this.resync()),
+      this.hub.messageDeleted$.subscribe((e) => this.onMessageDeleted(e)),
+      this.hub.peerTyping$.subscribe((e) => this.onPeerTyping(e)),
+      this.hub.peerPresence$.subscribe((e) => this.onPeerPresence(e)),
     ];
     this.document.addEventListener('visibilitychange', this.onVisibilityChange);
     void this.hub.start();
@@ -92,6 +105,31 @@ export class DirectStateService {
     this.hasMoreSignal.set({});
     this.openIdSignal.set(null);
     this.loadError.set(null);
+    this.typingTimers.forEach((timer) => clearTimeout(timer));
+    this.typingTimers.clear();
+    this.lastTypingSentAt.clear();
+    this.typingSignal.set({});
+  }
+
+  /** True while the other person is typing in this conversation (cleared after a few quiet seconds). */
+  isTyping(conversationId: string | null): boolean {
+    return conversationId ? !!this.typingSignal()[conversationId] : false;
+  }
+
+  /** Call as the draft changes: tells the other person, at most once every few seconds. */
+  notifyTyping(conversationId: string): void {
+    const now = Date.now();
+    if (now - (this.lastTypingSentAt.get(conversationId) ?? 0) < TYPING_SEND_INTERVAL_MS) {
+      return;
+    }
+    this.lastTypingSentAt.set(conversationId, now);
+    void this.hub.sendTyping(conversationId);
+  }
+
+  /** Delete one of your own messages for everyone; the thread and the list preview show the placeholder. */
+  async deleteMessage(conversationId: string, messageId: number): Promise<void> {
+    await firstValueFrom(this.chat.deleteMessage(conversationId, messageId));
+    this.applyDeleted(conversationId, messageId);
   }
 
   thread(conversationId: string | null): DirectMessageResponse[] {
@@ -144,6 +182,7 @@ export class DirectStateService {
   /** Sends over REST. The reply (status "sent", or "delivered" if they are online) is added to the thread. */
   async send(conversationId: string, content: string): Promise<DirectMessageResponse> {
     const sent = await firstValueFrom(this.chat.sendMessage(conversationId, content));
+    this.lastTypingSentAt.delete(conversationId); // the next thing typed should be announced at once
     this.appendToThread(sent);
     this.updateConversation(conversationId, (c) => ({ ...c, lastMessage: sent }), true);
     return sent;
@@ -180,6 +219,8 @@ export class DirectStateService {
     if (message.senderId === this.myId() || this.threadHas(message.conversationId, message.id)) {
       return;
     }
+
+    this.clearTyping(message.conversationId); // they sent it, so they are no longer "typing"
 
     let conversation = this.find(message.conversationId);
     if (conversation?.lastMessage?.id === message.id) {
@@ -222,6 +263,64 @@ export class DirectStateService {
 
   private onMessagesRead(event: MessagesReadEvent): void {
     this.setUnread(event.conversationId, 0); // read in another tab of ours
+  }
+
+  private onPeerTyping(event: PeerTypingEvent): void {
+    if (event.userId === this.myId()) {
+      return;
+    }
+    this.typingSignal.update((all) => ({ ...all, [event.conversationId]: true }));
+    const existing = this.typingTimers.get(event.conversationId);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    this.typingTimers.set(
+      event.conversationId,
+      setTimeout(() => this.clearTyping(event.conversationId), TYPING_SHOWN_MS),
+    );
+  }
+
+  private clearTyping(conversationId: string): void {
+    const timer = this.typingTimers.get(conversationId);
+    if (timer) {
+      clearTimeout(timer);
+      this.typingTimers.delete(conversationId);
+    }
+    this.typingSignal.update((all) => {
+      if (!all[conversationId]) {
+        return all;
+      }
+      const { [conversationId]: _removed, ...rest } = all;
+      return rest;
+    });
+  }
+
+  private onPeerPresence(event: PeerPresenceEvent): void {
+    this.conversationsSignal.update((list) =>
+      list.map((c) =>
+        c.peer.id === event.userId
+          ? { ...c, peerOnline: event.online, peerLastSeenAt: event.lastSeenAt ?? c.peerLastSeenAt }
+          : c,
+      ),
+    );
+    if (!event.online) {
+      // Someone who went offline is not typing any more.
+      this.conversationsSignal().filter((c) => c.peer.id === event.userId).forEach((c) => this.clearTyping(c.id));
+    }
+  }
+
+  private onMessageDeleted(event: MessageDeletedEvent): void {
+    const wasMine = this.thread(event.conversationId).find((m) => m.id === event.messageId)?.senderId === this.myId();
+    this.applyDeleted(event.conversationId, event.messageId);
+    if (!wasMine) {
+      void this.refreshConversations(); // an unread message that was deleted no longer counts as unread
+    }
+  }
+
+  private applyDeleted(conversationId: string, messageId: number): void {
+    const wipe = (m: DirectMessageResponse): DirectMessageResponse => (m.id === messageId ? { ...m, content: '', deleted: true } : m);
+    this.threadsSignal.update((all) => (all[conversationId] ? { ...all, [conversationId]: all[conversationId].map(wipe) } : all));
+    this.updateConversation(conversationId, (c) => (c.lastMessage ? { ...c, lastMessage: wipe(c.lastMessage) } : c), false);
   }
 
   /** After a reconnect or coming back to the tab, events may have been missed: refetch what is on screen. */

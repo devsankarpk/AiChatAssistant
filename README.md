@@ -420,7 +420,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8, test phase T1 and Phases 9–12 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phases 9–13 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -437,7 +437,7 @@ Phases 1–8, test phase T1 and Phases 9–12 are **done**. Everything below is 
 | 11 | **10** | Direct-messaging tables and REST | — | **Done** (early, at the user's request) |
 | 12 | **11** | SignalR, delivered and read ticks | 10 | **Done** (early, at the user's request) |
 | 13 | **12** | Messages UI with ticks, badge and toast | 11 | **Done** (early, at the user's request) |
-| 14 | **13** | Typing, online / last seen, delete message | 12 | Planned |
+| 14 | **13** | Typing, online / last seen, delete message | 12 | **Done** (early, at the user's request) |
 | 15 | **14** | End-to-end check of the chat feature | 13 | Planned |
 | 16 | **15** | Redis and RabbitMQ foundation | 11 | Planned |
 | 17 | **17** | Async emails (RabbitMQ) | 15 | Planned |
@@ -542,11 +542,13 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 
 > Done. **New:** `@microsoft/signalr` 8 (loaded on demand after sign-in, so it is not in the initial bundle); `core/services/direct-chat.service.ts` (REST), `direct-hub.service.ts` (one app-wide connection, auto-reconnect, retry when the first attempt fails; the JWT is read through a function each time), `direct-state.service.ts` (conversations, threads, unread total, toasts, mark-read; started and stopped by `AppComponent` with the sign-in state); `shared/ticks/` (one grey tick = sent, two grey = delivered, two blue = read, with an accessible label; new token `--tick-read`, light `#0284c7` and dark `#38bdf8`); `messages/` page at `/messages` (selected conversation in `?c=<id>`, name search with a 250 ms debounce, plain-text bubbles with a soft accent tint for your own so the ticks stay readable, "Show earlier messages" paging, one pane at a time below 48rem). The top bar gained a **Messages** tab with a live unread badge. **Behaviour:** a message for a conversation you are not looking at counts as unread, moves to the top and shows a toast ("Name: preview"); in the open, visible conversation it is marked read at once with no toast; the badge works on every page; on reconnect and when the tab becomes visible again the list and open thread are refetched, which also covers a sender's other tabs. **Tests:** 75 new Angular specs (131 total); a real two-browser run on the Docker stack (Alice and Bob, real WebSockets through nginx) passed all 17 checks, and a regression run of the older features passed (see `TESTING.md` section 10). A unit test caught one real bug on the way (a duplicate delivery showed a second toast), now fixed. Not built yet: typing indicator, online/last seen and delete message (Phase 13). Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
-#### Phase 13 — Typing, online / last seen, delete
-- [ ] Hub `Typing` call (membership-checked, sent to the other person only), `PeerTyping` and `PeerPresenceChanged` events
-- [ ] `DELETE` endpoint: sender only, content cleared on the server, `MessageDeleted` pushed
-- [ ] UI: "typing…" line, online dot or "last seen …", delete action on your own messages, "This message was deleted" placeholder
-- [ ] Tests for typing, delete rules and presence events
+#### Phase 13 — Typing, online / last seen, delete — **done**
+- [x] Hub `Typing` call (membership-checked, sent to the other person only), `PeerTyping` and `PeerPresenceChanged` events
+- [x] `DELETE` endpoint: sender only, content cleared on the server, `MessageDeleted` pushed
+- [x] UI: "typing…" line, online dot or "last seen …", delete action on your own messages, "This message was deleted" placeholder
+- [x] Tests for typing, delete rules and presence events
+
+> Done. **Typing:** the hub method `Typing(conversationId)` (membership-checked; non-participants, unknown ids and anonymous connections are silently ignored) pushes `PeerTyping { conversationId, userId }` to the other participant only. The browser shows italic "typing…" in the thread header and the list preview, clears it after 4 quiet seconds, and sends at most one signal every 3 seconds per conversation (and none for an empty box). **Online / last seen:** the hub pushes `PeerPresenceChanged { userId, online, lastSeenAt }` to everyone who shares a conversation with the person, on their first connection and when their last tab closes; the UI shows a green dot, "Online", or "Last seen today at 8:48 PM" / "yesterday at …" / a date (new token `--online`). **Delete:** `DELETE /api/direct/conversations/{id}/messages/{messageId}` — sender only (`403` for the other participant, `404` for outsiders and Admins and for unknown messages), idempotent, clears the text on the server (`Content` empty, `DeletedAt` set), and pushes `MessageDeleted { conversationId, messageId }` to both people; the UI asks "Delete for everyone?" inline (Delete / Cancel), then shows "This message was deleted" with no ticks, and the other person's unread count is recounted. **Also fixed in this phase (found by its test run):** every date read from the database was sent without a `Z`, so browsers outside UTC showed all times shifted by their UTC offset after a reload (a live push was correct, so the same value showed two times); every date is now marked UTC by an EF value converter and `CreatedAt` is set by the app in UTC (no migration needed; rows written earlier by a non-UTC database server will show shifted times). **Tests:** 27 new .NET and 31 new Angular tests (296 in total), and a two-browser run on the Docker stack passed 13/13, with the Phase 12 run (17/17) and the older-features regression (11/11) repeated; see `TESTING.md` section 11. Limits: typing signals are not rate limited on the server (Phase 21), and last seen cannot be hidden. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
 #### Phase 14 — End-to-end check, docs, cleanup
 - [ ] Docker stack rebuilt; two throwaway accounts in two browser windows; walk through every tick state, typing, presence, delete, badge and toast
@@ -619,7 +621,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 
 ### Post-plan — Test plan (Phases T1–T5)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 238 automated tests (95 .NET, 12 Python, 131 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 296 automated tests (122 .NET, 12 Python, 162 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria

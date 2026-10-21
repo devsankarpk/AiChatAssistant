@@ -1,12 +1,15 @@
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, flushMicrotasks, tick } from '@angular/core/testing';
 import { Subject, of, throwError } from 'rxjs';
 
 import {
   ConversationResponse,
   DirectMessageResponse,
   DirectMessageStatus,
+  MessageDeletedEvent,
   MessagesReadEvent,
+  PeerPresenceEvent,
+  PeerTypingEvent,
   StatusChangedEvent,
 } from '../models/direct.models';
 import { AuthService } from './auth.service';
@@ -58,6 +61,10 @@ describe('DirectStateService', () => {
   const statusChanged$ = new Subject<StatusChangedEvent>();
   const messagesRead$ = new Subject<MessagesReadEvent>();
   const reconnected$ = new Subject<void>();
+  const messageDeleted$ = new Subject<MessageDeletedEvent>();
+  const peerTyping$ = new Subject<PeerTypingEvent>();
+  const peerPresence$ = new Subject<PeerPresenceEvent>();
+  let sendTyping: jasmine.Spy;
   let hub: { start: jasmine.Spy; stop: jasmine.Spy } & Record<string, unknown>;
 
   async function startWith(conversations: ConversationResponse[]): Promise<void> {
@@ -69,11 +76,12 @@ describe('DirectStateService', () => {
   beforeEach(() => {
     visibility = 'visible';
     chat = jasmine.createSpyObj<DirectChatService>('DirectChatService', [
-      'listConversations', 'getMessages', 'sendMessage', 'markRead', 'startConversation', 'searchUsers',
+      'listConversations', 'getMessages', 'sendMessage', 'markRead', 'startConversation', 'searchUsers', 'deleteMessage',
     ]);
     chat.getMessages.and.returnValue(of([]));
     chat.markRead.and.returnValue(of({ conversationId: '', readCount: 1, upToMessageId: 1 }));
-    hub = { start: jasmine.createSpy('start').and.resolveTo(), stop: jasmine.createSpy('stop').and.resolveTo(), messageReceived$, statusChanged$, messagesRead$, reconnected$ };
+    sendTyping = jasmine.createSpy('sendTyping').and.resolveTo();
+    hub = { start: jasmine.createSpy('start').and.resolveTo(), stop: jasmine.createSpy('stop').and.resolveTo(), sendTyping, messageReceived$, statusChanged$, messagesRead$, reconnected$, messageDeleted$, peerTyping$, peerPresence$ };
 
     TestBed.configureTestingModule({
       providers: [
@@ -344,6 +352,216 @@ describe('DirectStateService', () => {
     expect(state.thread('a').map((m) => m.id).slice(0, 4)).toEqual([98, 99, 100, 101]);
     expect(state.thread('a').length).toBe(52); // 50 + 2 new, the duplicate 100 merged
     expect(state.hasMore('a')).toBeFalse(); // a short page: nothing earlier
+  });
+
+  // ---- typing indicator --------------------------------------------------------------------
+
+  function startSync(conversations: ConversationResponse[]): void {
+    chat.listConversations.and.returnValue(of(conversations));
+    state.start();
+    flushMicrotasks();
+  }
+
+  it('shows "typing" when the other person types, and clears it after 4 quiet seconds', fakeAsync(() => {
+    startSync([conv('a', 'Alice')]);
+
+    peerTyping$.next({ conversationId: 'a', userId: 200 });
+    expect(state.isTyping('a')).toBeTrue();
+
+    tick(3999);
+    expect(state.isTyping('a')).toBeTrue();
+    tick(1);
+    expect(state.isTyping('a')).toBeFalse();
+  }));
+
+  it('keeps showing it while they keep typing (each signal restarts the 4 seconds)', fakeAsync(() => {
+    startSync([conv('a', 'Alice')]);
+
+    peerTyping$.next({ conversationId: 'a', userId: 200 });
+    tick(3000);
+    peerTyping$.next({ conversationId: 'a', userId: 200 }); // they are still typing
+    tick(3000);
+    expect(state.isTyping('a')).toBeTrue(); // 6 s after the first signal, but only 3 s after the latest
+
+    tick(1000);
+    expect(state.isTyping('a')).toBeFalse();
+  }));
+
+  it('ignores your own typing signal and tracks each conversation separately', fakeAsync(() => {
+    startSync([conv('a', 'Alice'), conv('b', 'Bob')]);
+
+    peerTyping$.next({ conversationId: 'a', userId: ME });
+    expect(state.isTyping('a')).toBeFalse();
+
+    peerTyping$.next({ conversationId: 'b', userId: 200 });
+    expect(state.isTyping('b')).toBeTrue();
+    expect(state.isTyping('a')).toBeFalse();
+    tick(4000);
+  }));
+
+  it('stops showing "typing" the moment their message arrives', fakeAsync(() => {
+    startSync([conv('a', 'Alice')]);
+    peerTyping$.next({ conversationId: 'a', userId: 200 });
+
+    messageReceived$.next(msg(50, 'a', 200));
+    flushMicrotasks();
+
+    expect(state.isTyping('a')).toBeFalse();
+  }));
+
+  it('stops showing "typing" when they go offline', fakeAsync(() => {
+    const c = conv('a', 'Alice');
+    startSync([c]);
+    peerTyping$.next({ conversationId: 'a', userId: c.peer.id });
+
+    peerPresence$.next({ userId: c.peer.id, online: false, lastSeenAt: '2026-10-21T10:00:00Z' });
+
+    expect(state.isTyping('a')).toBeFalse();
+  }));
+
+  it('signing out clears typing and leaves no timers behind', fakeAsync(() => {
+    startSync([conv('a', 'Alice')]);
+    peerTyping$.next({ conversationId: 'a', userId: 200 });
+
+    state.stop(); // fakeAsync fails the test if a timer is left running
+
+    expect(state.isTyping('a')).toBeFalse();
+  }));
+
+  // ---- telling the other person we are typing ----------------------------------------------
+
+  it('announces typing at most once every 3 seconds', () => {
+    let now = 1_000_000;
+    spyOn(Date, 'now').and.callFake(() => now);
+
+    state.notifyTyping('a');
+    now += 1000;
+    state.notifyTyping('a'); // 1 s later: too soon
+    now += 1999;
+    state.notifyTyping('a'); // 2.999 s after the first: still too soon
+    expect(sendTyping).toHaveBeenCalledTimes(1);
+
+    now += 1;
+    state.notifyTyping('a'); // 3 s: allowed again
+    expect(sendTyping).toHaveBeenCalledTimes(2);
+    expect(sendTyping).toHaveBeenCalledWith('a');
+  });
+
+  it('throttles each conversation on its own', () => {
+    spyOn(Date, 'now').and.returnValue(5_000_000);
+
+    state.notifyTyping('a');
+    state.notifyTyping('b');
+
+    expect(sendTyping).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces again at once after you send a message', async () => {
+    spyOn(Date, 'now').and.returnValue(5_000_000);
+    await startWith([conv('a', 'Alice')]);
+    chat.sendMessage.and.returnValue(of(msg(60, 'a', ME)));
+    state.notifyTyping('a');
+    sendTyping.calls.reset();
+
+    await state.send('a', 'hello');
+    state.notifyTyping('a');
+
+    expect(sendTyping).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- online / last seen ------------------------------------------------------------------
+
+  it('updates online status and last seen live, for the right person only', async () => {
+    const a = conv('a', 'Alice');
+    const b = conv('bb', 'Bob');
+    await startWith([a, b]);
+
+    peerPresence$.next({ userId: a.peer.id, online: true, lastSeenAt: null });
+    expect(state.conversations().find((c) => c.id === 'a')!.peerOnline).toBeTrue();
+    expect(state.conversations().find((c) => c.id === 'bb')!.peerOnline).toBeFalse();
+
+    peerPresence$.next({ userId: a.peer.id, online: false, lastSeenAt: '2026-10-21T09:30:00Z' });
+    const updated = state.conversations().find((c) => c.id === 'a')!;
+    expect(updated.peerOnline).toBeFalse();
+    expect(updated.peerLastSeenAt).toBe('2026-10-21T09:30:00Z');
+  });
+
+  it('keeps the previous last-seen time when someone comes online (no new value is sent)', async () => {
+    const a = { ...conv('a', 'Alice'), peerLastSeenAt: '2026-10-20T18:00:00Z' };
+    await startWith([a]);
+
+    peerPresence$.next({ userId: a.peer.id, online: true, lastSeenAt: null });
+
+    expect(state.conversations()[0].peerLastSeenAt).toBe('2026-10-20T18:00:00Z');
+  });
+
+  // ---- delete message ----------------------------------------------------------------------
+
+  it('deleting your message clears its text in the thread and in the list preview', async () => {
+    const mine = msg(5, 'a', ME, { content: 'regret' });
+    chat.getMessages.and.returnValue(of([mine]));
+    await startWith([conv('a', 'Alice', 0, mine)]);
+    await state.openConversation('a');
+    chat.deleteMessage.and.returnValue(of({ ...mine, content: '', deleted: true }));
+
+    await state.deleteMessage('a', 5);
+
+    expect(chat.deleteMessage).toHaveBeenCalledOnceWith('a', 5);
+    expect(state.thread('a')[0].deleted).toBeTrue();
+    expect(state.thread('a')[0].content).toBe('');
+    expect(state.conversations()[0].lastMessage?.deleted).toBeTrue();
+    expect(state.conversations()[0].lastMessage?.content).toBe('');
+  });
+
+  it('a failed delete leaves the message as it was and rejects so the page can say so', async () => {
+    const mine = msg(5, 'a', ME, { content: 'keep me' });
+    chat.getMessages.and.returnValue(of([mine]));
+    await startWith([conv('a', 'Alice', 0, mine)]);
+    await state.openConversation('a');
+    chat.deleteMessage.and.returnValue(throwError(() => new Error('403')));
+
+    await expectAsync(state.deleteMessage('a', 5)).toBeRejected();
+
+    expect(state.thread('a')[0].deleted).toBeFalse();
+    expect(state.thread('a')[0].content).toBe('keep me');
+  });
+
+  it('when the other person deletes a message, it becomes a placeholder here and the unread count is recounted', async () => {
+    const theirs = msg(7, 'a', 200, { content: 'oops wrong chat' });
+    chat.getMessages.and.returnValue(of([theirs]));
+    await startWith([conv('a', 'Alice', 1, theirs)]);
+    await state.openConversation('a');
+    chat.listConversations.calls.reset();
+    chat.listConversations.and.returnValue(of([conv('a', 'Alice', 0, { ...theirs, content: '', deleted: true })]));
+
+    messageDeleted$.next({ conversationId: 'a', messageId: 7 });
+    await flush();
+
+    expect(state.thread('a')[0].deleted).toBeTrue();
+    expect(state.thread('a')[0].content).toBe('');
+    expect(chat.listConversations).toHaveBeenCalledTimes(1); // refetched: an unread message that vanished no longer counts
+    expect(state.unreadTotal()).toBe(0);
+  });
+
+  it('a deletion of your own message from another tab updates the thread without refetching the list', async () => {
+    const mine = msg(8, 'a', ME, { content: 'mine' });
+    chat.getMessages.and.returnValue(of([mine]));
+    await startWith([conv('a', 'Alice', 0, mine)]);
+    await state.openConversation('a');
+    chat.listConversations.calls.reset();
+
+    messageDeleted$.next({ conversationId: 'a', messageId: 8 });
+    await flush();
+
+    expect(state.thread('a')[0].deleted).toBeTrue();
+    expect(chat.listConversations).not.toHaveBeenCalled();
+  });
+
+  it('ignores the deletion of a message it never loaded', async () => {
+    await startWith([conv('a', 'Alice')]);
+
+    expect(() => messageDeleted$.next({ conversationId: 'a', messageId: 12345 })).not.toThrow();
+    await flush();
   });
 
   // ---- recovery and sign-out ---------------------------------------------------------------

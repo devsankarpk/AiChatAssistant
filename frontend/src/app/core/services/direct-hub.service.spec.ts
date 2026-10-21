@@ -31,6 +31,15 @@ class FakeHub implements HubLike {
   async stop(): Promise<void> {
     this.stopCalls++;
   }
+  invoked: Array<{ method: string; args: unknown[] }> = [];
+  failInvoke = false;
+  async invoke(method: string, ...args: unknown[]): Promise<unknown> {
+    this.invoked.push({ method, args });
+    if (this.failInvoke) {
+      throw new Error('hub rejected');
+    }
+    return undefined;
+  }
   emit(event: string, payload: unknown): void {
     this.handlers.get(event)!(payload);
   }
@@ -118,6 +127,49 @@ describe('DirectHubService', () => {
     expect(received).toEqual([{ id: 5 } as DirectMessageResponse]);
     expect(statuses).toEqual([{ conversationId: 'c', messageIds: [5], status: 'read' }]);
     expect(reads).toEqual([{ conversationId: 'c', upToMessageId: 5 }]);
+  });
+
+  it('forwards the delete, typing and presence events too', async () => {
+    await service.start();
+    const deleted: unknown[] = [];
+    const typing: unknown[] = [];
+    const presence: unknown[] = [];
+    service.messageDeleted$.subscribe((e) => deleted.push(e));
+    service.peerTyping$.subscribe((e) => typing.push(e));
+    service.peerPresence$.subscribe((e) => presence.push(e));
+
+    hub.emit('MessageDeleted', { conversationId: 'c', messageId: 9 });
+    hub.emit('PeerTyping', { conversationId: 'c', userId: 2 });
+    hub.emit('PeerPresenceChanged', { userId: 2, online: false, lastSeenAt: '2026-10-21T10:00:00Z' });
+
+    expect(deleted).toEqual([{ conversationId: 'c', messageId: 9 }]);
+    expect(typing).toEqual([{ conversationId: 'c', userId: 2 }]);
+    expect(presence).toEqual([{ userId: 2, online: false, lastSeenAt: '2026-10-21T10:00:00Z' }]);
+  });
+
+  it('tells the server we are typing by invoking Typing with the conversation id', async () => {
+    await service.start();
+
+    await service.sendTyping('conv-1');
+
+    expect(hub.invoked).toEqual([{ method: 'Typing', args: ['conv-1'] }]);
+  });
+
+  it('sends no typing signal before it is connected or after it is stopped', async () => {
+    await service.sendTyping('conv-1');
+    expect(hub.invoked).toEqual([]);
+
+    await service.start();
+    await service.stop();
+    await service.sendTyping('conv-1');
+    expect(hub.invoked).toEqual([]);
+  });
+
+  it('swallows a failed typing signal (a missed "typing…" is harmless)', async () => {
+    await service.start();
+    hub.failInvoke = true;
+
+    await expectAsync(service.sendTyping('conv-1')).toBeResolved();
   });
 
   it('signals a reconnect so the state can refetch what it missed, and tracks dropped connections', async () => {
