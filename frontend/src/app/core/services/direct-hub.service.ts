@@ -1,4 +1,5 @@
-import { Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { DestroyRef, Injectable, InjectionToken, inject, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
@@ -59,6 +60,7 @@ const MAX_RETRY_DELAY_MS = 30_000;
 export class DirectHubService {
   private readonly auth = inject(AuthService);
   private readonly factory = inject(DIRECT_HUB_FACTORY);
+  private readonly window = inject(DOCUMENT).defaultView;
 
   readonly messageReceived$ = new Subject<DirectMessageResponse>();
   readonly statusChanged$ = new Subject<StatusChangedEvent>();
@@ -73,13 +75,37 @@ export class DirectHubService {
 
   private hub: HubLike | null = null;
   private wanted = false;
+  /** True between "the page is being left" and "the page came back from the cache": no retries then. */
+  private suspended = false;
+  /** Whether we have connected before in this sign-in, so a later connect is a "reconnect" that must resync. */
+  private everConnected = false;
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private connecting = false;
 
+  constructor() {
+    // A page that is being left (navigation, reload, tab closed, or parked in the browser's back/forward
+    // cache) must close its socket itself. Otherwise the server keeps counting the person as online until
+    // its own keep-alive timeout expires, about 30 seconds, which we saw in a real test run.
+    const onPageHide = () => this.suspend();
+    const onPageShow = (event: Event) => {
+      if ((event as PageTransitionEvent).persisted && this.wanted) {
+        this.suspended = false;
+        void this.start(); // restored from the back/forward cache: reconnect
+      }
+    };
+    this.window?.addEventListener('pagehide', onPageHide);
+    this.window?.addEventListener('pageshow', onPageShow);
+    inject(DestroyRef).onDestroy(() => {
+      this.window?.removeEventListener('pagehide', onPageHide);
+      this.window?.removeEventListener('pageshow', onPageShow);
+    });
+  }
+
   /** Idempotent: calling it again while connected or connecting does nothing. */
   async start(): Promise<void> {
     this.wanted = true;
+    this.suspended = false;
     if (this.hub || this.connecting) {
       return;
     }
@@ -96,7 +122,15 @@ export class DirectHubService {
         this.connected.set(true);
         this.reconnected$.next();
       });
-      hub.onclose(() => this.connected.set(false));
+      hub.onclose(() => {
+        // SignalR's own automatic reconnect gives up after about 40 seconds. A deploy or a network outage
+        // can last longer, and without this the page would stay silently disconnected until reloaded.
+        if (this.hub === hub) {
+          this.hub = null;
+        }
+        this.connected.set(false);
+        this.scheduleRetry(); // does nothing after sign-out (stop) or while the page is being left (suspend)
+      });
 
       await hub.start();
       if (!this.wanted) {
@@ -106,12 +140,29 @@ export class DirectHubService {
       this.hub = hub;
       this.attempt = 0;
       this.connected.set(true);
+      if (this.everConnected) {
+        this.reconnected$.next(); // we were away: let the state refetch whatever it missed
+      }
+      this.everConnected = true;
     } catch {
       this.connected.set(false);
       this.scheduleRetry();
     } finally {
       this.connecting = false;
     }
+  }
+
+  /** Closes the socket now but stays "wanted", so a page restored from the browser cache reconnects. */
+  private suspend(): void {
+    this.suspended = true;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    const hub = this.hub;
+    this.hub = null;
+    this.connected.set(false);
+    void hub?.stop().catch(() => undefined);
   }
 
   /** Tells the other person we are typing. Best effort: dropped silently when not connected or on any error. */
@@ -128,6 +179,7 @@ export class DirectHubService {
 
   async stop(): Promise<void> {
     this.wanted = false;
+    this.everConnected = false;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
@@ -146,7 +198,7 @@ export class DirectHubService {
 
   /** The first connection attempt can fail (server restarting, offline); automatic reconnect only covers drops after that. */
   private scheduleRetry(): void {
-    if (!this.wanted || this.retryTimer) {
+    if (!this.wanted || this.suspended || this.retryTimer) {
       return;
     }
     const delay = Math.min(MAX_RETRY_DELAY_MS, 1000 * 2 ** this.attempt);

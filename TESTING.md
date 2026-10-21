@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 296 automated tests (122 .NET, 12 Python, 162 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 11** (Phase 13, latest), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 302 automated tests (122 .NET, 12 Python, 168 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 12** (Phase 14, latest), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -39,7 +39,7 @@ dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one cla
 cd ai-service-python && source .venv/bin/activate && pytest
 pytest tests/test_generate.py::test_returns_reply                      # one test
 
-# Angular (162 tests)
+# Angular (168 tests)
 cd frontend && npm test -- --watch=false --browsers=ChromeHeadless
 npm test -- --include='**/auth.service.spec.ts' --watch=false --browsers=ChromeHeadless   # one spec
 ```
@@ -276,6 +276,22 @@ Test cases, with the automated test (or manual check) that covers each. "Hub" = 
 | UTC-04 | A new row's creation time | Comes from the app in UTC, not from the database server's clock or time zone, for all 7 tables with a `CreatedAt` | .NET | Automated: `NewRows_GetTheirCreationTimeFromTheApp_InUtc_NotFromTheDatabaseClock` |
 | UTC-05 | A real browser in a non-UTC time zone (this machine is IST, UTC+5:30) | The same time live and after a reload; "Last seen today at 20:48" matches the real clock | Manual | Manual: `E2E-M13-11` (this failed before the fix, see finding F8) |
 
+### 5.13 CONNECTION LIFECYCLE AND WHOLE-FEATURE CHECKS (Phase 14)
+
+| ID | Test case (scenario) | Expected result | Layer | Status |
+|---|---|---|---|---|
+| CON-01 | The page is hidden for navigation or the back/forward cache (`pagehide`) | The browser closes its own socket at once, so the server sees the disconnect and shows the person offline (before this, a reload left them "Online" for up to 30 s) | Angular | `DirectHubService` spec: "closes its own socket when the page is hidden for navigation or the cache, so the server does not keep showing the person online" |
+| CON-02 | The page returns from the back/forward cache (`pageshow` with `persisted`) | The connection is rebuilt | Angular | "reconnects when the browser restores the page from its back/forward cache" |
+| CON-03 | An ordinary `pageshow`, or one after sign-out | No reconnect | Angular | "does not reconnect on an ordinary pageshow, or after the person signed out" |
+| CON-04 | SignalR gives up after a long outage | The service builds a fresh connection itself and signals a resync, so lists are refetched | Angular | "builds a fresh connection itself when SignalR gives up after a long outage, and tells the state to resync" |
+| CON-05 | The server stays down after SignalR gave up | Retries with a growing delay (1 s, 2 s, 4 s ... capped at 30 s) | Angular | "keeps retrying with a growing delay while the server stays down after SignalR gave up" |
+| CON-06 | Sign-out, or the page being left, during an outage | No further retries | Angular | "does not retry after sign-out, or while the page is being left" |
+| CON-07 | Real 130 s API outage with both people connected | Both recover on their own 15 s after the API answers; a live message gets through | Manual | Manual: outage script (section 12.4) |
+| CON-08 | API restart (3 s) with both people connected | Reconnect within 12 s; messages, ticks and presence work again | Manual | Manual: `E2E-F-15` |
+| CON-09 | Reload or close of a tab | The other person sees "Last seen ..." within a few seconds and `LastSeenAt` is saved | Manual | Manual: `E2E-F-10` (failed before the fix, finding F12) |
+| A11Y-01 | axe-core WCAG 2 A/AA scan of the Messages screen, light and dark | No serious or critical violations (colour contrast of muted text and the green "Online" words) | Manual | Manual: `E2E-F-16` (54 serious nodes before the fix, finding F13) |
+| FEAT-01 to FEAT-17 | Whole-feature walkthrough: find by name, ticks (one grey, two grey, blue), toast and badge, typing, hidden tab, two tabs, delete, last seen, 66-message paging, simultaneous start of the same chat, outsider and Admin 404, API restart, accessibility, no JavaScript errors | All pass | Manual | Manual: `E2E-F-01` to `E2E-F-17` (section 12.2) |
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -287,7 +303,7 @@ Test cases, with the automated test (or manual check) that covers each. "Hub" = 
 
 ## 7. Planned test cases for features not built yet
 
-These rows are filled in (and their test names recorded) when the feature phase is built. Phases are built in the order given by the Roadmap in `README.md` (next up: T2), not in number order; rows marked *because Phase N is built first* are obligations that a later phase picks up. Source plans in `README.md`: "User-to-user chat (Phases 9-14)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
+These rows are filled in (and their test names recorded) when the feature phase is built. Phases are built in the order given by the Roadmap in `README.md` (next up: T2), not in number order; rows marked *because Phase N is built first* are obligations that a later phase picks up. Source plans in `README.md`: "User-to-user chat (Phases 9-14, done)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
@@ -607,7 +623,74 @@ Register through the form, a real LLM reply rendered as markdown, auto-titled ch
 
 ### 11.6 Not covered by this run
 
-- **Hidden-tab behaviour** in a real browser: unit-tested only (visibility is faked).
-- **A conversation of more than 50 messages** against the real server (the paging is unit-tested).
+- **Hidden-tab behaviour** in a real browser: covered later by `E2E-F-07` (section 12).
+- **A conversation of more than 50 messages** against the real server: covered later by `E2E-F-12` (section 12).
 - **Real password-reset emails:** no SMTP credentials in this environment.
 - **Older API-level checks** (the 37-check API run of section 9): not repeated, because no endpoint they cover changed except through the UTC converter, which the browser regression run exercised end to end (auth, chat with a real LLM reply, admin usage, direct chat).
+
+## 12. Phase 14 test run (2026-10-21)
+
+Run as the closing check of the user-to-user chat (Phases 9-14), against the **real Docker stack** (MySQL, migration, .NET API, Python service, nginx + Angular), with **two real Chrome browsers acting as two people** (Alice, with a second tab, and Bob; separate profiles, real WebSockets through nginx). The database was emptied before every browser run. Throwaway accounts only; all test data was deleted afterwards and the stack stopped. The host dev MySQL was not touched. No database migration was needed in Phase 14 (`dotnet ef migrations has-pending-model-changes`: no changes).
+
+### 12.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **122 passed, 0 failed** (hub logging changed a constructor; no new tests) |
+| Python (`pytest`) | **12 passed, 0 failed** (unchanged) |
+| Angular unit (`ng test`, ChromeHeadless) | **168 passed, 0 failed** (162 before + 6 new: pagehide/pageshow 3, long-outage retry 3) |
+| Angular production build | Succeeded, no warnings. Initial bundle 327.0 kB |
+| axe-core scan (Messages screen) | No violations, light or dark |
+| API log during the runs | 0 unhandled exceptions; 0 "ClientTimeoutInterval" disconnects |
+| **Total** | **302 passed, 0 failed** |
+
+### 12.2 Whole feature in two browsers (17/17 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-F-01 | Find someone by name (no email on the page) and start a chat | PASS | one result, email not on the page |
+| E2E-F-02 | One grey tick (sent) while the other person is offline | PASS | m1 status=sent |
+| E2E-F-03 | Two grey ticks when Bob signs in; Alice sees "Online"; Bob has badge 1 and no toast | PASS | delivered, "Online", badge 1, no toast |
+| E2E-F-04 | Live message while Bob is on another page: toast with sender and preview, badge 2 | PASS | toast "Alice Rao: m2 are you there?" |
+| E2E-F-05 | Bob opens the chat: badge clears and Alice's ticks turn blue | PASS | both ticks read |
+| E2E-F-06 | Typing shows then clears on send; the message arrives; read tick live | PASS | "typing..." shown then cleared |
+| E2E-F-07 | Hidden tab: counts as unread and toasts, not marked read; marked read when visible again | PASS | tick stayed delivered, then read |
+| E2E-F-08 | Two tabs of the same person stay in step | PASS | badge cleared in both after one read it |
+| E2E-F-09 | Delete from tab 2: placeholder for Alice and, live, for Bob; text gone from the database | PASS | row content empty, deleted set |
+| E2E-F-10 | Bob signs out: "Last seen today at ..." live and after reload; next message stays at one tick | PASS | m6 status=sent |
+| E2E-F-11 | Bob signs back in: m6 becomes delivered live; Bob has 1 unread | PASS | delivered, badge 1 |
+| E2E-F-12 | More than 50 messages: newest 50, then "Show earlier messages" with no gaps or duplicates | PASS | 66 shown = 66 in the database, in order |
+| E2E-F-13 | Eight pairs start the same chat at the same instant | PASS | one conversation per pair; "created" answered once per pair |
+| E2E-F-14 | An Admin and an outsider get 404 on someone else's conversation and see nothing listed | PASS | 8 probes, all 404 |
+| E2E-F-15 | API restarts while both are connected | PASS | back after 3 s; live message through 12 s after restart; ticks and presence work |
+| E2E-F-16 | Accessibility scan (axe-core, WCAG 2 A/AA), light and dark | PASS | no violations |
+| E2E-F-17 | No uncaught JavaScript errors in any tab | PASS | 0 errors |
+
+### 12.3 Regressions on the final build
+
+| Run | Result |
+|---|---|
+| Phase 13 (typing, presence, delete) | 13/13 passed |
+| Phase 12 (ticks, badge, toast) | 17/17 passed |
+| Older features (register, AI reply as markdown, titles, appointments page, theme, admin usage, error states) | 11/11 passed |
+
+### 12.4 Long outage
+
+The API was stopped for 130 s with both people connected (more than SignalR's reconnect window, about 42 s). After the API answered again the browser recovered by itself within 15 s and a live message reached the other person. Before the fix it never recovered without a reload.
+
+### 12.5 Findings
+
+| # | Severity | Finding | Evidence and cause | Resolution |
+|---|---|---|---|---|
+| F12 | **Medium (real defect, found by this run)** | **Stale "Online" after a reload or closed tab**, and `LastSeenAt` not saved. | `E2E-F-10` failed. Added hub logging showed the old WebSocket survived the page leaving until the server's 30 s `ClientTimeoutInterval`; the user stayed online while a new connection was already open. | **Fixed:** the browser closes the connection on `pagehide` and reopens it on `pageshow` from the cache (CON-01 to CON-03). The hub now logs every connect and disconnect. A lost network without closing the tab still shows as online for up to 30 s (limit). |
+| F13 | **Medium (real defect, accessibility)** | Colour contrast below 4.5:1: muted text (54 serious axe nodes in light) and the green "Online" words. | `E2E-F-16`. `--text-muted` was too light; the green dot colour was reused for text. | **Fixed:** `--text-muted` `#5d6d83`; new `--online-text` for the words (dot unchanged); documented in the ui-design skill. Scan: no violations in both themes. |
+| F14 | **Medium (real defect, found by this run)** | After a server outage of about a minute or longer, the app stayed offline until a manual reload. | SignalR's automatic reconnect gives up after about 42 s (CON-07 reproduced it at 130 s). | **Fixed:** the service retries itself (1 s doubling to 30 s) and refetches on return (CON-04 to CON-06). Re-test recovered in 15 s. |
+| F15 | Info (test setup, not the app) | Early runs of the script showed hidden-tab stalls and stale rows from earlier runs. | A second browser tab in front makes the first genuinely `hidden`, and actions stall; rows from a previous run confused name search. | The script brings tabs to the front and empties the database between runs. |
+| F16 | Low (open, by design) | Typing signals are not rate limited on the server; last seen cannot be hidden; presence is in memory (one `api` replica). | See Phase 13 findings F10 and F11, and Phase 16. | Phases 21 and 16. |
+
+### 12.6 Not covered by this run
+
+- **A real phone or a real network drop** (airplane mode): the lost-network case is covered by the server timeout only; the stop/start of the API stands in for it.
+- **Real password-reset emails:** no SMTP credentials in this environment.
+- **More than two people / more than one API replica:** one replica by design until Phase 16.
+- Load, security and penetration testing are out of scope (section 1).

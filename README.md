@@ -420,7 +420,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8, test phase T1 and Phases 9–13 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phases 9–14 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -438,7 +438,7 @@ Phases 1–8, test phase T1 and Phases 9–13 are **done**. Everything below is 
 | 12 | **11** | SignalR, delivered and read ticks | 10 | **Done** (early, at the user's request) |
 | 13 | **12** | Messages UI with ticks, badge and toast | 11 | **Done** (early, at the user's request) |
 | 14 | **13** | Typing, online / last seen, delete message | 12 | **Done** (early, at the user's request) |
-| 15 | **14** | End-to-end check of the chat feature | 13 | Planned |
+| 15 | **14** | End-to-end check of the chat feature | 13 | **Done** (early, at the user's request) |
 | 16 | **15** | Redis and RabbitMQ foundation | 11 | Planned |
 | 17 | **17** | Async emails (RabbitMQ) | 15 | Planned |
 | 18 | **16** | Redis: SignalR backplane and presence | 11, 15 | Planned |
@@ -456,9 +456,9 @@ Phases 1–8, test phase T1 and Phases 9–13 are **done**. Everything below is 
 - **Phase 21 before 11:** the nginx Content-Security-Policy must allow the `/hubs/` WebSocket (`connect-src` for `wss:`/`ws:`), or the browser blocks the hub.
 - **Phase 21 before 16:** the rate limiter starts in memory and moves to Redis when Phase 16 lands.
 
-### Post-plan — User-to-user chat (Phases 9–14) — **planned, not started**
+### Post-plan — User-to-user chat (Phases 9–14) — **done**
 
-> Status: **planned.** Nothing in this section exists in the code yet; the checkboxes below are all open. The schema and contracts in sections 1 and 2 above describe what is built today; this section describes what is *about to be* added. Each phase is built, tested and reviewed on its own, one at a time.
+> Status: **done (Phases 9–14).** Everything in this section is built, tested and verified end to end on the Docker stack with two real browsers (see `TESTING.md` section 12). It was built ahead of the Roadmap's order at the user's request. It is not yet applied to your local dev MySQL: run `dotnet ef database update --project src/AiChatAssistant.Api` (from `backend-dotnet/`) when you want the direct-messaging tables there. Each phase was built, tested and reviewed on its own, one at a time; the notes under each phase record what changed from the original plan.
 
 **Goal:** real chat between registered users (separate from the AI chatbot), with WhatsApp-style ticks — one grey tick = sent, two grey ticks = delivered, two blue ticks = read — plus a top navigation bar: **Chatbot**, **Messages**, **Book appointment**.
 
@@ -471,7 +471,7 @@ Phases 1–8, test phase T1 and Phases 9–13 are **done**. Everything below is 
 - **Alerts:** a live unread badge on the Messages tab, plus a toast (sender and a preview) when a message arrives and you are not looking at that conversation.
 - **Read receipts:** always on; there is no setting to turn them off.
 
-**Planned schema** (one new migration, `AddDirectMessaging`)
+**Schema** (one migration, `AddDirectMessaging`)
 ```sql
 DirectConversations (id GUID, user_low_id, user_high_id, created_at)   -- UNIQUE (user_low_id, user_high_id): one conversation per pair
 DirectMessages (id BIGINT, conversation_id, sender_id, content, created_at,
@@ -486,7 +486,7 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 - **Read** (two blue): the recipient has that conversation open with the tab visible; the client calls the read endpoint.
 - **Deleted:** only the sender can delete their own message. The text is cleared on the server, and both sides see "This message was deleted".
 
-**Planned REST endpoints** (all require a JWT; errors use the usual `{ error: { code, message } }` shape; a conversation you are not part of returns `404`, not `403`)
+**REST endpoints** (all require a JWT; errors use the usual `{ error: { code, message } }` shape; a conversation you are not part of returns `404`, not `403`)
 
 | Method and path | Purpose |
 |---|---|
@@ -498,7 +498,7 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 | `POST /api/direct/conversations/{id}/read` | Mark the peer's messages as read |
 | `DELETE /api/direct/conversations/{id}/messages/{messageId}` | Delete your own message |
 
-**Planned SignalR hub:** `/hubs/direct` (JWT passed as the `access_token` query string, since browsers cannot set headers on a WebSocket). Server → client events: `MessageReceived`, `MessageStatusChanged`, `MessagesRead`, `MessageDeleted`, `PeerTyping`, `PeerPresenceChanged`. Client → server: `Typing(conversationId)`. Sending goes over REST, so validation and error handling stay in one place; the hub carries pushes.
+**SignalR hub:** `/hubs/direct` (JWT passed as the `access_token` query string, since browsers cannot set headers on a WebSocket). Server → client events: `MessageReceived`, `MessageStatusChanged`, `MessagesRead`, `MessageDeleted`, `PeerTyping`, `PeerPresenceChanged`. Client → server: `Typing(conversationId)`. Sending goes over REST, so validation and error handling stay in one place; the hub carries pushes.
 
 **Limits to know about**
 - **Direct messages are private.** Admins get no special access; an admin asking for someone else's conversation gets `404` like anyone else.
@@ -550,10 +550,18 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 
 > Done. **Typing:** the hub method `Typing(conversationId)` (membership-checked; non-participants, unknown ids and anonymous connections are silently ignored) pushes `PeerTyping { conversationId, userId }` to the other participant only. The browser shows italic "typing…" in the thread header and the list preview, clears it after 4 quiet seconds, and sends at most one signal every 3 seconds per conversation (and none for an empty box). **Online / last seen:** the hub pushes `PeerPresenceChanged { userId, online, lastSeenAt }` to everyone who shares a conversation with the person, on their first connection and when their last tab closes; the UI shows a green dot, "Online", or "Last seen today at 8:48 PM" / "yesterday at …" / a date (new token `--online`). **Delete:** `DELETE /api/direct/conversations/{id}/messages/{messageId}` — sender only (`403` for the other participant, `404` for outsiders and Admins and for unknown messages), idempotent, clears the text on the server (`Content` empty, `DeletedAt` set), and pushes `MessageDeleted { conversationId, messageId }` to both people; the UI asks "Delete for everyone?" inline (Delete / Cancel), then shows "This message was deleted" with no ticks, and the other person's unread count is recounted. **Also fixed in this phase (found by its test run):** every date read from the database was sent without a `Z`, so browsers outside UTC showed all times shifted by their UTC offset after a reload (a live push was correct, so the same value showed two times); every date is now marked UTC by an EF value converter and `CreatedAt` is set by the app in UTC (no migration needed; rows written earlier by a non-UTC database server will show shifted times). **Tests:** 27 new .NET and 31 new Angular tests (296 in total), and a two-browser run on the Docker stack passed 13/13, with the Phase 12 run (17/17) and the older-features regression (11/11) repeated; see `TESTING.md` section 11. Limits: typing signals are not rate limited on the server (Phase 21), and last seen cannot be hidden. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
-#### Phase 14 — End-to-end check, docs, cleanup
-- [ ] Docker stack rebuilt; two throwaway accounts in two browser windows; walk through every tick state, typing, presence, delete, badge and toast
-- [ ] This section and `CLAUDE.md` changed from *planned* to *done*, with anything that changed during the build
-- [ ] Test data deleted from the Docker stack's database and the stack stopped; the dev database stays untouched unless asked
+#### Phase 14 — End-to-end check, docs, cleanup — **done**
+- [x] Docker stack rebuilt; two throwaway accounts in two browser windows; walk through every tick state, typing, presence, delete, badge and toast
+- [x] This section and `CLAUDE.md` changed from *planned* to *done*, with anything that changed during the build
+- [x] Test data deleted from the Docker stack's database and the stack stopped; the dev database stays untouched unless asked
+
+> Done. **Check:** a 17-step walkthrough of the whole feature with two real Chrome browsers (Alice and Bob, plus a second tab for Alice) on the rebuilt Docker stack passed 17/17: find by name (no email shown), one grey tick, two grey ticks on sign-in, toast and badge, blue ticks on read, typing, a hidden tab, two tabs staying in step, delete, last seen, a 66-message conversation with "Show earlier messages", eight pairs starting the same chat at the same instant (always exactly one conversation), `404` for an Admin and an outsider, an API restart while both people are connected, and an accessibility scan. The Phase 13 (13/13), Phase 12 (17/17) and older-features (11/11) browser runs were repeated and passed. **Four real problems were found and fixed:** (1) *stale "Online"* — a page reload or closed tab left the old WebSocket looking connected until the server's 30 s client timeout, so the person stayed "Online" and their last-seen time was not saved; the browser now closes the connection on `pagehide` (and reopens it on `pageshow` from the back/forward cache), and the hub logs every connect and disconnect (`Information` level, also in production) so this is visible; (2) *accessibility* — the muted text colour and the green "Online" words were below the 4.5:1 contrast needed (axe reported 54 serious nodes in light theme); `--text-muted` is now `#5d6d83` and the words use a new darker `--online-text` (the dot keeps the brighter `--online`), and the scan now reports no violations in light or dark; (3) *no recovery after a long outage* — after about a minute of the server being down SignalR gives up reconnecting, and the app stayed offline until a reload; the connection now retries by itself (1 s, doubling to a 30 s cap) and refetches the lists when it is back (a 130 s outage recovered 15 s after the server returned); (4) a harness mistake (stale rows from the earlier run) that is not an app defect. **Tests:** 6 new Angular specs (168 in total; 302 automated tests overall: 122 .NET, 12 Python, 168 Angular). **Limits worth knowing:** presence is in memory, so keep the `api` at one replica until Phase 16; a person who loses their network without closing the tab shows as online until the server's 30 s client timeout; typing signals are not rate limited (Phase 21); last seen cannot be hidden. Cleaned afterwards: all test rows deleted from the Docker database (users, conversations, messages, usage logs) and the stack stopped; the host dev MySQL was never touched. The Roadmap's "next up" is still T2.
+
+#### Using direct messages
+1. Sign in; the top bar has **Chatbot**, **Messages** and (in the chat sidebar) **Book appointment** (a "coming soon" page).
+2. **Messages** → search a person by name (2+ characters; names only, never emails) → open the chat and write. Press Enter to send.
+3. Ticks on your own messages: one grey = sent, two grey = delivered to their device, two blue = read. Hover a message of yours and choose **Delete** to remove it for both of you.
+4. The Messages tab shows an unread count on every page; a new message while you are elsewhere shows a toast.
 
 ### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **planned, not started**
 
@@ -621,7 +629,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 
 ### Post-plan — Test plan (Phases T1–T5)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 296 automated tests (122 .NET, 12 Python, 162 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 302 automated tests (122 .NET, 12 Python, 168 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -751,7 +759,7 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Backend + AI plumbing (Postman-testable) | 1–4 | Week 1 |
 | Angular UI | 5–6 | Week 2 |
 | Admin + polish | 7–8 | Week 3 |
-| User-to-user chat (planned) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
+| User-to-user chat (done) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
 | Message brokers: Redis + RabbitMQ (planned) | 15–20 | after the chat phases (needs Phase 11 SignalR) |
 | Test plan and gap tests (T1 done, T2–T5 planned) | T1–T5 | T2 first; T3–T5 last (see the Roadmap) |
 | Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |

@@ -81,6 +81,10 @@ describe('DirectHubService', () => {
     service = TestBed.inject(DirectHubService);
   });
 
+  afterEach(async () => {
+    await service.stop(); // clears any retry timer a test left behind
+  });
+
   it('connects to /hubs/direct with the current token and reports connected', async () => {
     await service.start();
 
@@ -202,6 +206,88 @@ describe('DirectHubService', () => {
     expect(factoryCalls.length).toBe(2);
     expect(service.connected()).toBeTrue();
   });
+
+  it('closes its own socket when the page is hidden for navigation or the cache, so the server does not keep showing the person online', async () => {
+    await service.start();
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(hub.stopCalls).toBe(1);
+    expect(service.connected()).toBeFalse();
+  });
+
+  it('reconnects when the browser restores the page from its back/forward cache', async () => {
+    await service.start();
+    window.dispatchEvent(new Event('pagehide'));
+
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(factoryCalls.length).toBe(2);
+    expect(service.connected()).toBeTrue();
+  });
+
+  it('does not reconnect on an ordinary pageshow, or after the person signed out', async () => {
+    await service.start();
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(factoryCalls.length).toBe(1);
+
+    await service.stop(); // signed out
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(factoryCalls.length).toBe(1);
+  });
+
+  it('builds a fresh connection itself when SignalR gives up after a long outage, and tells the state to resync', fakeAsync(() => {
+    void service.start();
+    tick(0);
+    let reconnects = 0;
+    service.reconnected$.subscribe(() => reconnects++);
+    expect(factoryCalls.length).toBe(1);
+
+    hub.closeCallbacks.forEach((cb) => cb()); // SignalR's built-in retries are exhausted: the connection is closed for good
+    expect(service.connected()).toBeFalse();
+    tick(1000);
+
+    expect(factoryCalls.length).toBe(2); // a brand new connection, not the dead one
+    expect(service.connected()).toBeTrue();
+    expect(reconnects).toBe(1);
+  }));
+
+  it('keeps retrying with a growing delay while the server stays down after SignalR gave up', fakeAsync(() => {
+    void service.start();
+    tick(0);
+    hub.failNextStarts = 2;
+
+    hub.closeCallbacks.forEach((cb) => cb());
+    tick(1000); // first retry fails
+    expect(service.connected()).toBeFalse();
+    tick(2000); // second retry fails
+    expect(service.connected()).toBeFalse();
+    tick(4000); // third retry succeeds
+
+    expect(service.connected()).toBeTrue();
+    expect(hub.startCalls).toBe(4); // initial + 3 retries
+  }));
+
+  it('does not retry after sign-out, or while the page is being left', fakeAsync(() => {
+    void service.start();
+    tick(0);
+    void service.stop();
+    tick(0);
+    hub.closeCallbacks.forEach((cb) => cb());
+    tick(60_000);
+    expect(factoryCalls.length).toBe(1); // signed out: closing is final
+
+    void service.start();
+    tick(0);
+    window.dispatchEvent(new Event('pagehide'));
+    hub.closeCallbacks.forEach((cb) => cb());
+    tick(60_000);
+    expect(factoryCalls.length).toBe(2); // only the sign-in start; leaving the page does not trigger a retry
+  }));
 
   it('retries with a growing delay when the first connection attempt fails', fakeAsync(() => {
     hub.failNextStarts = 2;

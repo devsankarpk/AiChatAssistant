@@ -20,9 +20,11 @@ public class DirectHub : Hub
     private readonly IDirectDeliveryService _delivery;
     private readonly IDirectNotifier _notifier;
     private readonly AppDbContext _db;
+    private readonly ILogger<DirectHub> _logger;
 
-    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, AppDbContext db)
+    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, AppDbContext db, ILogger<DirectHub> logger)
     {
+        _logger = logger;
         _presence = presence;
         _delivery = delivery;
         _notifier = notifier;
@@ -45,6 +47,8 @@ public class DirectHub : Hub
         // Online first, then deliver what was waiting: a message sent in between sees the user as
         // online and is marked delivered by the sender, and the pending query skips it.
         var cameOnline = _presence.UserConnected(userId, Context.ConnectionId);
+        // Presence problems ("why does Bob still show as online?") are only diagnosable with these two lines.
+        _logger.LogInformation("Hub connected: user {UserId}, connection {ConnectionId}, cameOnline={CameOnline}", userId, Context.ConnectionId, cameOnline);
         await _delivery.MarkPendingDeliveredAsync(userId);
         if (cameOnline)
         {
@@ -57,7 +61,9 @@ public class DirectHub : Hub
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var userId = Context.User?.GetUserId() ?? 0;
-        if (userId != 0 && _presence.UserDisconnected(userId, Context.ConnectionId))
+        var wentOffline = userId != 0 && _presence.UserDisconnected(userId, Context.ConnectionId);
+        _logger.LogInformation("Hub disconnected: user {UserId}, connection {ConnectionId}, wentOffline={WentOffline}, reason={Reason}", userId, Context.ConnectionId, wentOffline, exception?.Message ?? "closed normally");
+        if (wentOffline)
         {
             // Only when the last tab closes: that moment is the user's "last seen".
             var lastSeen = DateTime.UtcNow;

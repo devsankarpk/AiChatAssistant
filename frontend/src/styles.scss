@@ -10,7 +10,7 @@
   --border: #e2e8f0;
   --border-strong: #cbd5e1;
   --text: #0f172a;
-  --text-muted: #64748b;
+  --text-muted: #5d6d83;
   --accent: #4f46e5;
   --accent-hover: #4338ca;
   --accent-soft: #eef2ff;
@@ -19,6 +19,7 @@
   --tick-read: #0284c7;
   /* Presence: the green "online" dot. */
   --online: #16a34a;
+  --online-text: #15803d; /* the "Online" words need 4.5:1; the dot only needs 3:1 */
   --danger: #b91c1c;
   --danger-soft: #fef2f2;
   --danger-border: #fecaca;
@@ -57,6 +58,7 @@
   --accent-contrast: #0b1020;
   --tick-read: #38bdf8;
   --online: #4ade80;
+  --online-text: #4ade80;
   --danger: #fca5a5;
   --danger-soft: #3a1a1d;
   --danger-border: #7f1d1d;
