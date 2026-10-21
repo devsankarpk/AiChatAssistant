@@ -1,0 +1,136 @@
+<app-top-nav />
+
+<div class="messages-layout" [class.thread-open]="!!selectedId()">
+  <aside class="list-pane" aria-label="Conversations">
+    <div class="list-head">
+      <h1 class="list-title">Messages</h1>
+    </div>
+
+    <div class="search">
+      <label class="visually-hidden" for="people-search">Find someone to message</label>
+      <input
+        id="people-search"
+        type="search"
+        placeholder="Find someone by name"
+        autocomplete="off"
+        [ngModel]="searchTerm()"
+        (ngModelChange)="searchTerm.set($event)"
+      />
+    </div>
+
+    @if (searching()) {
+      <div class="results" aria-label="People">
+        @for (person of searchResult().people; track person.id) {
+          <button type="button" class="person" (click)="startChat(person)">
+            <span class="avatar" aria-hidden="true">{{ initial(person.name) }}</span>
+            <span class="person-name">{{ person.name }}</span>
+          </button>
+        }
+        @if (noResults()) {
+          <p class="hint">No one found with that name.</p>
+        }
+      </div>
+    }
+
+    @if (state.loadError()) {
+      <p class="form-error" role="alert">{{ state.loadError() }}</p>
+    }
+
+    <nav class="conversation-list" aria-label="Your conversations">
+      @for (conversation of state.conversations(); track conversation.id) {
+        <button
+          type="button"
+          class="conversation"
+          [class.active]="conversation.id === selectedId()"
+          [attr.aria-current]="conversation.id === selectedId() ? 'page' : null"
+          (click)="open(conversation.id)"
+        >
+          <span class="avatar" aria-hidden="true">{{ initial(conversation.peer.name) }}</span>
+          <span class="conv-main">
+            <span class="conv-top">
+              <span class="conv-name">{{ conversation.peer.name }}</span>
+              @if (conversation.lastMessage) {
+                <span class="conv-time">{{ listTime(conversation.lastMessage.createdAt) }}</span>
+              }
+            </span>
+            <span class="conv-bottom">
+              @if (conversation.lastMessage && conversation.lastMessage.senderId === me() && !conversation.lastMessage.deleted) {
+                <app-ticks [status]="conversation.lastMessage.status" />
+              }
+              <span class="conv-preview">{{ preview(conversation) }}</span>
+              @if (conversation.unreadCount > 0) {
+                <span class="unread" [attr.aria-label]="conversation.unreadCount + ' unread'">{{
+                  conversation.unreadCount > 99 ? '99+' : conversation.unreadCount
+                }}</span>
+              }
+            </span>
+          </span>
+        </button>
+      } @empty {
+        @if (!state.loadingConversations() && !searching()) {
+          <p class="hint">No conversations yet. Search for someone by name to start one.</p>
+        }
+      }
+    </nav>
+  </aside>
+
+  <section class="thread-pane" aria-label="Conversation">
+    @if (selected(); as conversation) {
+      <header class="thread-head">
+        <button type="button" class="btn btn-quiet back" (click)="back()">Chats</button>
+        <span class="avatar" aria-hidden="true">{{ initial(conversation.peer.name) }}</span>
+        <h2 class="thread-title">{{ conversation.peer.name }}</h2>
+      </header>
+
+      <div class="thread" aria-live="polite">
+        @if (hasMore()) {
+          <button type="button" class="btn btn-quiet earlier" (click)="loadOlder()">Show earlier messages</button>
+        }
+        @for (message of thread(); track message.id) {
+          <div class="bubble-row" [class.mine]="message.senderId === me()">
+            <div class="bubble" [class.deleted]="message.deleted">
+              @if (message.deleted) {
+                <span class="text">This message was deleted</span>
+              } @else {
+                <span class="text">{{ message.content }}</span>
+              }
+              <span class="meta">
+                <span class="time">{{ messageTime(message.createdAt) }}</span>
+                @if (message.senderId === me() && !message.deleted) {
+                  <app-ticks [status]="message.status" />
+                }
+              </span>
+            </div>
+          </div>
+        } @empty {
+          <p class="hint centered">Say hello to {{ conversation.peer.name }}.</p>
+        }
+        <div #anchor></div>
+      </div>
+
+      <div class="composer-wrap">
+        @if (sendError()) {
+          <p class="form-error" role="alert">{{ sendError() }}</p>
+        }
+        <form class="composer" (ngSubmit)="send()">
+          <label class="visually-hidden" for="direct-composer">Message {{ conversation.peer.name }}</label>
+          <textarea
+            id="direct-composer"
+            rows="1"
+            placeholder="Write a message"
+            name="draft"
+            [ngModel]="draft()"
+            (ngModelChange)="draft.set($event)"
+            (keydown)="onDraftKeydown($event)"
+          ></textarea>
+          <button type="submit" class="btn btn-primary" [disabled]="sending() || !draft().trim()">Send</button>
+        </form>
+      </div>
+    } @else {
+      <div class="empty-thread">
+        <h2>Pick a conversation</h2>
+        <p class="muted">Choose one on the left, or search for someone by name to start a new one.</p>
+      </div>
+    }
+  </section>
+</div>

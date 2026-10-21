@@ -1,7 +1,9 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { AuthService } from '../core/services/auth.service';
+import { DirectStateService } from '../core/services/direct-state.service';
 import { AppointmentsComponent } from './appointments.component';
 
 describe('AppointmentsComponent', () => {
@@ -13,7 +15,7 @@ describe('AppointmentsComponent', () => {
     auth = jasmine.createSpyObj<AuthService>('AuthService', ['logout']);
     await TestBed.configureTestingModule({
       imports: [AppointmentsComponent],
-      providers: [provideRouter([]), { provide: AuthService, useValue: auth }],
+      providers: [provideRouter([]), { provide: AuthService, useValue: auth }, { provide: DirectStateService, useValue: { unreadTotal: signal(0) } }],
     }).compileComponents();
 
     router = TestBed.inject(Router);

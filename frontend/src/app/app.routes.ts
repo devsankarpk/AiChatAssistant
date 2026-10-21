@@ -38,6 +38,14 @@ export const routes: Routes = [
     loadComponent: () => import('./chat/chat.component').then((m) => m.ChatComponent),
   },
   {
+    // The selected conversation is a query param (?c=<id>), like the AI chat's ?session=, so one component
+    // instance is reused as the selection changes.
+    path: 'messages',
+    title: 'Messages',
+    canActivate: [authGuard],
+    loadComponent: () => import('./messages/messages.component').then((m) => m.MessagesComponent),
+  },
+  {
     path: 'appointments',
     title: 'Book appointment',
     canActivate: [authGuard],

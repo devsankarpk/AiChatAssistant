@@ -420,7 +420,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8, test phase T1 and Phases 9–11 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phases 9–12 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -436,7 +436,7 @@ Phases 1–8, test phase T1 and Phases 9–11 are **done**. Everything below is 
 | 10 | **9** | Top navigation, appointments placeholder | — | **Done** (early, at the user's request) |
 | 11 | **10** | Direct-messaging tables and REST | — | **Done** (early, at the user's request) |
 | 12 | **11** | SignalR, delivered and read ticks | 10 | **Done** (early, at the user's request) |
-| 13 | **12** | Messages UI with ticks, badge and toast | 11 | Planned |
+| 13 | **12** | Messages UI with ticks, badge and toast | 11 | **Done** (early, at the user's request) |
 | 14 | **13** | Typing, online / last seen, delete message | 12 | Planned |
 | 15 | **14** | End-to-end check of the chat feature | 13 | Planned |
 | 16 | **15** | Redis and RabbitMQ foundation | 11 | Planned |
@@ -533,12 +533,14 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 
 > Done. **Realtime:** `Hubs/DirectHub` at `/hubs/direct` (`[Authorize]`; the JWT comes as the `access_token` query string, accepted only for `/hubs` paths via `JwtBearerEvents.OnMessageReceived`; each connection joins the group `user-<id>`). `Services/InMemoryPresenceTracker` (`IPresenceTracker`: first connection = online, last disconnect = offline and writes `User.LastSeenAt`), `Services/SignalRDirectNotifier` (`IDirectNotifier`: best-effort pushes that never throw into a request) and `Services/DirectDeliveryService` (on connect, everything waiting for the user becomes delivered and each sender is told). **Ticks:** sending while the recipient is online stores `DeliveredAt` at once (status `delivered`); otherwise `sent`, and it becomes `delivered` when they connect. New endpoint `POST /api/direct/conversations/{id}/read` marks the peer's unread messages read (`ReadAt`, and `DeliveredAt` if empty) and returns `{ conversationId, readCount, upToMessageId }`; non-participants and Admins get `404`. **Events** (server to client): `MessageReceived` (the message, to the recipient), `MessageStatusChanged` `{ conversationId, messageIds, status }` with status `delivered` or `read` (to the sender), `MessagesRead` `{ conversationId, upToMessageId }` (to the reader's own other tabs, to clear their unread count). `peerOnline` in the conversation list now reflects live presence. **Infra:** CORS now allows credentials (SignalR negotiate), and `frontend/nginx.conf` has a `/hubs/` location with WebSocket upgrade headers and a 1-hour read timeout. **Limits:** presence is in memory, so the `api` must stay at one replica until Phase 16; a sender's other tabs don't get a live copy of their own message (Phase 12 can refetch or add an event). 26 new .NET tests (87 total). Verified end to end on the Docker stack with a real SignalR client over real WebSockets through nginx: all 10 realtime checks passed (see `TESTING.md` section 9). Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
-#### Phase 12 — Messages UI with ticks *(frontend)*
-- [ ] `@microsoft/signalr`; an app-wide hub service (starts on login, stops on logout, auto-reconnect), a shared state service (conversations, unread total) and a REST service
-- [ ] `messages/` page: conversation list, name search to start a chat, thread, plain-text rendering, mark as read when the thread is open and the tab is visible
-- [ ] `shared/ticks/`: grey single tick, grey double tick, blue double tick, with accessible labels; new `--tick-read` colour token
-- [ ] **Messages** tab in the top nav with the live unread badge; toast when a message arrives and that conversation is not open
-- [ ] Specs for the ticks, unread and ordering logic, and the badge
+#### Phase 12 — Messages UI with ticks *(frontend)* — **done**
+- [x] `@microsoft/signalr`; an app-wide hub service (starts on login, stops on logout, auto-reconnect), a shared state service (conversations, unread total) and a REST service
+- [x] `messages/` page: conversation list, name search to start a chat, thread, plain-text rendering, mark as read when the thread is open and the tab is visible
+- [x] `shared/ticks/`: grey single tick, grey double tick, blue double tick, with accessible labels; new `--tick-read` colour token
+- [x] **Messages** tab in the top nav with the live unread badge; toast when a message arrives and that conversation is not open
+- [x] Specs for the ticks, unread and ordering logic, and the badge
+
+> Done. **New:** `@microsoft/signalr` 8 (loaded on demand after sign-in, so it is not in the initial bundle); `core/services/direct-chat.service.ts` (REST), `direct-hub.service.ts` (one app-wide connection, auto-reconnect, retry when the first attempt fails; the JWT is read through a function each time), `direct-state.service.ts` (conversations, threads, unread total, toasts, mark-read; started and stopped by `AppComponent` with the sign-in state); `shared/ticks/` (one grey tick = sent, two grey = delivered, two blue = read, with an accessible label; new token `--tick-read`, light `#0284c7` and dark `#38bdf8`); `messages/` page at `/messages` (selected conversation in `?c=<id>`, name search with a 250 ms debounce, plain-text bubbles with a soft accent tint for your own so the ticks stay readable, "Show earlier messages" paging, one pane at a time below 48rem). The top bar gained a **Messages** tab with a live unread badge. **Behaviour:** a message for a conversation you are not looking at counts as unread, moves to the top and shows a toast ("Name: preview"); in the open, visible conversation it is marked read at once with no toast; the badge works on every page; on reconnect and when the tab becomes visible again the list and open thread are refetched, which also covers a sender's other tabs. **Tests:** 75 new Angular specs (131 total); a real two-browser run on the Docker stack (Alice and Bob, real WebSockets through nginx) passed all 17 checks, and a regression run of the older features passed (see `TESTING.md` section 10). A unit test caught one real bug on the way (a duplicate delivery showed a second toast), now fixed. Not built yet: typing indicator, online/last seen and delete message (Phase 13). Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
 #### Phase 13 — Typing, online / last seen, delete
 - [ ] Hub `Typing` call (membership-checked, sent to the other person only), `PeerTyping` and `PeerPresenceChanged` events
@@ -617,7 +619,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 
 ### Post-plan — Test plan (Phases T1–T5)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 163 automated tests (95 .NET, 12 Python, 56 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 238 automated tests (95 .NET, 12 Python, 131 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria

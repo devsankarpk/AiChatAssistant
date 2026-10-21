@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 163 automated tests (95 .NET, 12 Python, 56 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent full-application run, with results and findings, is in **section 9**. Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 238 automated tests (95 .NET, 12 Python, 131 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 10** (Phase 12, latest) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -39,7 +39,7 @@ dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one cla
 cd ai-service-python && source .venv/bin/activate && pytest
 pytest tests/test_generate.py::test_returns_reply                      # one test
 
-# Angular (56 tests)
+# Angular (131 tests)
 cd frontend && npm test -- --watch=false --browsers=ChromeHeadless
 npm test -- --include='**/auth.service.spec.ts' --watch=false --browsers=ChromeHeadless   # one spec
 ```
@@ -217,6 +217,26 @@ Not yet covered: the concurrent double-start race (two people start the same cha
 | RT-09 | The push layer | Events go to the right personal group under the agreed names (`MessageReceived`, `MessageStatusChanged`, `MessagesRead`); a failing push never throws into the request | .NET | Automated: 4 tests in `SignalRDirectNotifierTests`, `ThePersonalGroupNameIsStable` |
 | RT-10 | The whole flow over real WebSockets through nginx | Sent, delivered, read, presence and deliver-on-reconnect all behave as above; the hub refuses a token-less connection | Manual | Manual: 10 checks in section 9.2 (`E2E-RT-01` to `E2E-RT-10`, `E2E-DM-06`), all passed on 2026-10-20 |
 
+### 5.11 MESSAGES UI: ticks, unread badge, toast (Angular, Phase 12)
+
+| ID | Scenario | Expected result | Layer | Status |
+|---|---|---|---|---|
+| UIM-01 | Tick icon states | One grey tick = sent; two grey = delivered; two blue = read; an accessible label and title on each (colour is never the only signal); updates when the status moves forward | Angular | Automated: 5 specs in `ticks.component.spec.ts` |
+| UIM-02 | REST service | Correct URLs, methods, query parameters and bodies for search, list, start, get messages (optional `before`/`limit`), send, mark read | Angular | Automated: 6 specs in `direct-chat.service.spec.ts` |
+| UIM-03 | Hub URL | `/api` becomes `/hubs/direct`; an absolute dev API base keeps its host | Angular | Automated: 2 specs (`hubUrlFromApiBase`) in `direct-hub.service.spec.ts` |
+| UIM-04 | Hub connection lifecycle | Connects with the current token (asked again each time, so a refreshed token is used); never opens a second connection; forwards the three events; signals a reconnect; stops; can restart; retries with a growing delay when the first attempt fails and stops retrying after sign-out; closes a connection that finished after sign-out | Angular | Automated: 10 specs in `direct-hub.service.spec.ts` |
+| UIM-05 | Unread and live updates | A message in a conversation you are not viewing counts as unread, moves it to the top and toasts "Name: preview"; in the open, visible conversation it is marked read at once with no toast; open but tab hidden counts as unread and toasts, then is marked read when the tab becomes visible; duplicates and your own messages are ignored; an unknown conversation reloads the list without double counting | Angular | Automated: 7 specs in `direct-state.service.spec.ts` |
+| UIM-06 | Tick updates from the server | `delivered` and `read` events upgrade the right messages in the thread and the list preview, never move a tick backwards, and only touch the named ids; a "read in another tab" event clears unread | Angular | Automated: 4 specs in `direct-state.service.spec.ts` |
+| UIM-07 | Opening, sending, starting, paging | Opening loads the thread and marks read only if something is unread and the tab is visible; sending shows the saved message with its real status and moves the chat to the top; a failed send leaves the thread unchanged; starting a chat adds it at the top without duplicates; earlier messages prepend without duplicates | Angular | Automated: 7 specs in `direct-state.service.spec.ts` |
+| UIM-08 | Recovery and sign-out | After a reconnect the list and open thread are refetched; stopping forgets all chats, stops the hub and ignores later events; start is idempotent; a list failure shows a readable error | Angular | Automated: 4 specs in `direct-state.service.spec.ts`, plus `previewOf` (2 specs) |
+| UIM-09 | Messages page: list | Name, preview ("You: ..." for your own), unread badge with accessible label (capped at 99+), ticks only on your own last message, empty hint, opening writes `?c=` to the URL | Angular | Automated: 5 specs in `messages.component.spec.ts` |
+| UIM-10 | Messages page: thread | Bubbles with ticks only on your own messages, in the right state; text rendered as plain text (HTML shown literally); deleted placeholder with no ticks; hello prompt in an empty thread; pick-a-conversation prompt; unread messages marked read on open; "Chats" back button; a dead conversation id in the URL is dropped | Angular | Automated: 8 specs in `messages.component.spec.ts` |
+| UIM-11 | Messages page: sending | Trimmed draft sent, box cleared, new bubble with one grey tick; empty or whitespace draft not sent and button disabled; a failed send keeps the draft and shows an error; Enter sends and Shift+Enter does not | Angular | Automated: 4 specs in `messages.component.spec.ts` |
+| UIM-12 | Messages page: name search | Nothing searched under 2 characters; one request after typing pauses; results show names only; "no one found"; clicking a result starts the chat, clears the search and opens it | Angular | Automated: 4 specs in `messages.component.spec.ts` |
+| UIM-13 | Top bar | Chatbot and Messages tabs; Messages current on `/messages`; live unread badge (hidden at 0, updates, capped at 99+, accessible text) | Angular | Automated: 9 specs in `top-nav.component.spec.ts` |
+| UIM-14 | App shell | The live connection is started when someone signs in and stopped when they sign out, and kept off while signed out | Angular | Automated: 3 specs in `app.component.spec.ts` |
+| UIM-15 | Two real browsers on the real stack | Sent, delivered and read ticks, toast, badge, reload, dark theme, mobile, sign-out | Manual | Manual: 17 checks in section 10.2, all passed on 2026-10-21 |
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -232,8 +252,6 @@ These rows are filled in (and their test names recorded) when the feature phase 
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
-| MSG-01 | Ticks component | One grey tick = sent, two grey = delivered, two blue = read, deleted shows none; accessible labels | Angular | Planned (Phase 12) |
-| MSG-02 | Unread badge and toast | Badge updates live; toast shows sender and preview only when that conversation isn't open and visible | Angular | Planned (Phase 12) |
 | MSG-03 | Typing indicator | Sent about every 3 s, clears after 4 s; rejected for non-participants | .NET + Angular | Planned (Phase 13) |
 | MSG-04 | Delete own message | Sender only; content cleared on the server; both sides see "This message was deleted" | .NET + Angular | Planned (Phase 13) |
 | BRK-01 | Presence and push across two API replicas | Event reaches a user connected to the other replica | Manual | Planned (Phase 16) |
@@ -427,3 +445,75 @@ The **first run** of this section found 36/37 API checks (`E2E-AUTH-07` failed) 
 - 8 new .NET tests (`AUTH-23`, `ERR-06`): .NET is now **95 passed**, 163 automated tests overall.
 - Verified on the real Docker stack (rebuilt, SMTP still unset): registered email `200`, unknown email `200`, **identical bodies**; the API log shows `Could not send the password reset email for user <id>` with `Smtp:Username is not configured`. All throwaway users and data were deleted and the stack stopped afterwards.
 - Still true: with no SMTP credentials no email is sent (`E2E-AUTH-07` now passes, but the real email and the reset-password happy path still need real credentials to test). The remaining enumeration paths, the registration `409` and the slower response for known emails, are Phase 22 and Phase 17.
+
+## 10. Phase 12 test run (2026-10-21)
+
+Run after Phase 12 (the Messages screen with ticks, unread badge and toast) against the **real Docker stack** (MySQL, migration, .NET API, Python service, nginx + Angular), with **two real Chrome browsers acting as two people** (Alice and Bob, separate profiles, real WebSockets through nginx) and a **real DeepInfra LLM call**. Throwaway accounts only; all test data was deleted afterwards (users, chats, messages, roles) and the stack stopped. The host dev MySQL was not touched. The backend did not change in Phase 12, so the API-level realtime checks of section 9 were not repeated; the browser run below exercises the same hub end to end.
+
+### 10.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **95 passed, 0 failed** (unchanged) |
+| Python (`pytest`) | **12 passed, 0 failed** (unchanged) |
+| Angular unit (`ng test`, ChromeHeadless) | **131 passed, 0 failed** (56 before + 75 new in Phase 12) |
+| Angular production build | Succeeded, no warnings. Initial bundle 323.7 kB; the Messages page is its own 15.9 kB chunk and the SignalR client loads on demand after sign-in, not in the initial bundle |
+| **Total** | **238 passed, 0 failed** |
+
+Phase 12 changed these Angular specs: new `ticks` (5), `direct-chat.service` (6), `direct-hub.service` (12), `direct-state.service` (25), `messages.component` (21); extended `top-nav` (5 to 9) and `app.component` (1 to 3).
+
+### 10.2 Two browsers, one conversation (17/17 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-M12-01 | Messages tab is in the top bar after sign-in, with no badge yet | PASS | tabs: Chatbot \| Messages |
+| E2E-M12-02 | Messages page opens from the tab and says there are no conversations yet | PASS | /messages, empty list hint shown |
+| E2E-M12-03 | Search by name finds Bob (name only), and clicking him opens a new empty conversation | PASS | result "BBob Tester"; thread opened at ?c=a0d0dbf4-… |
+| E2E-M12-04 | ONE grey tick: Alice sends while Bob is offline -> bubble with a single sent tick | PASS | 1 bubble, tick status=sent, 1 tick shape |
+| E2E-M12-05 | TWO grey ticks: Bob signs in (anywhere in the app) -> Alice's tick becomes delivered live, with no refresh | PASS | status=delivered, 2 tick shapes, still grey |
+| E2E-M12-06 | Bob sees an unread badge on the Messages tab while on the CHATBOT page (app-wide connection) | PASS | badge "1" on the Messages tab, Bob is on the chatbot page |
+| E2E-M12-07 | A new message pops a toast with the sender and a preview, and bumps the badge to 2 | PASS | toast "Alice Tester: ping from Alice", badge 2 |
+| E2E-M12-08 | Bob opens Messages: the conversation shows 2 unread; opening it clears the badge | PASS | list showed 2 unread; after opening: badge and list badge gone |
+| E2E-M12-09 | TWO BLUE ticks: Alice's ticks flip to read live when Bob opens the conversation | PASS | 2 ticks, status=read, blue stroke rgb(2, 132, 199) (the --tick-read token) |
+| E2E-M12-10 | Live both ways: Bob replies; it appears on Alice's open thread at once with NO toast, and Bob's tick turns blue because Alice has it open | PASS | reply shown live, no toast, Bob's tick status=read |
+| E2E-M12-11 | After a reload the thread and every tick state come back from the server | PASS | 3 messages restored; Bob's tick still read |
+| E2E-M12-12 | The Messages list shows the last message, newest first, with no ticks when the last message is the other person's | PASS | "yes, I am here", no unread, no ticks |
+| E2E-M12-13 | Dark theme: the read-tick colour switches to the dark token (screenshot taken) | PASS | dark read-tick colour rgb(56, 189, 248) |
+| E2E-M12-14 | Mobile (390 px): list first, tapping opens the thread, "Chats" goes back; no horizontal scroll | PASS | list -> thread -> back works, no overflow |
+| E2E-M12-15 | Sign out stops the live connection and forgets the chats | PASS | back at /login, no leftover chat text |
+| E2E-M12-16 | The AI chatbot page is unaffected (sidebar, pinned Book appointment, "+") | PASS | chat page intact |
+| E2E-M12-17 | No uncaught JavaScript errors in either browser during the whole run | PASS | 0 uncaught page errors |
+
+### 10.3 Regression of the older features in a real browser (11/11 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E2E-R-01 | Register through the form and land on the chat page with the new top bar | PASS | tabs Chatbot \| Messages |
+| E2E-R-02 | AI chat: send a message in the UI and get a REAL LLM reply rendered as markdown | PASS | reply rendered (68 chars of HTML) |
+| E2E-R-03 | AI chat: the chat is auto-titled, grouped under Today, and "+" creates a new empty chat | PASS | title "Reply with a short markdown list of two colours.", rows 1 -> 2 |
+| E2E-R-04 | Pinned "Book appointment" opens the placeholder; its top bar has Messages with no badge, theme toggle and Log out | PASS | buttons: Dark theme, Log out |
+| E2E-R-05 | Messages tab opens the Messages page from another page, and the page says there are no conversations | PASS | /messages |
+| E2E-R-06 | Theme toggle works and is remembered after a reload | PASS | dark, remembered across reload |
+| E2E-R-07 | Admin: after the Admin role is granted (SQL as in the README) the Usage logs link and table work | PASS | Re-run after fixing a quoting bug in the test script: roles Admin,User, link "Usage logs", 1 usage row(s), stat cards 1/184, usage top bar present |
+| E2E-R-08 | A non-admin is redirected away from /admin/usage | PASS | redirected to / |
+| E2E-R-09 | Login page: a wrong password shows an inline error and stays on /login | PASS | inline error: Email or password is incorrect. |
+| E2E-R-10 | Forgot-password page: submitting shows the generic confirmation (SMTP is not configured here, and the page must not break) | PASS | generic message shown, no error |
+| E2E-R-11 | No uncaught JavaScript errors during the whole regression run | PASS | 0 uncaught page errors |
+
+`E2E-R-07` failed on its first attempt because of a shell-quoting bug in my test script (the email address in the SQL), not because of the app; after fixing the script it was re-run on the same data and passed, as recorded above.
+
+### 10.4 Findings
+
+| # | Severity | Finding | Evidence and cause | Suggested fix |
+|---|---|---|---|---|
+| F5 | Fixed during the phase | A duplicate delivery of the same message for a conversation whose thread was not loaded still showed a **second toast** (the unread count was right). | Caught by the unit test `ignores a duplicate delivery of the same message`; `DirectStateService.onMessageReceived` now drops a message equal to the conversation's last message. | None needed (fixed and tested). |
+| F4 | Mitigated (see 9.4) | A sender's other tabs do not receive a live copy of a message sent from one tab. | The tab resyncs the list and open thread when it becomes visible again and after a reconnect. | A `MessageSent` push to the sender's group if instant sync across tabs is wanted. |
+| F6 | Low | Presence (online dot, last seen) and the typing indicator are not shown yet. | Planned for Phase 13 (`PeerPresenceChanged`, `Typing`). | Phase 13. |
+| F7 | Info | Toasts have no click-through to the conversation. | `ToastService` shows text only. | Optional: make a message toast a link to `/messages?c=<id>`. |
+
+### 10.5 Not covered by this run
+
+- **Delete message, typing, online/last seen:** Phase 13.
+- **Hidden-tab behaviour in a real browser:** covered by unit tests (visibility is faked); headless Chrome could not simulate a background tab here.
+- **Real password-reset emails:** no SMTP credentials in this environment.
+- **Very large conversations** (the 50-message page and "Show earlier messages") were unit-tested but not exercised against a real conversation of more than 50 messages.

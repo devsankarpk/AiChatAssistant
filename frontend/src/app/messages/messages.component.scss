@@ -1,0 +1,351 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+.messages-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- Conversation list ---------- */
+
+.list-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 22rem;
+  flex-shrink: 0;
+  padding: 1rem 0.85rem 0.85rem;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.list-title {
+  margin: 0;
+  padding: 0 0.35rem;
+  font-size: var(--step-2);
+}
+
+.search input {
+  box-shadow: none;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 13rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.45rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--accent-soft);
+  }
+}
+
+.hint {
+  margin: 0;
+  padding: 0 0.35rem;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+}
+
+.centered {
+  margin: auto;
+  text-align: center;
+}
+
+.conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.conversation {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-muted);
+  }
+
+  &.active {
+    background: var(--accent-soft);
+  }
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.conversation.active .avatar {
+  background: var(--surface);
+}
+
+.conv-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.conv-top,
+.conv-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.conv-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.conv-time {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.conv-preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--step--1);
+}
+
+.unread {
+  min-width: 1.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ---------- Thread ---------- */
+
+.thread-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.thread-title {
+  margin: 0;
+  font-size: var(--step-1);
+}
+
+.back {
+  display: none;
+  padding: 0.35rem 0.8rem;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 0.75rem;
+  overflow-y: auto;
+}
+
+.earlier {
+  align-self: center;
+  margin-bottom: 0.5rem;
+}
+
+.bubble-row {
+  display: flex;
+
+  &.mine {
+    justify-content: flex-end;
+  }
+}
+
+/* Mine: a soft accent tint (not solid) so the grey and blue ticks stay readable on it. */
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: min(85%, 34rem);
+  padding: 0.5rem 0.8rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+
+  .mine & {
+    border-color: transparent;
+    border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
+    background: var(--accent-soft);
+  }
+
+  &.deleted .text {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+}
+
+.text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+.composer-wrap {
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0 1.25rem 1.1rem;
+}
+
+.composer-wrap .form-error {
+  margin-bottom: 0.6rem;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+
+  &:focus-within {
+    border-color: var(--accent);
+  }
+
+  textarea {
+    flex: 1;
+    min-height: 2.5rem;
+    max-height: 9rem;
+    padding: 0.55rem 0.6rem;
+    border: none;
+    background: transparent;
+    resize: none;
+    field-sizing: content;
+
+    &:focus-visible {
+      outline: none;
+    }
+  }
+}
+
+.empty-thread {
+  margin: auto;
+  padding: 1rem;
+  max-width: 26rem;
+  text-align: center;
+
+  h2 {
+    margin: 0 0 0.4rem;
+    font-size: var(--step-2);
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+/* ---------- Narrow screens: one pane at a time ---------- */
+
+@media (max-width: 48rem) {
+  .list-pane {
+    width: 100%;
+    border-right: 0;
+  }
+
+  .thread-pane {
+    display: none;
+  }
+
+  .thread-open .list-pane {
+    display: none;
+  }
+
+  .thread-open .thread-pane {
+    display: flex;
+  }
+
+  .back {
+    display: inline-flex;
+  }
+
+  .thread {
+    padding: 1rem 0.85rem 0.5rem;
+  }
+
+  .composer-wrap {
+    padding: 0 0.85rem 0.9rem;
+  }
+}
