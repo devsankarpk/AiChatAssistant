@@ -17,4 +17,13 @@ public interface IDirectNotifier
 
     /// <summary>"MessagesRead" to the reader's own connections, so their other tabs clear the unread count.</summary>
     Task MessagesReadAsync(int readerId, Guid conversationId, long upToMessageId, CancellationToken cancellationToken = default);
+
+    /// <summary>"MessageDeleted" to one participant (called for both): this message no longer has any text.</summary>
+    Task MessageDeletedAsync(int userId, Guid conversationId, long messageId, CancellationToken cancellationToken = default);
+
+    /// <summary>"PeerTyping" to the other participant only: <paramref name="typingUserId"/> is typing in this conversation.</summary>
+    Task PeerTypingAsync(int recipientId, Guid conversationId, int typingUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>"PeerPresenceChanged" to everyone who shares a conversation with <paramref name="userId"/>.</summary>
+    Task PeerPresenceChangedAsync(IReadOnlyCollection<int> peerIds, int userId, bool online, DateTime? lastSeenAt, CancellationToken cancellationToken = default);
 }

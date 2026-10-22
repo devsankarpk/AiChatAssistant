@@ -1,10 +1,12 @@
-import { Component } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
+
+import { DirectStateService } from '../../core/services/direct-state.service';
 
 /**
  * The bar across the top of the signed-in pages: the product mark and the main sections
- * (today only Chatbot; Messages is added in Phase 12). Book appointment is a pinned row at the top of
- * the chat sidebar, not a tab here. A page may project extra controls into the right-hand end
+ * (Chatbot and Messages, the latter with a live unread badge). Book appointment is a pinned row at the
+ * top of the chat sidebar, not a tab here. A page may project extra controls into the right-hand end
  * (`<app-top-nav><button>...</button></app-top-nav>`); the chat page projects nothing because
  * its sidebar already carries the account controls.
  */
@@ -27,6 +29,16 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
           [attr.aria-current]="chatbot.isActive ? 'page' : null"
           >Chatbot</a
         >
+        <a
+          routerLink="/messages"
+          routerLinkActive="active"
+          #messages="routerLinkActive"
+          [attr.aria-current]="messages.isActive ? 'page' : null"
+          >Messages
+          @if (unread() > 0) {
+            <span class="badge">{{ badge() }}<span class="visually-hidden"> unread</span></span>
+          }
+        </a>
       </nav>
 
       <div class="nav-end"><ng-content /></div>
@@ -72,6 +84,20 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
       }
     }
 
+    .badge {
+      display: inline-block;
+      min-width: 1.25rem;
+      margin-left: 0.35rem;
+      padding: 0 0.4rem;
+      border-radius: 999px;
+      background: var(--accent);
+      color: var(--accent-contrast);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      line-height: 1.25rem;
+      text-align: center;
+    }
+
     .nav-end {
       display: flex;
       align-items: center;
@@ -108,4 +134,9 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
     }
   `,
 })
-export class TopNavComponent {}
+export class TopNavComponent {
+  private readonly direct = inject(DirectStateService);
+
+  readonly unread = this.direct.unreadTotal;
+  readonly badge = computed(() => (this.unread() > 99 ? '99+' : String(this.unread())));
+}

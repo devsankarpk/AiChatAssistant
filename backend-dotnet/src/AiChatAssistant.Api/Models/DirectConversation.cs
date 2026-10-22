@@ -13,7 +13,7 @@ public class DirectConversation
 
     public int UserHighId { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public User UserLow { get; set; } = null!;
 
