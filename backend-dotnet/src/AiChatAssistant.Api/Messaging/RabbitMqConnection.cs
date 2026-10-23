@@ -21,16 +21,43 @@ public sealed class RabbitMqConnection : IAsyncDisposable
     }
 
     /// <summary>
+    /// Runs a broker call with a deadline. If the broker does not answer in time this throws
+    /// <see cref="BrokerUnavailableException"/>, never an <see cref="OperationCanceledException"/> (callers treat that
+    /// as "the request was cancelled" and let it escape as a 500).
+    /// </summary>
+    public async Task WithTimeoutAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.PublishTimeoutSeconds)));
+        try
+        {
+            await action(deadline.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new BrokerUnavailableException($"RabbitMQ did not answer within {_options.PublishTimeoutSeconds} s.");
+        }
+        catch (TimeoutException ex)
+        {
+            throw new BrokerUnavailableException($"RabbitMQ did not answer within {_options.PublishTimeoutSeconds} s.", ex);
+        }
+    }
+
+    /// <summary>
     /// A new channel. With <paramref name="confirmPublishes"/> a publish only completes once the broker
     /// has safely accepted the message (and throws when it has not), which is what lets the caller
     /// trust that "published" means "queued".
     /// </summary>
-    public async Task<IChannel> CreateChannelAsync(bool confirmPublishes, CancellationToken cancellationToken)
+    public async Task<IChannel> CreateChannelAsync(bool confirmPublishes, CancellationToken cancellationToken, int consumerConcurrency = 1)
     {
         var connection = await GetConnectionAsync(cancellationToken);
-        var channelOptions = confirmPublishes
-            ? new CreateChannelOptions(publisherConfirmationsEnabled: true, publisherConfirmationTrackingEnabled: true)
-            : null;
+        // By default a channel hands its consumer's messages over ONE AT A TIME, whatever the prefetch is, so a worker
+        // that asked for 4 messages would still run them serially (found by the load test: 40 jobs, never more than 1 AI
+        // call per replica at once). Dispatch concurrency lets that many handlers run at the same time.
+        var channelOptions = new CreateChannelOptions(
+            publisherConfirmationsEnabled: confirmPublishes,
+            publisherConfirmationTrackingEnabled: confirmPublishes,
+            consumerDispatchConcurrency: (ushort)Math.Clamp(consumerConcurrency, 1, ushort.MaxValue));
         return await connection.CreateChannelAsync(channelOptions, cancellationToken);
     }
 
@@ -64,6 +91,9 @@ public sealed class RabbitMqConnection : IAsyncDisposable
                 AutomaticRecoveryEnabled = true,
                 TopologyRecoveryEnabled = true,
                 RequestedConnectionTimeout = TimeSpan.FromSeconds(5),
+                // The library waits 20 s for a broker that accepts the connection but never answers; keep it short.
+                HandshakeContinuationTimeout = TimeSpan.FromSeconds(5),
+                ContinuationTimeout = TimeSpan.FromSeconds(8),
             };
             // If the very first connect fails (broker not up yet) nothing is stored, so the next call tries again.
             _connection = await factory.CreateConnectionAsync(cancellationToken);

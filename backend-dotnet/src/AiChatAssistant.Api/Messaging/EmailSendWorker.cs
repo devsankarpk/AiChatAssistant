@@ -44,7 +44,7 @@ public sealed class EmailSendWorker : BackgroundService
         {
             try
             {
-                channel = await _connection.CreateChannelAsync(confirmPublishes: false, stoppingToken);
+                channel = await _connection.CreateChannelAsync(confirmPublishes: false, stoppingToken, consumerConcurrency: _options.Prefetch);
                 await EmailTopology.DeclareAsync(channel, _options, stoppingToken);
                 await channel.BasicQosAsync(0, (ushort)Math.Max(1, _options.Prefetch), false, stoppingToken);
 
@@ -162,9 +162,12 @@ public sealed class EmailSendWorker : BackgroundService
             Headers = headers,
         };
 
-        await using var channel = await _connection.CreateChannelAsync(confirmPublishes: true, cancellationToken);
-        await channel.BasicPublishAsync(string.Empty, queue, mandatory: true, basicProperties: properties,
-            body: delivery.Body, cancellationToken: cancellationToken);
+        await _connection.WithTimeoutAsync(async token =>
+        {
+            await using var channel = await _connection.CreateChannelAsync(confirmPublishes: true, token);
+            await channel.BasicPublishAsync(string.Empty, queue, mandatory: true, basicProperties: properties,
+                body: delivery.Body, cancellationToken: token);
+        }, cancellationToken);
     }
 
     private static int ReadAttempt(BasicDeliverEventArgs delivery)
