@@ -1,6 +1,7 @@
 using AiChatAssistant.Api.Controllers;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
+using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Tests.TestSupport;
@@ -17,7 +18,7 @@ public class AuthControllerTests : IDisposable
 {
     private readonly AppDbContext _db = TestDbContextFactory.Create();
     private readonly Mock<ITokenService> _tokenService = new();
-    private readonly Mock<IEmailSender> _emailSender = new();
+    private readonly Mock<IEmailQueue> _emailSender = new();
     private readonly IConfiguration _configuration = new ConfigurationBuilder().Build();
 
     public AuthControllerTests()
@@ -145,7 +146,7 @@ public class AuthControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task ForgotPassword_SendsResetLink_ForKnownEmail()
+    public async Task ForgotPassword_QueuesTheResetLink_ForKnownEmail()
     {
         var controller = CreateController();
         await controller.Register(
@@ -156,13 +157,13 @@ public class AuthControllerTests : IDisposable
 
         Assert.IsType<OkObjectResult>(result.Result);
         _emailSender.Verify(
-            e => e.SendPasswordResetEmailAsync("ada@example.com", "Ada", It.Is<string>(link => link.Contains("/reset-password?token=")), It.IsAny<CancellationToken>()),
+            e => e.EnqueuePasswordResetAsync("ada@example.com", "Ada", It.Is<string>(link => link.Contains("/reset-password?token=")), It.IsAny<CancellationToken>()),
             Times.Once);
         Assert.Single(_db.PasswordResetTokens);
     }
 
     [Fact]
-    public async Task ForgotPassword_ReturnsTheSameGenericMessage_ForUnknownEmail_AndSendsNothing()
+    public async Task ForgotPassword_ReturnsTheSameGenericMessage_ForUnknownEmail_AndQueuesNothing()
     {
         var controller = CreateController();
 
@@ -173,17 +174,17 @@ public class AuthControllerTests : IDisposable
             "If that email is registered, a password reset link has been sent.",
             Assert.IsType<AuthMessageResponse>(ok.Value).Message);
         _emailSender.Verify(
-            e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            e => e.EnqueuePasswordResetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
     [Fact]
-    public async Task ForgotPassword_ReturnsTheSameGenericMessage_WhenSendingTheEmailFails_SoNoAccountIsRevealed()
+    public async Task ForgotPassword_ReturnsTheSameGenericMessage_WhenSendingOrQueuingTheEmailFails_SoNoAccountIsRevealed()
     {
         _db.Users.Add(new User { Name = "Known", Email = "known@example.com", PasswordHash = "x" });
         _db.SaveChanges();
         _emailSender
-            .Setup(e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(e => e.EnqueuePasswordResetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("SMTP is down or not configured"));
         var controller = CreateController();
 
@@ -204,7 +205,7 @@ public class AuthControllerTests : IDisposable
         _db.Users.Add(new User { Name = "Known", Email = "known@example.com", PasswordHash = "x" });
         _db.SaveChanges();
         _emailSender
-            .Setup(e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(e => e.EnqueuePasswordResetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -303,7 +304,7 @@ public class AuthControllerTests : IDisposable
     {
         string? capturedLink = null;
         _emailSender
-            .Setup(e => e.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(e => e.EnqueuePasswordResetAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback<string, string, string, CancellationToken>((_, _, link, _) => capturedLink = link)
             .Returns(Task.CompletedTask);
 

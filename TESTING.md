@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 302 automated tests (122 .NET, 12 Python, 168 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 12** (Phase 14, latest), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 321 automated tests (141 .NET, 12 Python, 168 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 13** (Phases 15 and 17, latest), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (122 tests)
+# .NET (141 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -173,7 +173,7 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 
 | ID | Scenario | Expected result | Status |
 |---|---|---|---|
-| OPS-01 | `docker compose --env-file docker.env up --build -d` on a clean machine | All five services start; `api` and `web` report healthy | Manual |
+| OPS-01 | `docker compose --env-file docker.env up --build -d` on a clean machine | All services (mysql, rabbitmq, redis, migrate, ai-service, api, web) start; `api` and `web` report healthy | Manual |
 | OPS-02 | Migrations | `migrate` runs once and exits `0`; tables exist | Manual |
 | OPS-03 | Same-origin proxy | The site at `:8080` calls `/api` with no CORS errors; deep links (`/reset-password?token=...`) load | Manual |
 | OPS-04 | Restart keeps data | `stop` then `up` keeps users and chats; `down -v` removes them | Manual |
@@ -292,6 +292,29 @@ Test cases, with the automated test (or manual check) that covers each. "Hub" = 
 | A11Y-01 | axe-core WCAG 2 A/AA scan of the Messages screen, light and dark | No serious or critical violations (colour contrast of muted text and the green "Online" words) | Manual | Manual: `E2E-F-16` (54 serious nodes before the fix, finding F13) |
 | FEAT-01 to FEAT-17 | Whole-feature walkthrough: find by name, ticks (one grey, two grey, blue), toast and badge, typing, hidden tab, two tabs, delete, last seen, 66-message paging, simultaneous start of the same chat, outsider and Admin 404, API restart, accessibility, no JavaScript errors | All pass | Manual | Manual: `E2E-F-01` to `E2E-F-17` (section 12.2) |
 
+### 5.14 MESSAGE BROKERS: foundation and async password-reset email (Phases 15 and 17)
+
+"Processor" = `PasswordResetEmailProcessor` (the worker's decisions, tested without a broker). The RabbitMQ glue (publish, consume, retry and dead-letter queues, reconnect) is verified against a **real RabbitMQ** in the Docker run (section 13); no unit test connects to a broker.
+
+| ID | Test case (scenario) | Expected result | Layer | Status |
+|---|---|---|---|---|
+| QUE-01 | Send succeeds | Outcome `Sent`, the sender called once with the message's address, name and link | .NET | `PasswordResetEmailProcessorTests.Sends_AndReportsSent_WhenTheSenderSucceeds` |
+| QUE-02 | Send fails, retries remain (first and second failure) | Outcome `Retry` with the configured delay (10 s, then 60 s) and the error text | .NET | `AskForARetryWithTheConfiguredDelay_WhenSendingFailsAndRetriesRemain` (2 cases) |
+| QUE-03 | Send fails with no retries left, or none configured | Outcome `Dead` | .NET | `DeadLetters_WhenSendingFailsAndNoRetriesRemain`, `DeadLettersAtOnce_WhenNoRetriesAreConfigured` |
+| QUE-04 | The link has expired (older than its lifetime) | Outcome `Expired`; the sender is never called | .NET | `DropsAMessageWhoseLinkHasExpired_WithoutSendingIt` |
+| QUE-05 | Shutdown during a send | Cancellation propagates; it is not counted as a failed send | .NET | `PropagatesCancellation_RatherThanTreatingItAsAFailedSend` |
+| QUE-06 | No broker host configured | `IEmailQueue` is the inline queue and no worker is registered | .NET | `EmailQueueWiringTests.WithoutABrokerHost_EmailIsSentInline_AndNoWorkerIsRegistered` |
+| QUE-07 | Broker host configured | `IEmailQueue` is the RabbitMQ queue and the worker is registered; nothing connects at start-up | .NET | `WithABrokerHost_EmailIsQueued_AndTheWorkerIsRegistered_WithoutConnectingYet` |
+| QUE-08 | Host set but username or password blank | The API refuses to start; the message names `RabbitMq__Password` | .NET | `ABrokerHostWithoutCredentials_FailsFastAtStartup_WithAClearMessage` (3 cases) |
+| QUE-09 | `Email:Provider` | Default and `smtp` give the SMTP sender, `console` the console sender, anything else fails at start-up | .NET | `EmailProvider_PicksTheSender` (3 cases), `AnUnknownEmailProvider_FailsFast` |
+| QUE-10 | Retry delays from configuration with an environment-style override | An override of one index replaces it and keeps the other (`[2, 60]`) | .NET | `RetryDelaysAreBoundFromConfiguration_AndAnEnvironmentOverrideReplacesByIndex` |
+| QUE-11 | Retry queue names | Carry their delay (`email.retry.10s`) so changing the delays never clashes with an existing queue | .NET | `EmailTopologyTests.RetryQueueNamesCarryTheirDelay_...` |
+| QUE-12 | Inline queue | Delivers through the sender | .NET | `InlineQueue_DeliversThroughTheSender` |
+| QUE-13 | `ForgotPassword` | Queues the link only for an existing user; the same generic message for known, unknown and failing-queue cases | .NET | `AuthControllerTests`: `ForgotPassword_QueuesTheResetLink_ForKnownEmail`, `..._ForUnknownEmail_AndQueuesNothing`, `..._WhenSendingOrQueuingTheEmailFails_SoNoAccountIsRevealed`, `..._StillPropagatesCancellation_...` |
+| FND-01 to FND-13 | Broker foundation on the Docker stack: healthy, not published, passwords enforced, no `guest`, topology durable, `/health` 200, worker consuming, register/login/401 unchanged | All pass | Manual | Manual: `P15-01` to `P15-13` (section 13.2) |
+| QUE-E01 to QUE-E28 | Async email against a real RabbitMQ: generic answer, delivery and password reset, retries, dead letter, broker outage and recovery, broker and API restart, expiry, 40 at once, no broker, fail-fast | All pass | Manual | Manual: `P17-01` to `P17-28` (section 13.3) |
+| REG-01 to REG-09 | Browser regression with the brokers running: register, AI reply, forgot-password page, wrong password, direct messages with live delivery and blue ticks, no JavaScript errors | All pass | Manual | Manual: `R-01` to `R-09` (section 13.4) |
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -308,7 +331,7 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
 | BRK-01 | Presence and push across two API replicas | Event reaches a user connected to the other replica | Manual | Planned (Phase 16) |
-| BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Planned (Phase 17) |
+| BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Built in Phase 17, see 5.14 (`QUE-*`) |
 | BRK-03 | Async AI reply (`Chat:AsyncReplies` on) | `202` then `AssistantReplied`; a redelivered job is a no-op; failure then retry then `AssistantFailed`; broker down gives `503` with the user message kept | .NET + Angular | Planned (Phase 18) |
 | BRK-04 | Direct-chat events | Written in the same transaction as the change; payload never contains message text | .NET | Planned (Phase 19) |
 | SEC-01 | More than the allowed login attempts from one IP | `429` in the standard error shape, then allowed again after the window | .NET | Planned (Phase 21) |
@@ -693,4 +716,107 @@ The API was stopped for 130 s with both people connected (more than SignalR's re
 - **A real phone or a real network drop** (airplane mode): the lost-network case is covered by the server timeout only; the stop/start of the API stands in for it.
 - **Real password-reset emails:** no SMTP credentials in this environment.
 - **More than two people / more than one API replica:** one replica by design until Phase 16.
+- Load, security and penetration testing are out of scope (section 1).
+
+## 13. Phases 15 and 17 test run (2026-10-22)
+
+Run after Phase 15 (RabbitMQ and Redis foundation) and Phase 17 (password-reset email through RabbitMQ), against the **real Docker stack** with a **real RabbitMQ 3.13** and Redis 7, real MySQL, the .NET API, the Python service and nginx. The queue tests used the real broker (stopped, started and restarted during the run) and read the dead-letter queue through RabbitMQ's management API; a test-only compose override (kept outside the repo) switched the email provider and the retry delays per scenario. Throwaway accounts only; all test data was deleted afterwards (users and tokens removed, queues emptied) and the stack stopped. **The host dev MySQL was not touched** (it was not running during this work).
+
+### 13.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **141 passed, 0 failed** (122 before + 19 new: processor 7, wiring 10, topology and inline queue 2; the forgot-password controller tests were adapted to `IEmailQueue`) |
+| Python (`pytest`) | **12 passed, 0 failed** (unchanged) |
+| Angular unit (`ng test`, ChromeHeadless) | **168 passed, 0 failed** (unchanged; no frontend change) |
+| Database migration drift | **Not re-run**: `dotnet ef migrations has-pending-model-changes` starts the app, which connects to the host MySQL, and that server was not running. No file under `Models/`, `Data/` or `Migrations/` was changed (`git diff` is empty for them), so no migration is needed |
+| **Total** | **321 passed, 0 failed** |
+
+### 13.2 Phase 15: broker foundation (13/13 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P15-01 | rabbitmq and redis containers are running and healthy | PASS | rabbitmq=healthy redis=healthy |
+| P15-02 | only the web container publishes a port; neither broker is reachable from outside | PASS | published: web:8080 |
+| P15-03 | redis refuses a client without the password | PASS | NOAUTH Authentication required. |
+| P15-04 | redis refuses a wrong password | PASS | AUTH failed: WRONGPASS invalid username-password pair or user is disabled. NOAUTH Authentication required. |
+| P15-05 | redis answers PONG with the real password | PASS |  |
+| P15-06 | rabbitmq has no default 'guest' login | PASS | user 'guest' - invalid credentials |
+| P15-07 | rabbitmq accepts the generated 'aichat' login | PASS |  |
+| P15-08 | rabbitmq rejects a wrong password for aichat | PASS |  |
+| P15-09 | API /health is 200 (liveness only, no broker check) | PASS | status 200 |
+| P15-10 | API connected to the broker: the email worker is consuming email.send | PASS |  |
+| P15-11 | topology exists and is durable: email.send, email.dead, email.retry.10s, email.retry.60s | PASS | email.dead, email.retry.10s, email.retry.60s, email.send |
+| P15-12 | existing behaviour unchanged: register and login still work with the brokers running | PASS | register 201, login 200 |
+| P15-13 | error shape unchanged: unauthenticated call is 401 with { error: { code, message } } | PASS |  |
+
+### 13.3 Phase 17: async email against a real RabbitMQ (28/28 passed)
+
+Scenarios: S1 happy path (console provider); S2 every send fails (retries after 2 s and 3 s); S3 broker stopped then started; S4 broker restart and API restart while a message waits; S5 message TTL (1 minute); S6 40 requests at once; S7 no broker configured; S8 host set with a blank password.
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P17-01 | same status and body for a registered and an unregistered email | PASS | 200 / 200: If that email is registered, a password reset link has been sent. |
+| P17-02 | the worker delivered the registered user's email (via the queue) | PASS | link found in the delivery log |
+| P17-03 | no email was produced for the unregistered address | PASS |  |
+| P17-04 | end to end: the emailed link resets the password (new works, old fails) | PASS | reset 200, new 200, old 401 |
+| P17-05 | queues are empty afterwards (message acknowledged, nothing stuck in retry or dead-letter) | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| P17-06 | the worker holds exactly one consumer on email.send | PASS |  |
+| P17-07 | the request is not slowed or failed by the mail failure: 200 generic answer right away | PASS | 200 in 422 ms |
+| P17-08 | after 3 failed attempts (waits 2 s and 3 s) the email lands in the dead-letter queue | PASS | dead-lettered after 7.1 s (waits sum to 5 s) |
+| P17-09 | logs show attempt 1 of 3, attempt 2 of 3 retrying, then giving up on attempt 3 of 3 | PASS |  |
+| P17-10 | the dead-letter message carries the attempt count and the error, and the other queues are empty | PASS | x-attempt=3, x-error="Smtp:Username is not configured. Set it via 'dotnet user-sec..." |
+| P17-11 | the dead-letter message is persistent and holds the original payload | PASS | delivery_mode=2 |
+| P17-12 | the retry queues were named after their delays (email.retry.2s / email.retry.3s) | PASS |  |
+| P17-13 | broker down: the answer is still the same 200 generic message (no 500, no account revealed) | PASS | known 200 in 258 ms, unknown 200 in 42 ms |
+| P17-14 | broker down: the failure is logged for the operator (by user id, not email) | PASS |  |
+| P17-15 | broker down: the rest of the app keeps working (login 200) | PASS | login 200 |
+| P17-16 | broker back: the worker reconnects by itself (a consumer is attached again, no API restart) | PASS | {"m":0,"c":1} |
+| P17-17 | broker back: a new request is queued and delivered normally | PASS |  |
+| P17-18 | after the first failure the email waits in email.retry.20s | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| P17-19 | broker restarted: the waiting email is still there (durable queue, persistent message) | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| P17-20 | API restarted too: the message is still processed to the end (nothing lost, nothing duplicated) | PASS | {"email.dead":{"m":1,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| P17-21 | the stale message is dropped by the worker with a log line, never sent | PASS |  |
+| P17-22 | and nothing is left in any queue, including the dead-letter queue | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| P17-23 | 40 simultaneous requests: all answered 200 with the same message | PASS | slowest 410 ms |
+| P17-24 | every one of the 40 emails was delivered exactly once | PASS | 40/40 delivered once each, in 8.8 s |
+| P17-25 | queues drain to empty | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| P17-26 | no broker: the email is still produced (inline) and the answer is the same generic 200 | PASS | 200 in 169 ms |
+| P17-27 | no broker: no worker starts and the app never tries to connect to RabbitMQ | PASS |  |
+| P17-28 | the API refuses to start with a clear message naming the missing setting | PASS | Unhandled exception. System.InvalidOperationException: RabbitMq:Host is set but RabbitMq:Username / RabbitMq:Password are not. Set them via user-se... |
+
+### 13.4 Browser regression with the brokers running (9/9 passed)
+
+Real Chrome windows against the stack with RabbitMQ on and no SMTP credentials.
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| R-01 | register through the form lands on the chat page | PASS | http://localhost:8080/ |
+| R-02 | a chat message gets a real AI reply (Angular -> .NET -> Python -> LLM -> MySQL) | PASS | pong |
+| R-03 | forgot-password page shows the same confirmation for a registered and an unknown email | PASS | Check your email /  |
+| R-04 | with SMTP unconfigured the queued email retries and is dead-lettered (one message, for the registered address only) | PASS |  |
+| R-05 | wrong password shows the inline error | PASS | Email or password is incorrect. |
+| R-06 | direct message: Bob receives Alice's message (REST + SignalR through nginx) | PASS |  |
+| R-07 | Alice's message shows the blue read tick once Bob has it open | PASS |  |
+| R-08 | Bob's reply reaches Alice live | PASS |  |
+| R-09 | no uncaught JavaScript errors in any window | PASS |  |
+
+### 13.5 Findings
+
+| # | Severity | Finding | Evidence and cause | Resolution |
+|---|---|---|---|---|
+| F17 | **Medium (real defect, found by this run, before release)** | After the broker was stopped and started, the email worker never reconnected: no consumer on `email.send`, and later emails stayed unsent. | `P17-16` and `P17-17` failed on the first run. A publish that arrived while the broker was down found the shared connection mid-recovery, disposed it and created a new one, which also disposed the channel the worker's consumer was attached to. A plain broker restart with no publish in between (`P17-19`) recovered fine, which is why only the outage case failed. | **Fixed:** `RabbitMqConnection` keeps its connection for good and leaves recovery to the client library; a publish during the outage simply fails. Both checks and all 28 now pass. |
+| F18 | Info (test setup, not the app) | Several checks failed on the first runs for harness reasons: the dead-letter read used `localhost` (which resolved to IPv6 inside the container), a Redis check read only stdout, and the browser script waited on the wrong `role=status` element (the page-wide loading bar) and the wrong tick selector. | The app behaved correctly each time; the scripts were corrected and re-run. | None needed. |
+| F19 | Low (by design) | With the broker unreachable, a request for a **registered** email takes a little longer than one for an unknown email (258 ms against 42 ms here; up to the 5 s connection timeout on a black-holed network). | The publish has to try to connect. Before the queue existed, a slow or failing SMTP send inside the request made the same difference, and a bigger one. | Accepted; status and body are identical either way. Rate limiting (Phase 21) would limit probing. |
+| F20 | Low (by design) | If the broker is down when a reset is requested, that one email is not sent (the token is saved, nothing is queued, no inline fallback). | Falling back to an inline send would bring back the slow, failure-prone path, and a `503` would reveal which emails have accounts. | Logged by user id; the person can request a new link. |
+| F21 | Low (by design) | Delivery is at-least-once: a crash between sending and acknowledging can send one email twice. | Standard queue behaviour; a reset email sent twice is harmless. | None needed. |
+| F22 | Info | The long browser suites for Phases 12 to 14 were kept outside the repo and were lost when the scratch folder was cleared, so they could not be repeated. | There is no committed browser suite (section 1). | A shorter regression (13.4) covers register, AI reply, forgot-password, login error and live direct messages with ticks. The long suites should be rebuilt and committed in a later test phase. |
+
+### 13.6 Not covered by this run
+
+- **Real SMTP delivery:** no credentials here. The `console` provider stood in for a successful send and the unconfigured SMTP sender for a failing one.
+- **Redis:** it only has to start, be protected and be reachable; nothing uses it until Phase 16.
+- **More than one API replica:** each replica would run its own worker on the same queue (safe), but the in-memory presence still limits the API to one replica until Phase 16.
+- **A black-holed network** (packets dropped rather than refused): the 5 s connection timeout is configured but was not exercised.
+- **The long Phase 12 to 14 browser suites** (see F22) and the **migration drift check** (see 13.1).
 - Load, security and penetration testing are out of scope (section 1).

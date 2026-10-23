@@ -26,6 +26,39 @@ services:
       retries: 20
       start_period: 20s
 
+  # Message brokers (README: "Message brokers"). Neither publishes a port: only the api container
+  # reaches them, over the compose network, with a password. RabbitMQ carries raw password-reset
+  # links, so it must never be reachable from outside.
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: aichat
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set in docker.env}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # Not used by any feature yet: Phase 16 adds the SignalR backplane and presence on it.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set in docker.env}", "--appendonly", "yes"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
   migrate:
     image: aichat-migrate:local
     build:
@@ -63,9 +96,15 @@ services:
       Cors__AllowedOrigins__0: ${PUBLIC_URL:-http://localhost:8080}
       Smtp__Username: ${SMTP_USERNAME:-}
       Smtp__Password: ${SMTP_PASSWORD:-}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: aichat
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:?set in docker.env}
+      Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD}
     depends_on:
       migrate:
         condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
       ai-service:
         condition: service_healthy
     healthcheck:
@@ -94,3 +133,5 @@ services:
 
 volumes:
   mysql-data:
+  rabbitmq-data:
+  redis-data:
