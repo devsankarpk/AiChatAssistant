@@ -6,6 +6,7 @@ using AiChatAssistant.Api.Dtos.Chat;
 using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Hubs;
 using AiChatAssistant.Api.Messaging;
+using AiChatAssistant.Api.Realtime;
 using AiChatAssistant.Api.Middleware;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Validators;
@@ -37,6 +38,8 @@ builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordReques
 // RabbitMq:Host set the email is queued and a background worker sends, retries and dead-letters it;
 // without it, it is sent inline as before. See Messaging/MessagingExtensions.cs.
 builder.Services.AddEmailDelivery(builder.Configuration);
+// Async AI replies (Chat:AsyncReplies) and direct-chat event fan-out through the outbox (Phases 18 and 19). Both need RabbitMQ.
+builder.Services.AddBrokerFeatures(builder.Configuration);
 
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();
@@ -44,10 +47,9 @@ builder.Services.AddScoped<IValidator<SendMessageRequest>, SendMessageRequestVal
 builder.Services.AddScoped<IValidator<StartConversationRequest>, StartConversationRequestValidator>();
 builder.Services.AddScoped<IValidator<SendDirectMessageRequest>, SendDirectMessageRequestValidator>();
 
-// Realtime direct chat (Phase 11). Presence is in memory, so the api must stay at one replica until
-// Phase 16 moves presence and the SignalR backplane to Redis.
-builder.Services.AddSignalR();
-builder.Services.AddSingleton<IPresenceTracker, InMemoryPresenceTracker>();
+// Realtime direct chat (Phase 11): SignalR + presence. With Redis:ConnectionString set (Phase 16) both are
+// shared across API replicas through Redis; without it they stay in this process (one replica only).
+builder.Services.AddRealtime(builder.Configuration);
 builder.Services.AddSingleton<IDirectNotifier, SignalRDirectNotifier>();
 builder.Services.AddScoped<IDirectDeliveryService, DirectDeliveryService>();
 

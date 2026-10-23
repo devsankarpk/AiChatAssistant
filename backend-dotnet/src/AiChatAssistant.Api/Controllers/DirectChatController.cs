@@ -1,6 +1,7 @@
 using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Direct;
+using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Services;
 using FluentValidation;
@@ -30,14 +31,17 @@ public class DirectChatController : ControllerBase
     private readonly IValidator<SendDirectMessageRequest> _sendValidator;
     private readonly IPresenceTracker _presence;
     private readonly IDirectNotifier _notifier;
+    private readonly IOutbox _outbox;
 
     public DirectChatController(
         AppDbContext db,
         IValidator<StartConversationRequest> startValidator,
         IValidator<SendDirectMessageRequest> sendValidator,
         IPresenceTracker presence,
-        IDirectNotifier notifier)
+        IDirectNotifier notifier,
+        IOutbox? outbox = null)
     {
+        _outbox = outbox ?? new NoOpOutbox();
         _db = db;
         _startValidator = startValidator;
         _sendValidator = sendValidator;
@@ -90,6 +94,7 @@ public class DirectChatController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
+        var online = await _presence.OnlineAmongAsync(rows.Select(r => r.PeerId).ToList(), cancellationToken);
         var conversations = rows
             .OrderByDescending(r => r.Last != null ? r.Last.CreatedAt : r.CreatedAt)
             .ThenByDescending(r => r.CreatedAt)
@@ -101,7 +106,7 @@ public class DirectChatController : ControllerBase
                     ? null
                     : ToMessageResponse(r.Id, r.Last.Id, r.Last.SenderId, r.Last.Content, r.Last.CreatedAt, r.Last.DeliveredAt, r.Last.ReadAt, r.Last.DeletedAt),
                 UnreadCount = r.Unread,
-                PeerOnline = _presence.IsOnline(r.PeerId),
+                PeerOnline = online.Contains(r.PeerId),
                 PeerLastSeenAt = r.PeerLastSeenAt,
             })
             .ToList();
@@ -180,7 +185,7 @@ public class DirectChatController : ControllerBase
             Peer = new PeerResponse { Id = peer.Id, Name = peer.Name },
             LastMessage = last is null ? null : ToMessageResponse(last),
             UnreadCount = unread,
-            PeerOnline = _presence.IsOnline(peer.Id),
+            PeerOnline = await _presence.IsOnlineAsync(peer.Id, cancellationToken),
             PeerLastSeenAt = peer.LastSeenAt,
         };
 
@@ -243,13 +248,16 @@ public class DirectChatController : ControllerBase
             Content = request.Content.Trim(),
         };
         _db.DirectMessages.Add(message);
+        // Recorded with the message in one transaction (ids only, never the text); the payload is built after the save, once the id exists.
+        _outbox.Add(DirectEvents.Sent, () => DirectEvents.Payload(id, new[] { message.Id }, callerId, recipientId, "sent", message.CreatedAt));
         await _db.SaveChangesAsync(cancellationToken);
 
         // One grey tick (sent) is the message being saved. Two grey ticks (delivered) is the recipient
         // having a live connection right now; if they connect later, the hub marks it delivered then.
-        if (_presence.IsOnline(recipientId))
+        if (await _presence.IsOnlineAsync(recipientId, cancellationToken))
         {
             message.DeliveredAt = DateTime.UtcNow;
+            _outbox.Add(DirectEvents.Delivered, () => DirectEvents.Payload(id, new[] { message.Id }, callerId, recipientId, "delivered", message.DeliveredAt!.Value));
             await _db.SaveChangesAsync(cancellationToken);
         }
 
@@ -288,6 +296,9 @@ public class DirectChatController : ControllerBase
             message.ReadAt = now;
             message.DeliveredAt ??= now; // reading implies it was delivered
         }
+        var peerOfReader = conversation.UserLowId == callerId ? conversation.UserHighId : conversation.UserLowId;
+        // The author of the messages is the other person, the reader is the one the event "points at".
+        _outbox.Add(DirectEvents.Read, () => DirectEvents.Payload(id, unread.Select(m => m.Id), peerOfReader, callerId, "read", now));
         await _db.SaveChangesAsync(cancellationToken);
 
         var peerId = conversation.UserLowId == callerId ? conversation.UserHighId : conversation.UserLowId;
@@ -330,9 +341,10 @@ public class DirectChatController : ControllerBase
         {
             message.DeletedAt = DateTime.UtcNow;
             message.Content = string.Empty;
+            var peerId = conversation.UserLowId == callerId ? conversation.UserHighId : conversation.UserLowId;
+            _outbox.Add(DirectEvents.Deleted, () => DirectEvents.Payload(id, new[] { messageId }, callerId, peerId, "deleted", message.DeletedAt!.Value));
             await _db.SaveChangesAsync(cancellationToken);
 
-            var peerId = conversation.UserLowId == callerId ? conversation.UserHighId : conversation.UserLowId;
             await _notifier.MessageDeletedAsync(peerId, id, messageId, cancellationToken);
             await _notifier.MessageDeletedAsync(callerId, id, messageId, cancellationToken); // the sender's other tabs
         }

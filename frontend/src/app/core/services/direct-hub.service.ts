@@ -3,6 +3,7 @@ import { DestroyRef, Injectable, InjectionToken, inject, signal } from '@angular
 import { Subject } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { AssistantFailedEvent, AssistantRepliedEvent } from '../models/chat.models';
 import {
   DirectMessageResponse,
   MessageDeletedEvent,
@@ -31,8 +32,12 @@ export type HubFactory = (url: string, accessTokenFactory: () => string) => Prom
  */
 const createRealHub: HubFactory = async (url, accessTokenFactory) => {
   const signalR = await import('@microsoft/signalr');
+  // WebSockets only, no negotiate round trip: with several API replicas behind the proxy, the negotiate
+  // request and the socket can land on different replicas, and a replica that did not negotiate refuses
+  // the connection. Skipping negotiation removes that hand-off (the transport is WebSockets everywhere
+  // this app runs; the long-polling fallback is not needed).
   return new signalR.HubConnectionBuilder()
-    .withUrl(url, { accessTokenFactory })
+    .withUrl(url, { accessTokenFactory, skipNegotiation: true, transport: signalR.HttpTransportType.WebSockets })
     .withAutomaticReconnect()
     .configureLogging(signalR.LogLevel.Warning)
     .build();
@@ -68,6 +73,9 @@ export class DirectHubService {
   readonly messageDeleted$ = new Subject<MessageDeletedEvent>();
   readonly peerTyping$ = new Subject<PeerTypingEvent>();
   readonly peerPresence$ = new Subject<PeerPresenceEvent>();
+  /** Async AI replies (Phase 18) arrive on the same connection. */
+  readonly assistantReplied$ = new Subject<AssistantRepliedEvent>();
+  readonly assistantFailed$ = new Subject<AssistantFailedEvent>();
   /** Emits after the browser reconnected: events may have been missed, so listeners should refetch. */
   readonly reconnected$ = new Subject<void>();
 
@@ -118,6 +126,8 @@ export class DirectHubService {
       hub.on('MessageDeleted', (event: MessageDeletedEvent) => this.messageDeleted$.next(event));
       hub.on('PeerTyping', (event: PeerTypingEvent) => this.peerTyping$.next(event));
       hub.on('PeerPresenceChanged', (event: PeerPresenceEvent) => this.peerPresence$.next(event));
+      hub.on('AssistantReplied', (event: AssistantRepliedEvent) => this.assistantReplied$.next(event));
+      hub.on('AssistantFailed', (event: AssistantFailedEvent) => this.assistantFailed$.next(event));
       hub.onreconnected(() => {
         this.connected.set(true);
         this.reconnected$.next();

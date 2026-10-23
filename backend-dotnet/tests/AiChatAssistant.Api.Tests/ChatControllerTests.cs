@@ -1,6 +1,7 @@
 using AiChatAssistant.Api.Controllers;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Chat;
+using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Tests.TestSupport;
@@ -8,6 +9,7 @@ using AiChatAssistant.Api.Validators;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace AiChatAssistant.Api.Tests;
@@ -35,14 +37,19 @@ public class ChatControllerTests : IDisposable
 
     public void Dispose() => _db.Dispose();
 
-    private ChatController CreateController(int callerId, params string[] roles)
+    private ChatController CreateController(int callerId, params string[] roles) =>
+        CreateController(callerId, new ChatOptions(), null, roles);
+
+    private ChatController CreateController(int callerId, ChatOptions options, IAiReplyQueue? queue, params string[] roles)
     {
         var controller = new ChatController(
             _db,
             _pythonClient.Object,
             new CreateSessionRequestValidator(),
             new SendMessageRequestValidator(),
-            NullLogger<ChatController>.Instance);
+            NullLogger<ChatController>.Instance,
+            Options.Create(options),
+            queue);
         controller.SetUser(ClaimsPrincipalFactory.Create(callerId, email: null, roles));
         return controller;
     }

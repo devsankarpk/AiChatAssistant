@@ -44,7 +44,8 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # Not used by any feature yet: Phase 16 adds the SignalR backplane and presence on it.
+  # SignalR backplane and shared presence (Phase 16): lets the api run as several replicas,
+  # `docker compose --env-file docker.env up -d --scale api=2`.
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set in docker.env}", "--appendonly", "yes"]
@@ -100,6 +101,8 @@ services:
       RabbitMq__Username: aichat
       RabbitMq__Password: ${RABBITMQ_PASSWORD:?set in docker.env}
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD}
+      # Phase 18: the send request answers 202 and a RabbitMQ worker produces the reply. Off by default.
+      Chat__AsyncReplies: ${CHAT_ASYNC_REPLIES:-false}
     depends_on:
       migrate:
         condition: service_completed_successfully

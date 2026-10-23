@@ -43,11 +43,14 @@ public sealed class RabbitMqEmailQueue : IEmailQueue
             },
         };
 
-        // One short-lived channel per publish: channels are cheap and are not safe for concurrent publishing.
-        await using var channel = await _connection.CreateChannelAsync(confirmPublishes: true, cancellationToken);
-        // Declare first so the message is routable even if the worker has not started yet.
-        await EmailTopology.DeclareAsync(channel, _options, cancellationToken);
-        await channel.BasicPublishAsync(EmailTopology.Exchange, EmailTopology.RoutingKey, mandatory: false,
-            basicProperties: properties, body: body, cancellationToken: cancellationToken);
+        await _connection.WithTimeoutAsync(async token =>
+        {
+            // One short-lived channel per publish: channels are cheap and are not safe for concurrent publishing.
+            await using var channel = await _connection.CreateChannelAsync(confirmPublishes: true, token);
+            // Declare first so the message is routable even if the worker has not started yet.
+            await EmailTopology.DeclareAsync(channel, _options, token);
+            await channel.BasicPublishAsync(EmailTopology.Exchange, EmailTopology.RoutingKey, mandatory: false,
+                basicProperties: properties, body: body, cancellationToken: token);
+        }, cancellationToken);
     }
 }

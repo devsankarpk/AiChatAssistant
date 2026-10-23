@@ -1,12 +1,14 @@
 using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Chat;
+using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AiChatAssistant.Api.Controllers;
 
@@ -15,23 +17,25 @@ namespace AiChatAssistant.Api.Controllers;
 [Authorize]
 public class ChatController : ControllerBase
 {
-    // How many prior messages to send Python as context on each turn. Python is stateless and
-    // has no DB access (see CLAUDE.md) - .NET always sends the full window itself.
-    private const int HistoryLimit = 20;
-
     private readonly AppDbContext _db;
     private readonly IPythonAiClient _pythonClient;
     private readonly IValidator<CreateSessionRequest> _createSessionValidator;
     private readonly IValidator<SendMessageRequest> _sendMessageValidator;
     private readonly ILogger<ChatController> _logger;
+    private readonly IAiReplyQueue? _replyQueue;
+    private readonly ChatOptions _chatOptions;
 
     public ChatController(
         AppDbContext db,
         IPythonAiClient pythonClient,
         IValidator<CreateSessionRequest> createSessionValidator,
         IValidator<SendMessageRequest> sendMessageValidator,
-        ILogger<ChatController> logger)
+        ILogger<ChatController> logger,
+        IOptions<ChatOptions> chatOptions,
+        IAiReplyQueue? replyQueue = null)
     {
+        _chatOptions = chatOptions.Value;
+        _replyQueue = replyQueue;
         _db = db;
         _pythonClient = pythonClient;
         _createSessionValidator = createSessionValidator;
@@ -90,6 +94,8 @@ public class ChatController : ControllerBase
     }
 
     [HttpPost("sessions/{id:guid}/messages")]
+    [ProducesResponseType<SendMessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<SendMessageAcceptedResponse>(StatusCodes.Status202Accepted)]
     public async Task<ActionResult<SendMessageResponse>> SendMessage(Guid id, SendMessageRequest request, CancellationToken cancellationToken)
     {
         var validation = await _sendMessageValidator.ValidateAsync(request, cancellationToken);
@@ -115,20 +121,55 @@ public class ChatController : ControllerBase
         {
             session.Title = TitleFromMessage(userMessage.Content);
         }
+        // Async mode: the job row is saved in the same transaction as the question, so there is never a question
+        // that was accepted but has no job, nor a job without its question.
+        AiReplyJob? job = null;
+        if (_chatOptions.AsyncReplies && _replyQueue is not null)
+        {
+            job = new AiReplyJob
+            {
+                Id = Guid.NewGuid(),
+                SessionId = id,
+                UserId = User.GetUserId(),
+                UserMessage = userMessage,
+                ClaimToken = Guid.NewGuid(),
+            };
+            _db.AiReplyJobs.Add(job);
+        }
+
         // Saved on its own, before the Python call - so a Python failure below still leaves this
         // (and the title) persisted, per CLAUDE.md ("... the user message stays persisted").
         await _db.SaveChangesAsync(cancellationToken);
 
-        var priorMessages = await _db.Messages
-            .Where(m => m.SessionId == id && m.Id < userMessage.Id)
-            .OrderByDescending(m => m.Id)
-            .Take(HistoryLimit)
-            .ToListAsync(cancellationToken);
-        priorMessages.Reverse(); // chronological order (oldest first) for the LLM
+        if (job is not null)
+        {
+            try
+            {
+                await _replyQueue!.EnqueueAsync(job.Id, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The broker did not take the job. The question stays saved (as with an AI failure in the
+                // synchronous path); the orphan job is removed so nothing waits for a reply that will never come.
+                _logger.LogWarning(ex, "Could not queue the AI reply job {JobId} for session {SessionId}", job.Id, id);
+                _db.AiReplyJobs.Remove(job);
+                await _db.SaveChangesAsync(CancellationToken.None);
+                return StatusCode(
+                    StatusCodes.Status503ServiceUnavailable,
+                    new ErrorResponse(
+                        "ai_service_unavailable",
+                        "The AI service is temporarily unavailable. Your message was saved - try sending again shortly."));
+            }
 
-        var history = priorMessages
-            .Select(m => new PythonHistoryMessage(m.Role.ToString().ToLowerInvariant(), m.Content))
-            .ToList();
+            return Accepted(new SendMessageAcceptedResponse
+            {
+                UserMessage = ToMessageResponse(userMessage),
+                ReplyStatus = "pending",
+                JobId = job.Id,
+            });
+        }
+
+        var history = await ChatHistory.LoadAsync(_db, id, userMessage.Id, cancellationToken);
 
         PythonGenerateResult result;
         try
@@ -165,6 +206,84 @@ public class ChatController : ControllerBase
             UserMessage = ToMessageResponse(userMessage),
             AssistantMessage = ToMessageResponse(assistantMessage),
         });
+    }
+
+    /// <summary>
+    /// Replies that are not delivered yet for this chat: still being produced ("pending") or given up on ("failed").
+    /// A page reload uses this to show "thinking" or a failed state for an async reply.
+    /// </summary>
+    [HttpGet("sessions/{id:guid}/jobs")]
+    public async Task<ActionResult<IReadOnlyList<ReplyJobResponse>>> GetOpenReplyJobs(Guid id, CancellationToken cancellationToken)
+    {
+        var session = await GetOwnedSessionAsync(id, cancellationToken);
+        if (session is null)
+        {
+            return SessionNotFound();
+        }
+
+        var jobs = await _db.AiReplyJobs
+            .Where(j => j.SessionId == id && j.Status != AiReplyJobStatus.Done)
+            .OrderBy(j => j.UserMessageId)
+            .ToListAsync(cancellationToken);
+
+        return Ok(jobs.Select(j => new ReplyJobResponse
+        {
+            JobId = j.Id,
+            UserMessageId = j.UserMessageId,
+            Status = j.Status == AiReplyJobStatus.Failed ? "failed" : "pending",
+            Error = j.Status == AiReplyJobStatus.Failed ? AiReplyProcessor.FailureMessage : null,
+        }).ToList());
+    }
+
+    /// <summary>
+    /// Asks for another go at a reply that failed. Re-queues the same job (no duplicate question). Idempotent for a
+    /// job that is already pending; 409 for one that is done. 404 for someone else's job.
+    /// </summary>
+    [HttpPost("jobs/{jobId:guid}/retry")]
+    public async Task<ActionResult<RetryReplyResponse>> RetryReply(Guid jobId, CancellationToken cancellationToken)
+    {
+        var job = await _db.AiReplyJobs.FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);
+        if (job is null || (job.UserId != User.GetUserId() && !User.IsAdmin()))
+        {
+            return NotFound(new ErrorResponse("job_not_found", "Reply not found."));
+        }
+
+        if (job.Status == AiReplyJobStatus.Done)
+        {
+            return Conflict(new ErrorResponse("reply_already_delivered", "This reply was already delivered."));
+        }
+
+        if (job.Status == AiReplyJobStatus.Failed)
+        {
+            if (_replyQueue is null)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new ErrorResponse("ai_service_unavailable", "The AI service is temporarily unavailable. Try again shortly."));
+            }
+
+            job.Status = AiReplyJobStatus.Pending;
+            job.Attempts = 0;
+            job.Error = null;
+            job.ClaimedAt = null;
+            job.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+
+            try
+            {
+                await _replyQueue.EnqueueAsync(job.Id, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not re-queue AI reply job {JobId}", job.Id);
+                job.Status = AiReplyJobStatus.Failed;
+                job.Error = "Could not queue the reply.";
+                await _db.SaveChangesAsync(CancellationToken.None);
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new ErrorResponse("ai_service_unavailable", "The AI service is temporarily unavailable. Try again shortly."));
+            }
+        }
+
+        return Accepted(new RetryReplyResponse { JobId = job.Id, ReplyStatus = "pending" });
     }
 
     /// <summary>Null unless the session exists AND (the caller owns it OR the caller is Admin).</summary>

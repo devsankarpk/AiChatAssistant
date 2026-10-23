@@ -1,3 +1,5 @@
+using System.Text.Json;
+using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +20,51 @@ public class AppDbContext : DbContext
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+    public DbSet<AiReplyJob> AiReplyJobs => Set<AiReplyJob>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+
+    private readonly List<(string Type, Func<object> Payload)> _pendingEvents = new();
+
+    /// <summary>
+    /// Records an event to publish after the next save. See <see cref="IOutbox"/>. Nothing is written until
+    /// <see cref="SaveChangesAsync(bool, CancellationToken)"/> runs.
+    /// </summary>
+    public void QueueEvent(string type, Func<object> payload) => _pendingEvents.Add((type, payload));
+
+    /// <summary>
+    /// Saves the changes and, in the same transaction, one outbox row per queued event. The changes go first so
+    /// database-generated ids (a new message's id) exist when the event payload is built. If anything fails the
+    /// transaction rolls back and neither the change nor its events exist; the queued events are kept for a retry.
+    /// </summary>
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        if (_pendingEvents.Count == 0)
+        {
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        var ownsTransaction = Database.CurrentTransaction is null;
+        await using var transaction = ownsTransaction ? await Database.BeginTransactionAsync(cancellationToken) : null;
+
+        var written = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        foreach (var (type, payload) in _pendingEvents)
+        {
+            OutboxMessages.Add(new OutboxMessage
+            {
+                Type = type,
+                Payload = JsonSerializer.Serialize(payload(), DirectEvents.Json),
+                ClaimToken = Guid.NewGuid(),
+            });
+        }
+        await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        _pendingEvents.Clear();
+        return written;
+    }
 
     /// <summary>All dates are UTC: see <see cref="UtcDateTimeConverter"/> for why this matters.</summary>
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -154,6 +201,50 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(m => new { m.ConversationId, m.Id });
             entity.HasIndex(m => m.SenderId);
+        });
+
+        modelBuilder.Entity<AiReplyJob>(entity =>
+        {
+            entity.ToTable("AiReplyJobs");
+            entity.Property(j => j.Status)
+                .HasConversion(
+                    v => v.ToString().ToLowerInvariant(),
+                    v => Enum.Parse<AiReplyJobStatus>(v, true))
+                .HasColumnType("enum('pending','processing','done','failed')");
+            entity.Property(j => j.Error).HasMaxLength(500);
+            entity.Property(j => j.ClaimToken).IsConcurrencyToken();
+            entity.Property(j => j.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.Property(j => j.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.HasOne(j => j.Session)
+                .WithMany()
+                .HasForeignKey(j => j.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(j => j.User)
+                .WithMany()
+                .HasForeignKey(j => j.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // Deleting a message removes the job that answers it, and clears the pointer to a deleted reply.
+            entity.HasOne(j => j.UserMessage)
+                .WithMany()
+                .HasForeignKey(j => j.UserMessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(j => j.AssistantMessage)
+                .WithMany()
+                .HasForeignKey(j => j.AssistantMessageId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(j => new { j.SessionId, j.Status });
+            entity.HasIndex(j => j.UserMessageId).IsUnique(); // one job per question
+        });
+
+        modelBuilder.Entity<OutboxMessage>(entity =>
+        {
+            entity.ToTable("OutboxMessages");
+            entity.Property(o => o.Type).HasMaxLength(100).IsRequired();
+            entity.Property(o => o.Payload).HasColumnType("text").IsRequired();
+            entity.Property(o => o.ClaimToken).IsConcurrencyToken();
+            entity.Property(o => o.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            // The dispatcher's query: oldest undispatched first.
+            entity.HasIndex(o => new { o.DispatchedAt, o.Id });
         });
     }
 }

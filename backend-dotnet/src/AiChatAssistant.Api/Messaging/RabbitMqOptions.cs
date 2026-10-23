@@ -16,6 +16,13 @@ public sealed class RabbitMqOptions
     public string Password { get; set; } = "";
     public string VirtualHost { get; set; } = "/";
 
+    /// <summary>
+    /// How long a request may wait for the broker (connect, declare, publish and its confirmation). A broker that is
+    /// reachable but not answering (paused, a dropped network) would otherwise hold the request for the client
+    /// library's own 20 s and surface as a 500; after this time it is reported as "broker unavailable" instead.
+    /// </summary>
+    public int PublishTimeoutSeconds { get; set; } = 5;
+
     public bool Enabled => !string.IsNullOrWhiteSpace(Host);
 
     /// <summary>
