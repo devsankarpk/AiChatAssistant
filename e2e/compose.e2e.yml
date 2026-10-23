@@ -1,0 +1,65 @@
+# Test-only override for the end-to-end suites (used with the repo's docker-compose.yml, see e2e/run.sh).
+#  - three API replicas (api, api2, api3) published on 18081..18083 so a test can talk to a chosen one,
+#  - an nginx "lb" on 18090 in front of all three plus the web container (what a browser should open),
+#  - a stub in place of the Python AI service (e2e/stub/server.py: same contract, controllable latency/failures, counts calls),
+#  - the RabbitMQ management API on 15673 (publish, peek, count),
+#  - short timings so retries, leases, presence expiry and TTLs can be observed in seconds.
+# Everything is overridable per scenario through the T_* variables the suites set.
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports: ["15673:15672"]
+  ai-service:
+    image: python:3.12-alpine
+    build: !reset null
+    command: ["python", "/stub/server.py"]
+    volumes: ["./e2e/stub:/stub:ro"]
+    ports: ["18000:8000"]
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      DEEPINFRA_API_KEY: !reset null
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/').status == 200 else 1)"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+  api:
+    ports: ["18081:8080"]
+    environment: &tune
+      Presence__TtlSeconds: ${T_TTL:-6}
+      Presence__HeartbeatSeconds: ${T_HB:-2}
+      Chat__AsyncReplies: ${T_ASYNC:-true}
+      Chat__ReplyRetryDelaysSeconds__0: ${T_R0:-2}
+      Chat__ReplyRetryDelaysSeconds__1: ${T_R1:-3}
+      Chat__ReplyLeaseSeconds: ${T_LEASE:-12}
+      Chat__ReplyPrefetch: ${T_PREFETCH:-4}
+      RabbitMq__Host: ${T_RABBIT_HOST-rabbitmq}
+      RabbitMq__Password: ${T_RABBIT_PASS-${RABBITMQ_PASSWORD}}
+      Redis__ConnectionString: ${T_REDIS-redis:6379,password=${REDIS_PASSWORD}}
+      Outbox__Enabled: ${T_OUTBOX:-true}
+      Outbox__PollMilliseconds: ${T_POLL:-500}
+      Outbox__LeaseSeconds: ${T_OUTBOX_LEASE:-15}
+      Email__Provider: ${T_PROVIDER:-smtp}
+      Email__RetryDelaysSeconds__0: ${T_MAIL_D0:-10}
+      Email__RetryDelaysSeconds__1: ${T_MAIL_D1:-60}
+      Email__MessageTtlMinutes: ${T_MAIL_TTL:-60}
+  api2:
+    extends:
+      file: ${E2E_BASE_COMPOSE}
+      service: api
+    ports: ["18082:8080"]
+    environment:
+      <<: *tune
+  api3:
+    extends:
+      file: ${E2E_BASE_COMPOSE}
+      service: api
+    ports: ["18083:8080"]
+    environment:
+      <<: *tune
+  lb:
+    image: nginx:1.27-alpine
+    volumes: ["./e2e/nginx-lb.conf:/etc/nginx/conf.d/default.conf:ro"]
+    ports: ["18090:8080"]
+    depends_on: [web, api, api2, api3]
+    restart: unless-stopped

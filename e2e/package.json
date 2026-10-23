@@ -1,0 +1,11 @@
+{
+  "name": "aichat-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end suites that drive the real Docker stack (real MySQL, RabbitMQ, Redis, nginx, several API replicas, real Chrome). Run with ./run.sh",
+  "dependencies": {
+    "@microsoft/signalr": "^8.0.7",
+    "axe-core": "^4.10.0",
+    "puppeteer-core": "^23.0.0"
+  }
+}

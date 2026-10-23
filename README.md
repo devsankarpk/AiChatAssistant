@@ -97,6 +97,10 @@ cd frontend && npm start
 
 Open `http://localhost:4200`, register an account, start chatting.
 
+### Run the end-to-end suites
+
+`./e2e/run.sh` starts a test configuration of the Docker stack (three API replicas, a load balancer, a stub AI service), runs every suite against it, then repeats the key flows against the normal stack with the real AI service, empties the test data and stops everything. `./e2e/run.sh 04 09` runs only some suites. It needs Docker, Node 20+, Google Chrome and a `docker.env` (the real-LLM suites need `DEEPINFRA_API_KEY` in it). Details: [`e2e/README.md`](e2e/README.md).
+
 ### Run everything in Docker (alternative to running the three services by hand)
 
 One command starts MySQL, the database migration, the .NET API, the Python service and the Angular site (served by nginx) in containers. You do not need .NET, Python, Node or a local MySQL for this, only Docker.
@@ -426,7 +430,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8, test phase T1 and Phases 9–19 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -450,7 +454,7 @@ Phases 1–8, test phase T1 and Phases 9–19 are **done**. Everything below is 
 | 18 | **16** | Redis: SignalR backplane and presence | 11, 15 | **Done** (early, at the user's request) |
 | 19 | **18** | Async AI replies (revisit after streaming, Phase 25) | 11, 15 | **Done** (early, at the user's request) |
 | 20 | **19** | Direct-chat event fan-out | 11, 15 | **Done** (early, at the user's request) |
-| 21 | **20** | End-to-end check of the brokers | 16–19 | Planned |
+| 21 | **20** | End-to-end check of the brokers (and the committed `e2e/` suites) | 16–19 | **Done** (early, at the user's request) |
 | 22 | **T3** | Python gap tests | — | Planned |
 | 23 | **T4** | Angular gap specs | — | Planned |
 | 24 | **T5** | Test close-out | T3, T4 | Planned |
@@ -570,9 +574,9 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 3. Ticks on your own messages: one grey = sent, two grey = delivered to their device, two blue = read. Hover a message of yours and choose **Delete** to remove it for both of you.
 4. The Messages tab shows an unread count on every page; a new message while you are elsewhere shows a toast.
 
-### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **in progress: Phases 15 to 19 done, 20 not started**
+### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **done (Phases 15 to 20)**
 
-> Status: **in progress.** Done: Phase 15 (RabbitMQ and Redis containers, config), 16 (Redis: SignalR backplane and shared presence), 17 (password-reset email through a queue), 18 (async AI replies behind `Chat:AsyncReplies`, off by default) and 19 (direct-chat events through a transactional outbox and the `direct.events` exchange). Not built: the closing end-to-end check (Phase 20). With `Chat:AsyncReplies` off the AI call is still a direct call (the API waits for Python for up to 60 s). This work builds on the user-to-user chat above (built).
+> Status: **in progress.** Done: Phase 15 (RabbitMQ and Redis containers, config), 16 (Redis: SignalR backplane and shared presence), 17 (password-reset email through a queue), 18 (async AI replies behind `Chat:AsyncReplies`, off by default) and 19 (direct-chat events through a transactional outbox and the `direct.events` exchange). And Phase 20, the closing end-to-end check, committed as `e2e/` (see below). With `Chat:AsyncReplies` off the AI call is still a direct call (the API waits for Python for up to 60 s). This work builds on the user-to-user chat above (built).
 
 **Why both:** Redis holds fast, shared, short-lived state and pub/sub (the SignalR backplane, presence). RabbitMQ holds durable work and events (jobs, retries, dead letters, fan-out).
 
@@ -639,14 +643,16 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 > Done. **Transactional outbox:** with RabbitMQ configured (and `Outbox:Enabled`, default true), every direct-chat change records an event in the **`OutboxMessages`** table in the **same database transaction** as the change itself: `direct.message.sent` (a message is saved), `.delivered` (the recipient was online, or connected later), `.read`, `.deleted`. `AppDbContext.SaveChangesAsync` saves the change first (so a new message's id exists), then the events, inside one transaction; if the event cannot be written the whole request fails and the change is rolled back (verified on real MySQL by breaking the table). The payload is `{ conversationId, messageIds, senderId (the author), recipientId, status, at }`: **ids and status only, never message text** (checked in the database and on the wire). **Dispatcher:** `OutboxDispatcher` (hosted service in each API replica) polls every `Outbox:PollMilliseconds` (1 s), claims a row with a concurrency token (two replicas cannot both take it), publishes it to the **`direct.events`** topic exchange (routing key = event type, message id = outbox id, persistent, confirmed) and marks it dispatched; it stops at the first failure so a broker outage never reorders events, backs off up to 30 s, and a claim older than `Outbox:LeaseSeconds` (60) is taken over if its replica died. Dispatched rows are deleted after `Outbox:RetentionHours` (24). **Subscriber (v1):** `DirectEventsConsumer` on queue `direct.events.log` (bound to `#`) logs each event (ids only) and counts it (`AiChatAssistant.DirectEvents` meter, counter `aichat.direct_events` by type); an unreadable event goes to `direct.events.dead`. Delivery is at-least-once, so repeats are ignored by outbox id: through **Redis** (`SET NX`, 24 h) when Redis is configured, because the two copies of a repeat can reach different replicas (a per-process memory missed that in the two-replica test, a real bug now fixed), in memory otherwise; if Redis is unreachable it lets the event through. No broker, or `Outbox:Enabled=false`: nothing is written and nothing runs. **Tests:** 39 new .NET tests and, on the Docker stack, 30 end-to-end checks (ordering, content, outage, two replicas, replica killed, bad events, retention, switches); see `TESTING.md` section 15. **Limits:** order is exact with one replica and best effort with several; events are repeated rarely after a crash and the subscriber absorbs that; the dedupe keys outlive a database reset for 24 h (test environments only). Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
-#### Phase 20 — End-to-end check, docs, cleanup
-- [ ] Docker stack with two API replicas: stop RabbitMQ mid-reply, stop Redis, inspect a dead-letter queue, confirm presence across replicas
-- [ ] This section and `CLAUDE.md` changed from *planned* to *done*
-- [ ] Docker test data deleted and the stack stopped; the dev database stays untouched unless asked
+#### Phase 20 — End-to-end check, docs, cleanup — **done**
+- [x] Docker stack with two API replicas: stop RabbitMQ mid-reply, stop Redis, inspect a dead-letter queue, confirm presence across replicas
+- [x] This section and `CLAUDE.md` changed from *planned* to *done*
+- [x] Docker test data deleted and the stack stopped; the dev database stays untouched unless asked
+
+> Done. **The end-to-end checks are now code in the repo:** `e2e/` holds 12 suites and one runner, `./e2e/run.sh` (261 checks, about 80 minutes, builds the images on the first run, empties the test data and stops the stack at the end). They drive the real Docker stack (MySQL, RabbitMQ, Redis, nginx, up to three API replicas behind a load balancer, real SignalR over WebSockets, real Chrome); only the Python AI service is replaced by a stub in the first configuration (so latency and failures can be controlled and calls counted), and the last suites use the real service and the real LLM provider. They cover everything built so far: the broker foundation, password-reset email, presence and the backplane, the whole user-to-user chat in two browsers across replicas, async AI replies (API and browser), the outbox and its subscriber, a black-holed RabbitMQ and Redis, three replicas, a 3,000-event backlog, a slow AI call, a real invalid provider key, and a new **chaos suite** with the Phase 20 checks: RabbitMQ stopping in the middle of an AI call (the reply is still saved once, the unacknowledged message does nothing when it returns), Redis and RabbitMQ stopping together, a rolling restart of all three replicas under continuous load (79 questions and 79 chat messages accepted, none lost, no request failed), MySQL going away for 15 s, and everything restarting at once, each followed by consistency checks (no duplicate replies, no stuck jobs, no waiting events, empty dead-letter queues, every message has its event). **Everything passed (261/261). One more real bug was found and fixed on the way:** a Redis that goes silent was only noticed by the library's one-minute default keep-alive, so cross-replica pushes stayed dead for about a minute after it answered again; the connection now pings every 4 s. Full results, evidence and findings: `TESTING.md` section 17. Remaining limits: RabbitMQ clustering and Redis Sentinel are not supported (single nodes), a firewall that silently drops packets was approximated by pausing containers, and more than three replicas were not tried.
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 437 automated tests (237 .NET, 12 Python, 188 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 439 automated tests (239 .NET, 12 Python, 188 Angular) and 261 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -679,13 +685,30 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 #### Phase T6 — Test follow-ups from Phases 15–17 *(open, to be done later)*
 Gaps recorded in `TESTING.md` sections 13.6 and 14.8 that were not closed when Phases 15 to 17 were built. Not blocking anything; pick them up whenever convenient.
 - [x] **Also done in the gap-closing run** (`TESTING.md` section 16): a 3,000-event outbox backlog (drains by itself in about 85 s, none lost; capacity about 35 events/s across three replicas), an AI call slower than the API's 60 s timeout, and the real Python service with an invalid provider key (async and default mode) followed by the right key.
-- [ ] **Commit the browser suites to the repo** (largest item): rebuild the long two-browser scripts for Phases 12, 13 and 14 (ticks/badge/toast, typing/presence/delete, the 17-step walkthrough) plus the Phase 16 two-replica and Phase 15/17 broker checks, under `e2e/` with its own `package.json`, a README and one `run.sh` that starts the stack, empties the database before each run, runs the suites and stops the stack. They were lost twice because they lived in a scratch folder. Update `TESTING.md` section 1 ("no committed browser suite").
+- [x] **Commit the browser suites to the repo** — done in Phase 20: `e2e/` (12 suites, `./e2e/run.sh`). The original wording of the item, kept for the record: rebuild the long two-browser scripts for Phases 12, 13 and 14 (ticks/badge/toast, typing/presence/delete, the 17-step walkthrough) plus the Phase 16 two-replica and Phase 15/17 broker checks, under `e2e/` with its own `package.json`, a README and one `run.sh` that starts the stack, empties the database before each run, runs the suites and stops the stack. They were lost twice because they lived in a scratch folder. Update `TESTING.md` section 1 ("no committed browser suite").
 - [x] **Network-partition test for Redis and RabbitMQ** — done (`TESTING.md` section 16): the containers were *paused* (connections open, nobody answers) rather than stopped. Redis passed; RabbitMQ found a real bug (a `500` after 20 s, which also broke the generic forgot-password answer), fixed with a short broker deadline (`RabbitMq:PublishTimeoutSeconds`, default 5). Still open: a firewall that silently drops packets (a paused process is the closest thing available here).
 - [x] **Three replicas** — done (`TESTING.md` section 16): 60 questions, presence for 15 people across all three, 150 events published exactly once, one replica killed. More than three is still untested.
 - [x] **Migration drift check without the host MySQL** — done in Phase 18: `ASPNETCORE_ENVIRONMENT=Production dotnet ef migrations has-pending-model-changes --project src/AiChatAssistant.Api` needs no database at all (Production has no connection string, so EF uses the design-time factory). Still to do: put it in a script or CI step.
 - [ ] *(Only if high availability is needed)* RabbitMQ clustering (quorum queues, a cluster in compose) and Redis Sentinel/Cluster (Sentinel-aware connection settings, failover tests). Today both are single nodes and queues are not replicated; this was recorded as a limit (F43), not tested.
 
 New feature phases (9–20) add their own rows to `TESTING.md` section 7 as they are built.
+
+### Known limits and improvement backlog (found by the broker and end-to-end testing)
+
+Nothing here is a hidden failure: every check in `./e2e/run.sh` passes. These are behaviours that were observed, judged acceptable for now, and that could be improved. Each row has a suggested fix and the test that would prove it (rows in `TESTING.md` section 7, ID `LIM-nn`). None is scheduled; pick them up as needed.
+
+| ID | Limit (what happens today) | Impact | Suggested improvement | Planned test | Status |
+|---|---|---|---|---|---|
+| L-01 | **MySQL down:** requests answer `500 internal_error` (standard error shape, in about 100 ms). It recovers by itself and in-flight jobs finish once. | Clients cannot tell "the database is down" from a bug; the Angular error interceptor toasts it as unexpected. | Map database connection failures to `503 service_unavailable` in `ExceptionHandlingMiddleware`; show a "try again shortly" message in the page. | `LIM-01` | Open |
+| L-02 | **Password-reset email is lost if RabbitMQ is down** when it is requested (the token is saved, nothing is queued, no inline fallback). | That one person never gets the link (they can ask again). | Write the email job to the outbox table in the same transaction as the reset token and let the dispatcher publish it (exactly the Phase 19 pattern), so it survives a broker outage. | `LIM-02` | Open |
+| L-03 | **Outbox throughput is about 35 events/s across three replicas** (each event costs a claim save, a confirmed publish and a mark save). | A sustained rate above that builds a backlog (it drains when load drops; chat is not slowed). | Claim and mark a whole batch in one statement; publish the batch with one confirmation wait. | `LIM-03` | Open |
+| L-04 | **A crashed replica** (killed, not stopped) sends no "went offline" event and saves no last-seen time; its users drop offline after the 45 s mark lifetime. | Peers keep seeing "Online" in their open page for a while; last seen is missing for that session. | A sweeper that notices lapsed presence marks, saves last-seen and broadcasts the offline event. | `LIM-04` | Open |
+| L-05 | **Redis down:** live pushes stop for everyone (the backplane carries even same-replica pushes); REST keeps working; the chat page finds a reply by itself within about 15 s. | Direct chat and typing/presence updates are stale until Redis returns. | Alert on Redis availability (Phase 27); optionally deliver same-replica pushes locally when the backplane is unreachable. | `LIM-05` | Open |
+| L-06 | **Event order** is exact with one replica and best effort with several (two dispatchers can publish neighbouring rows in either order). | Only matters to a future subscriber that needs strict order. | Dispatch per conversation (claim a conversation, publish its rows in order) or let subscribers sort by outbox id. | `LIM-06` | Open |
+| L-07 | **One pending reply per chat:** the composer is locked while a reply is being produced. | A person cannot line up a second question. | Allow several pending jobs per chat and show them in order. | `LIM-07` | Open |
+| L-08 | **Broker and Redis are single nodes** (classic queues, one Redis endpoint). | An outage of either is an outage of that feature until it restarts. | Quorum queues and a RabbitMQ cluster; Redis Sentinel or a managed Redis with Sentinel-aware connection settings; failover tests. | `LIM-08` | Open (needs a design decision) |
+| L-09 | **Not tried here:** more than three replicas, backlogs far beyond 3,000 events, sustained load or soak runs, a firewall that silently drops packets (a paused container was used instead), real SMTP, Firefox, Safari and real phones. | Unknown behaviour at larger scale or on other browsers. | Extend `e2e/` (a 5-replica run, a 30,000-event backlog, an hour-long soak with periodic failures, a Playwright run on Firefox and WebKit, a real SMTP test account). | `LIM-09` | Open |
+| L-10 | **The de-duplication keys in Redis live 24 h** and are keyed by outbox id. | After restoring the database to an older state (ids reused), repeated ids would be ignored for up to 24 h. Test environments only. | Include a database "epoch" in the key, or clear `dedupe:*` as part of a restore procedure (Phase 27). | `LIM-10` | Open |
 
 ### Post-plan — Hardening and product gaps (Phases 21–28) — **planned, not started**
 
@@ -786,7 +809,7 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Angular UI | 5–6 | Week 2 |
 | Admin + polish | 7–8 | Week 3 |
 | User-to-user chat (done) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
-| Message brokers: Redis + RabbitMQ (15 to 19 done; 20 planned) | 15–20 | 15 to 19 done early at the user's request; 20 (the closing check) is next in this group |
+| Message brokers: Redis + RabbitMQ (done) | 15–20 | all six done early at the user's request |
 | Test plan and gap tests (T1 done, T2–T6 planned) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
 | Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |
 

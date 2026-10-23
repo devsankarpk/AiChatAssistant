@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 437 automated tests (237 .NET, 12 Python, 188 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 16** (gap-closing run, latest), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 439 automated tests (239 .NET, 12 Python, 188 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (237 tests)
+# .NET (239 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -455,6 +455,25 @@ Test cases, with the automated test (or manual check) that covers each. "Hub" = 
 | BHL-M01 | After the deadline change, a password-reset email is still published and consumed by the worker | Generic 200; first send attempt logged | Manual | Manual: `P20-EM` (below) |
 | BHL-F01 to BHL-F07 | Real Python service and real provider: invalid key (async and default mode), then the right key | All pass | Manual | Manual: `P20F-01` to `P20F-07` (section 16.4) |
 
+### 5.19 THE COMMITTED END-TO-END SUITES (`e2e/`, Phase 20)
+
+The suites are listed with every check in section 17. They run with `./e2e/run.sh` (all, about 80 minutes) or `./e2e/run.sh 04 09` (some). New checks only need a new `NN-name.mjs` file or a `check(...)` call; see `e2e/README.md`.
+
+| Suite | Layer | Status |
+|---|---|---|
+| `e2e/suites/01-foundation.mjs`: Phase 15: broker foundation (16 checks) | Docker, real services | Built, passing (section 17.3) |
+| `e2e/suites/02-email-queue.mjs`: Phase 17: password-reset email through RabbitMQ (30 checks) | Docker, real services | Built, passing (section 17.4) |
+| `e2e/suites/03-presence-and-backplane.mjs`: Phase 16: Redis backplane and shared presence (and the negative control) (38 checks) | Docker, real services | Built, passing (section 17.5) |
+| `e2e/suites/04-direct-chat-browser.mjs`: Phases 9 to 14: the whole user-to-user chat in real browsers across replicas (19 checks) | Docker, real services | Built, passing (section 17.6) |
+| `e2e/suites/05-async-replies.mjs`: Phase 18: async AI replies (40 checks) | Docker, real services | Built, passing (section 17.7) |
+| `e2e/suites/06-outbox-events.mjs`: Phase 19: direct-chat events through the outbox (30 checks) | Docker, real services | Built, passing (section 17.8) |
+| `e2e/suites/07-black-hole-and-scale.mjs`: After 18 and 19: black-holed broker and Redis, three replicas, 3,000-event backlog, slow AI (24 checks) | Docker, real services | Built, passing (section 17.9) |
+| `e2e/suites/08-async-replies-browser.mjs`: Phase 18: async replies in the chat page (17 checks) | Docker, real services | Built, passing (section 17.10) |
+| `e2e/suites/09-chaos.mjs`: Phase 20: combined and sequential failures with consistency invariants (20 checks) | Docker, real services | Built, passing (section 17.11) |
+| `e2e/suites/10a-real-llm-failure.mjs`: Real Python service and provider: invalid key, then the right key (7 checks) | Docker, real services | Built, passing (section 17.12) |
+| `e2e/suites/10b-regression-sync.mjs`: Regression with the real AI service, default (synchronous) mode (10 checks) | Docker, real services | Built, passing (section 17.13) |
+| `e2e/suites/10b-regression-async.mjs`: Regression with the real AI service, Chat:AsyncReplies on (10 checks) | Docker, real services | Built, passing (section 17.14) |
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -465,6 +484,8 @@ Test cases, with the automated test (or manual check) that covers each. "Hub" = 
 | T5 | Close-out | Statuses in this file changed from *Planned* to real test names; before/after counts; mutation spot-check; full run |
 
 ## 7. Planned test cases for features not built yet
+
+The last rows (`LIM-01` to `LIM-10`) are test cases for the known limits and improvements listed in `README.md` ("Known limits and improvement backlog"); the first column says what the behaviour is today and which existing check records it.
 
 These rows are filled in (and their test names recorded) when the feature phase is built. Phases are built in the order given by the Roadmap in `README.md` (next up: T2), not in number order; rows marked *because Phase N is built first* are obligations that a later phase picks up. Source plans in `README.md`: "User-to-user chat (Phases 9-14, done)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
 
@@ -510,6 +531,16 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | OPS-09 | Usage-log retention | Rows older than the configured age are purged; newer rows kept | .NET | Planned (Phase 27) |
 | A11Y-01 | Unknown URL | A real 404 page with a link home (no silent redirect) | Angular | Planned (Phase 28) |
 | A11Y-02 | Automated accessibility scan (axe-core) on login, chat and usage pages | No serious or critical violations | Angular | Planned (Phase 28) |
+| LIM-01 | MySQL down (L-01) | A database connection failure answers `503 service_unavailable` in the standard error shape, and the chat page shows "try again shortly" (today: `500 internal_error`) | .NET + `e2e/` | Planned (backlog L-01); today's behaviour is checked by `X-13` |
+| LIM-02 | Reset email while RabbitMQ is down (L-02) | The email is queued in the outbox with the reset token and delivered after the broker returns; the answer stays the same generic `200` (today: that email is not sent) | .NET + `e2e/` | Planned (backlog L-02); today's behaviour is checked by `E-13`, `E-14` and `P20-03` |
+| LIM-03 | Outbox throughput (L-03) | At least 200 events/s across three replicas; a 3,000-event backlog drains in under 20 s (today: about 85 s) | `e2e/` | Planned (backlog L-03); today's figure is recorded by `P20-21` |
+| LIM-04 | Crashed replica (L-04) | Within the mark lifetime plus one sweep the person is announced offline and their last-seen time is saved (today: neither) | .NET + `e2e/` | Planned (backlog L-04); today's behaviour is recorded by `P-21` |
+| LIM-05 | Redis down (L-05) | Same-replica pushes still arrive, or an alert fires (today: pushes stop; the page recovers within about 15 s) | .NET + `e2e/` | Planned (backlog L-05); today's behaviour is checked by `P-24` to `P-29` and `B18-11` |
+| LIM-06 | Event order with several replicas (L-06) | Events of one conversation reach RabbitMQ in id order whichever replica dispatched them | `e2e/` | Planned (backlog L-06); today only one replica is ordered (`P19-04`) |
+| LIM-07 | Several pending replies per chat (L-07) | Two questions can be pending; replies arrive in the order asked | Angular + `e2e/` | Planned (backlog L-07); today's lock is checked by `ASY-A14` |
+| LIM-08 | High availability (L-08) | Killing one RabbitMQ or Redis node loses no message and the app keeps working | `e2e/` | Planned (backlog L-08) |
+| LIM-09 | Wider coverage (L-09) | 5 replicas, a 30,000-event backlog, a one-hour soak with periodic failures, Firefox and WebKit, real SMTP | `e2e/` | Planned (backlog L-09) |
+| LIM-10 | Restoring an older database (L-10) | Events with reused outbox ids are not ignored after a restore | .NET + `e2e/` | Planned (backlog L-10) |
 
 ## 8. Manual smoke checklist and exit criteria
 
@@ -1364,4 +1395,384 @@ The email path was re-checked after the change: `P20-EM` PASS (a password-reset 
 - **The long Phase 12 to 14 browser suites** as a committed `e2e/` folder (Phase T6).
 - **A packet-dropping network device** (a firewall that silently discards, not a paused process): pausing the container is the closest thing available here.
 - **More than three replicas**, and **backlogs far larger than 3,000** events.
+- Load, security and penetration testing are out of scope (section 1).
+
+## 17. Phase 20: the closing end-to-end run (2026-10-23)
+
+Phase 20 is the check of the whole system in one pass, and it also closes the long-standing gap that the end-to-end checks lived in
+throw-away scripts: **every suite is now committed under `e2e/` and runs with one command, `./e2e/run.sh`** (see `e2e/README.md`).
+The suites drive the **real Docker stack**: real MySQL 8.4, RabbitMQ 3.13, Redis 7, nginx, up to three API replicas behind a load
+balancer, real SignalR clients over WebSockets, and real Chrome windows. In the first configuration the Python AI service is replaced by
+a stub with the same contract that counts calls and obeys latency and failure commands; the last three suites use the real Python
+service and the real LLM provider. The full run below is a single uninterrupted `./e2e/run.sh` on the final build; it empties the test
+data it wrote and stops the stack when it ends. The host dev MySQL was not touched.
+
+### 17.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **239 passed, 0 failed** (237 before + 2: the Redis connection settings) |
+| Python (`pytest`) | **12 passed, 0 failed** (unchanged) |
+| Angular unit (`ng test`) | **188 passed, 0 failed** (unchanged) |
+| Migration drift | None (`ASPNETCORE_ENVIRONMENT=Production dotnet ef migrations has-pending-model-changes`) |
+| **Total automated** | **439 passed, 0 failed** |
+
+### 17.2 The end-to-end suites (261/261 checks passed)
+
+| Suite | What it covers | Checks | Result |
+|---|---|---|---|
+| `01-foundation` | Phase 15: broker foundation | 16 | 16/16 |
+| `02-email-queue` | Phase 17: password-reset email through RabbitMQ | 30 | 30/30 |
+| `03-presence-and-backplane` | Phase 16: Redis backplane and shared presence (and the negative control) | 38 | 38/38 |
+| `04-direct-chat-browser` | Phases 9 to 14: the whole user-to-user chat in real browsers across replicas | 19 | 19/19 |
+| `05-async-replies` | Phase 18: async AI replies | 40 | 40/40 |
+| `06-outbox-events` | Phase 19: direct-chat events through the outbox | 30 | 30/30 |
+| `07-black-hole-and-scale` | After 18 and 19: black-holed broker and Redis, three replicas, 3,000-event backlog, slow AI | 24 | 24/24 |
+| `08-async-replies-browser` | Phase 18: async replies in the chat page | 17 | 17/17 |
+| `09-chaos` | Phase 20: combined and sequential failures with consistency invariants | 20 | 20/20 |
+| `10a-real-llm-failure` | Real Python service and provider: invalid key, then the right key | 7 | 7/7 |
+| `10b-regression-sync` | Regression with the real AI service, default (synchronous) mode | 10 | 10/10 |
+| `10b-regression-async` | Regression with the real AI service, Chat:AsyncReplies on | 10 | 10/10 |
+| **Total** | | **261** | **261/261** |
+
+Every check, with the evidence it recorded, is listed below.
+
+### 15.1 `01-foundation`: Phase 15: broker foundation (16/16 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| FND-01 | rabbitmq and redis are running and report healthy | PASS | rabbitmq=healthy redis=healthy |
+| FND-02 | Redis, MySQL and the AMQP port of RabbitMQ are NOT published outside Docker (only RabbitMQ's management port is, for the test harness) | PASS | redis: [], mysql: [], rabbitmq: [15672->15673] |
+| FND-03 | Redis refuses a client without the password | PASS |  |
+| FND-04 | Redis refuses a wrong password | PASS |  |
+| FND-05 | Redis answers PONG with the real password | PASS |  |
+| FND-06 | RabbitMQ has no default 'guest' login | PASS | user 'guest' - invalid credentials |
+| FND-07 | RabbitMQ accepts the generated 'aichat' login | PASS |  |
+| FND-08 | RabbitMQ rejects a wrong password for aichat | PASS |  |
+| FND-09 | every API replica answers /health 200 (liveness only, no broker check) | PASS |  |
+| FND-10 | every replica started its email worker, AI reply worker, outbox dispatcher and subscriber | PASS | start-up lines in the logs |
+| FND-11 | the topology exists and is durable: email.send/dead, ai.reply/dead, direct.events.log/dead and their retry queues | PASS | ai.dead, ai.reply, ai.retry.12s, ai.retry.2s, ai.retry.3s, direct.events.dead, direct.events.log, email.dead, email.retry.10s, email.retry.60s, ema... |
+| FND-12 | the exchanges are the agreed ones: email (direct), ai (direct), direct.events (topic) | PASS | ai:direct, direct.events:topic, email:direct |
+| FND-13 | existing behaviour is unchanged: register then login work with all the brokers running | PASS |  |
+| FND-14 | error shape unchanged: an unauthenticated call is 401 with { error: { code, message } } | PASS |  |
+| FND-15 | error shape unchanged: an unknown route is 404 with { error: { code, message } } | PASS |  |
+| FND-16 | a connected person is recorded in Redis (presence:user:<id>) and SignalR uses its channels under the "aichat" prefix (Phase 16 wiring) | PASS | channels: 12 (e.g. aichatAiChatAssistant.Api.Hubs.DirectHub:internal:ack:2577525d2dd7_9a025b24193c4cb2bf825c1a5c408ad2) |
+
+### 15.2 `02-email-queue`: Phase 17: password-reset email through RabbitMQ (30/30 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| E-01 | same status and body for a registered and an unregistered email | PASS | 200 / 200: If that email is registered, a password reset link has been sent. |
+| E-02 | the worker delivered the registered user's email (via the queue) | PASS |  |
+| E-03 | no email was produced for the unregistered address | PASS |  |
+| E-04 | end to end: the emailed link resets the password (new works, old fails) | PASS | reset 200, new 200, old 401 |
+| E-05 | queues are empty afterwards (acknowledged; nothing stuck in retry or dead-letter) | PASS | {"email.dead":{"m":0,"c":0},"email.send":{"m":0,"c":1},"ai.retry.3s":{"m":0,"c":0},"ai.retry.2s":{"m":0,"c":0},"ai.reply":{"m":0,"c":1},"ai.retry.1... |
+| E-06 | the worker holds exactly one consumer on email.send | PASS |  |
+| E-07 | the request is not slowed or failed by the mail failure: 200 generic answer right away | PASS | 200 in 169 ms |
+| E-08 | after 3 failed attempts (waits 2 s and 3 s) the email lands in the dead-letter queue | PASS | dead-lettered after 6.5 s (waits sum to 5 s) |
+| E-09 | logs show attempt 1 of 3, attempt 2 of 3 retrying, then giving up on attempt 3 of 3 | PASS |  |
+| E-10 | the dead-letter message carries the attempt count and the error, and the other queues are empty | PASS | x-attempt=3 |
+| E-11 | the dead-letter message is persistent and holds the original payload | PASS |  |
+| E-12 | the retry queues are named after their delays (email.retry.2s / email.retry.3s) | PASS |  |
+| E-13 | broker down: the answer is still the same 200 generic message (no 500, no account revealed) | PASS | known 200 in 270 ms, unknown 200 in 45 ms |
+| E-14 | broker down: the failure is logged for the operator (by user id, not email) | PASS |  |
+| E-15 | broker down: the rest of the app keeps working (login 200) | PASS |  |
+| E-16 | broker back: the worker reconnects by itself (a consumer is attached again, no API restart) | PASS | {"m":0,"c":1} |
+| E-17 | broker back: a new request is queued and delivered normally | PASS |  |
+| E-18 | after the first failure the email waits in email.retry.20s | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0},"email.retry.20s":{"m":1,"c":0... |
+| E-19 | broker restarted: the waiting email is still there (durable queue, persistent message) | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0},"email.retry.20s":{"m":1,"c":0... |
+| E-20 | API restarted too: the message is still processed to the end (nothing lost, nothing duplicated) | PASS | {"email.dead":{"m":1,"c":0},"email.retry.2s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0},"email.retry.20s":{"m":0,"c":0... |
+| E-21 | the stale message is dropped by the worker with a log line, never sent | PASS |  |
+| E-22 | and nothing is left in any queue, including the dead-letter queue | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| E-23 | 40 simultaneous requests: all answered 200 with the same message | PASS | slowest 1677 ms |
+| E-24 | every one of the 40 emails was delivered exactly once | PASS | 40/40 delivered once each, in 27.5 s |
+| E-25 | queues drain to empty | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":1},"email.retry.3s":{"m":0,"c":0... |
+| E-26 | no broker: the email is still produced (inline) and the answer is the same generic 200 | PASS | 200 in 329 ms |
+| E-27 | no broker: no worker starts and the app never tries to connect to RabbitMQ | PASS |  |
+| E-28 | the API refuses to start with a clear message naming the missing setting | PASS | Unhandled exception. System.InvalidOperationException: RabbitMq:Host is set but RabbitMq:Username / RabbitMq:Password are not. Set them via user-se... |
+| E-29 | a paused broker: forgot-password still gives the same generic 200 (never a 500 that would reveal accounts), within the deadline, not 20 s | PASS | known 200 in 8476 ms, unknown 200 in 45 ms |
+| E-30 | and after it answers again the worker is attached and a new reset email is delivered | PASS |  |
+
+### 15.3 `03-presence-and-backplane`: Phase 16: Redis backplane and shared presence (and the negative control) (38/38 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P-01 | two API replicas are up and healthy (ports 18081 and 18082), sharing one MySQL, Redis and RabbitMQ | PASS |  |
+| P-02 | both people are recorded in Redis presence (one key per user) | PASS | presence:user:1, presence:user:2 |
+| P-03 | each presence key has an expiry, so an abandoned key cleans itself up | PASS | PTTL 16501 ms |
+| P-04 | Alice (replica 1) sees Bob (connected to replica 2) as online in the conversation list | PASS |  |
+| P-05 | Bob (replica 2) sees Alice (replica 1) as online | PASS |  |
+| P-06 | a message sent through replica 1 is "delivered" at once because Bob is online on replica 2 (shared presence) | PASS | status=delivered |
+| P-07 | Bob, connected to replica 2, receives the live MessageReceived push from replica 1 (Redis backplane) | PASS | payload: "hello bob (sent through replica 1)" |
+| P-08 | Bob marks it read on replica 2; Alice's read tick arrives live on replica 1 | PASS |  |
+| P-09 | Alice's typing signal (replica 1) reaches Bob (replica 2) | PASS |  |
+| P-10 | delete through replica 1 is pushed to both people, on both replicas | PASS | delete status 200 |
+| P-11 | Carol's first tab (replica 1) makes her come online: Alice is told exactly once | PASS |  |
+| P-12 | Carol's second tab on the OTHER replica does not announce her online again | PASS |  |
+| P-13 | closing tab 1 (replica 1) does not take her offline: no event, still online per the other replica | PASS |  |
+| P-14 | closing the last tab (replica 2) takes her offline: exactly one event, with a last-seen time | PASS |  |
+| P-15 | afterwards the list shows Carol offline with the saved last-seen time | PASS | 2026-10-23T17:14:42.136689Z |
+| P-16 | exactly ONE "came online" announcement per person, even with two simultaneous first connections on different replicas (atomic Lua) | PASS | counts: 1 over 20 people |
+| P-17 | exactly ONE "went offline" announcement per person after both tabs close at the same instant | PASS | counts: 1 over 20 people |
+| P-18 | Bob has been idle for 12 s (twice the 6 s mark lifetime) and is still online: the heartbeat refreshes his mark | PASS |  |
+| P-19 | Bob's replica is killed: within the mark lifetime (plus one beat) Alice's replica reports him offline, with no manual cleanup | PASS |  |
+| P-20 | a message to him now stays at "sent" (one grey tick), not falsely "delivered" | PASS | status=sent |
+| P-21 | KNOWN LIMIT (recorded, not a requirement): a crashed replica sends no "went offline" event and saves no last-seen time | PASS |  |
+| P-22 | Bob reconnects to the surviving replica: his waiting message becomes "delivered" and Alice is told live | PASS |  |
+| P-23 | the killed replica starts again and is healthy | PASS |  |
+| P-24 | Redis down: sending a message still works (201, saved) and is not a 500 | PASS | status 201 in 2754 ms, delivery status=sent |
+| P-25 | Redis down: the request is slowed by seconds at most, not left hanging (2 s Redis timeouts) | PASS | 2754 ms |
+| P-26 | Redis down: the conversation list still loads (presence falls back to this server) | PASS | status 200 in 20 ms |
+| P-27 | Redis down: /health stays 200 on both replicas (liveness only, no dependency check) | PASS |  |
+| P-28 | Redis down: the message was saved and Bob can read it (REST is unaffected) | PASS |  |
+| P-29 | Redis back: live pushes cross replicas again WITHOUT reconnecting Bob or restarting anything | PASS | delivery status=delivered |
+| P-30 | Redis loses all its data (FLUSHALL): it held the connections' marks before, so this really wipes them | PASS | 2 presence marks before the flush |
+| P-31 | within a heartbeat the replicas re-create their connections' marks and Bob shows online again, with nobody reconnecting | PASS |  |
+| P-32 | when everyone has disconnected no presence keys are left in Redis | PASS |  |
+| P-33 | without Redis, a message to someone on the OTHER replica is only "sent" (presence is not shared) | PASS | status=sent |
+| P-34 | without Redis, the other replica gets NO live push | PASS |  |
+| P-35 | without Redis, Alice cannot see that Bob is online (he is on the other replica) | PASS |  |
+| P-36 | without Redis, two people on the SAME replica still work (delivered and pushed): the single-replica mode is intact | PASS |  |
+| P-37 | WITH the negotiate step, connections through the balancer fail when negotiate and socket land on different replicas (the proof the change is needed) | PASS | 10/30 connected with negotiation |
+| P-38 | WITHOUT the negotiate step (what the app does), every connection through the balancer succeeds | PASS | 30/30 connected |
+
+### 15.4 `04-direct-chat-browser`: Phases 9 to 14: the whole user-to-user chat in real browsers across replicas (19/19 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| DC-01 | searching by name finds exactly that person and shows the name only (no email anywhere on the page) | PASS |  |
+| DC-02 | ONE grey tick (sent) while the other person is offline | PASS |  |
+| DC-03 | Bob signs in: Alice's tick turns TWO grey (delivered) live, she sees him "Online", and he has badge 1 but NO toast (the message was already waiting) | PASS | delivered ticks: 1, status: "Online", Bob's badge: 1, toasts: 0 |
+| DC-04 | a live message while Bob is on the chatbot page: a toast with the sender and a preview, and the badge goes to 2 | PASS | toasts: "Alice Rao: m2 are you there? ×", badge: 2 |
+| DC-05 | Bob sees "2" unread in the list, opens the chat: Alice's ticks turn BLUE (read) live and his badge and unread pill clear | PASS |  |
+| DC-06 | typing: Alice sees "typing…" while Bob types; sending ends it at once and the message arrives | PASS |  |
+| DC-07 | a hidden tab: the message counts as unread (badge 1) and is NOT marked read; when the tab is visible again it is read and Alice's tick turns blue | PASS | while hidden: ok=true; after visible: badge 0, blue ticks 3 |
+| DC-08 | two tabs of the same person stay in step: a message shows badge 1 in both, and reading it in one clears the badge in the other | PASS | badges: second tab 1, first tab 1; afterwards: second tab 0, first tab 0 |
+| DC-09 | delete: Alice deletes her first message; it becomes a placeholder for Alice and, live, for Bob; the text is gone from the database | PASS | Bob sees placeholder: true; Alice sees it: true; rows still holding the text: 0 |
+| DC-10 | Bob signs out: Alice sees "Last seen today at …" live, the same after a reload, and a message sent now stays at ONE grey tick | PASS |  |
+| DC-11 | Bob signs back in: that message becomes delivered live on Alice's screen | PASS |  |
+| DC-12 | a conversation longer than 50 messages: the page loads the newest 50, "Show earlier messages" loads the rest (66 = 66 in the database) | PASS | first page 50, then 66 |
+| DC-13 | two people starting the same chat at the same instant (8 pairs): no errors and exactly one conversation per pair | PASS |  |
+| DC-14 | privacy: an Admin and an outsider get 404 on someone else's conversation (read, send, mark read, delete) and see no conversation listed | PASS | probes: 404,404,404,404,404,404,404,404 |
+| DC-15 | accessibility scan (axe-core WCAG 2 A/AA) of the Messages screen in light and dark: no serious or critical violations | PASS | none |
+| DC-16 | on a phone-width screen (390 px) there is no horizontal overflow | PASS |  |
+| DC-17 | Alice and Bob are connected to DIFFERENT API replicas behind the same balancer, and everything above worked across them | PASS | Alice -> aichat-api-1, Bob -> aichat-api2-1 |
+| DC-18 | Bob's replica is killed: his browser reconnects to a surviving replica on its own and Alice's next message reaches him live | PASS | aichat-api2-1 died; Bob now on aichat-api3-1 |
+| DC-19 | no uncaught JavaScript errors in any of the windows | PASS |  |
+
+### 15.5 `05-async-replies`: Phase 18: async AI replies (40/40 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P18-01 | two API replicas, RabbitMQ, Redis, MySQL and the stub AI service are up; async replies are on (Chat:AsyncReplies=true) | PASS |  |
+| P18-02 | POST a message: 202 with replyStatus "pending" and a job id, in well under the 3 s the AI takes (the request does not wait) | PASS | status 202 in 160 ms |
+| P18-03 | the question is saved at once (alone), and the chat lists the reply as pending | PASS | messages=1, open jobs=["pending"] |
+| P18-04 | Alice's browser (connected to the OTHER replica) receives AssistantReplied with the job, chat, question id and the reply | PASS | after 3312 ms: "stub reply to: What is DNS?" |
+| P18-05 | the reply took about as long as the AI did (3 s), proving the work happened in the background | PASS | 3312 ms |
+| P18-06 | database: the job is done after 1 attempt and points at the reply; the chat has 2 messages and 1 usage log | PASS | {"status":"done","attempts":1,"hasReply":true} |
+| P18-07 | reading the chat returns question then reply, and no open jobs remain | PASS |  |
+| P18-08 | the second question sent the first exchange as context (history of 2) and the AI was called exactly once per job | PASS | histories=[0,2], calls=2 |
+| P18-09 | the queues are empty afterwards (acknowledged; nothing in retry or dead-letter) | PASS | {"email.dead":{"m":0,"c":0},"email.retry.2s":{"m":0,"c":0},"email.retry.30s":{"m":0,"c":0},"email.send":{"m":0,"c":2},"email.retry.3s":{"m":0,"c":0... |
+| P18-10 | one failed AI call is retried by itself: the reply still arrives, attempt 2, no failure shown to anyone | PASS | {"status":"done","attempts":2,"hasReply":true} |
+| P18-11 | when every attempt fails (waits of 2 s and 3 s) Alice is told with AssistantFailed, carrying a safe message and no internals | PASS | after 5.2 s: "The assistant couldn't reply this time." |
+| P18-12 | database: the job is failed after exactly 3 attempts (the first try plus two retries), with no reply; the AI was called 3 times | PASS | {"status":"failed","attempts":3,"hasReply":false} |
+| P18-13 | the dead-letter queue holds that one job, and the message contains only the job id (no question, no answer) | PASS | {"JobId":"c8825967-7d73-499c-b6d3-d576054df6ba"} |
+| P18-14 | after a reload the chat still shows that question with a failed reply (it survives the page) | PASS |  |
+| P18-15 | Send again (retry): 202, the SAME job is run again and succeeds with no new question; attempts start over at 1 | PASS | {"status":"done","attempts":1,"hasReply":true} |
+| P18-16 | retrying a reply that is already delivered is 409; someone else retrying it is 404 | PASS |  |
+| P18-17 | DUPLICATE DELIVERY: the broker delivers an already-finished job again: no second AI call, no second reply, no second usage log | PASS |  |
+| P18-18 | an unreadable message is moved to the dead-letter queue, and the worker keeps going | PASS |  |
+| P18-19 | a message for a job that does not exist is dropped quietly (not retried forever, not dead-lettered) | PASS |  |
+| P18-20 | the worker is still healthy after those: a normal question gets its reply | PASS |  |
+| P18-21 | another person cannot see this chat's jobs (404) | PASS |  |
+| P18-22 | all 40 requests were accepted (202) and all 40 replies were produced | PASS | accepted 40, done 45 in total |
+| P18-23 | every person received exactly one AssistantReplied per question (5 each), none missing, none doubled | PASS |  |
+| P18-24 | the AI was called exactly 40 times: one call per job even with two competing workers | PASS | calls=40 |
+| P18-25 | backpressure: never more than 8 AI calls at once (prefetch 4 per replica x 2), and more than 4 (both replicas worked) | PASS | max concurrent = 8 |
+| P18-26 | database: 40 more done jobs, each pointing at its own reply; replies = jobs; no job done twice | PASS |  |
+| P18-27 | killing one replica mid-work loses nothing: all 6 jobs still finish (the survivor takes over after the lease) | PASS | 23 s after the kill |
+| P18-28 | each job has exactly ONE reply (no duplicates) even though some were started twice | PASS | attempts: 2,1,2,1,2,1 |
+| P18-29 | at least one job was taken over (attempts > 1) and Alice still got all 6 events | PASS | events 6 |
+| P18-30 | broker down: the answer is 503 "ai_service_unavailable" (not 500), and the question stays saved | PASS | status 503 in 646 ms |
+| P18-31 | broker down: no orphan job is left behind | PASS |  |
+| P18-32 | broker down: the rest of the app works (reading the chat, /health) | PASS |  |
+| P18-33 | broker back: both replicas re-attach their workers by themselves | PASS | {"m":0,"c":2} |
+| P18-34 | broker back: a new question is queued and answered normally | PASS |  |
+| P18-35 | Redis down: the reply is produced and saved (job done) even though no push can reach the browser | PASS |  |
+| P18-36 | Redis down: reading the chat returns the reply (this is what the page's 15 s safety net and reconnect refetch rely on) | PASS |  |
+| P18-37 | Redis back: pushes work again without a reconnect | PASS |  |
+| P18-38 | Chat:AsyncReplies=false: the old behaviour is untouched: 200 with both messages in the same response, no job row, one AI call | PASS |  |
+| P18-39 | Chat:AsyncReplies=false: the open-jobs list is just empty and no AI-reply worker runs | PASS |  |
+| P18-40 | Chat:AsyncReplies=true without RabbitMq:Host: the API refuses to start and says why | PASS | Unhandled exception. System.InvalidOperationException: Chat:AsyncReplies is on but RabbitMq:Host is not set. Async replies need RabbitMQ: se |
+
+### 15.6 `06-outbox-events`: Phase 19: direct-chat events through the outbox (30/30 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P19-01 | one API replica runs (the second is stopped for the ordering tests); RabbitMQ has the direct.events topic exchange and the subscriber queue; the outbox is empty | PASS |  |
+| P19-02 | sending a message (recipient offline) writes a "direct.message.sent" outbox row, which is published within about a second | PASS | row #1, 1077 ms after the POST |
+| P19-03 | the whole life of two messages writes exactly these events, in this order (repeat reads and repeat deletes write none) | PASS | direct.message.sent > direct.message.delivered > direct.message.read > direct.message.deleted > direct.message.sent > direct.message.delivered > di... |
+| P19-04 | RabbitMQ received the same events, in the same order (message id = outbox id, routing key = event type) | PASS | 7 events: sent > delivered > read > deleted > sent > delivered > read |
+| P19-05 | the payload has exactly: conversationId, messageIds, senderId (the author), recipientId, status, at | PASS | at,conversationId,messageIds,recipientId,senderId,status |
+| P19-06 | the author is Alice and the other person is Bob in every event (also for "read", which Bob caused) | PASS |  |
+| P19-07 | NO MESSAGE TEXT anywhere: not in any outbox row, not in any message that reached RabbitMQ | PASS | rows/messages containing the text: 0 |
+| P19-08 | the subscriber consumed and logged every event once (ids only in the log line), and both subscriber queues are empty | PASS | 7 log lines for 7 events |
+| P19-09 | the dispatched rows carry a dispatch time; none is left waiting | PASS |  |
+| P19-10 | if the event cannot be written, the whole request fails (500 in the standard error shape) ... | PASS | status 500 |
+| P19-11 | ... and the message was NOT saved either: the change rolled back with its event (no change without an event) | PASS | messages 2 -> 2 |
+| P19-12 | with the table back, sending works again and the event is written | PASS |  |
+| P19-13 | broker down: all 20 messages are still sent (201) and 20 events wait undispatched in the database | PASS | 201s: 20, waiting events: 20 |
+| P19-14 | broker down: the API stays healthy and keeps trying (attempts are counted on the waiting rows) | PASS | max attempts 3 |
+| P19-15 | broker back: every waiting event is published by itself, none lost | PASS | 20 events arrived |
+| P19-16 | they arrive in the order they were written (ascending ids, no gaps, no repeats) | PASS |  |
+| P19-17 | the subscriber handled each of them once (no repeats needed ignoring) | PASS | "seen before" lines so far: 0 |
+| P19-18 | 100 messages sent through both replicas at once: all 100 "sent" events reached RabbitMQ (plus their delivered events) | PASS | sent=100, total=101 |
+| P19-19 | EACH OUTBOX ROW WAS PUBLISHED EXACTLY ONCE: the two dispatchers never both took the same row | PASS | 101 messages, 101 distinct ids |
+| P19-20 | the subscriber (competing across both replicas) saw no repeats, and the queues drained | PASS | drained in 9.1 s |
+| P19-21 | the surviving replica finishes the whole backlog (rows the dead one had claimed are taken over after the lease) | PASS | backlog was 90 |
+| P19-22 | every backlog event reached RabbitMQ at least once (a repeat is allowed after a crash, loss is not) | PASS | 90 distinct of 90, 0 repeat(s) |
+| P19-23 | if any event was published twice, the subscriber noticed and ignored the repeat | PASS | repeats published: 0, repeats ignored: 0 |
+| P19-24 | an event that is not valid JSON is moved to the dead-letter queue, not retried forever | PASS |  |
+| P19-25 | an event with no message ids is dead-lettered too | PASS |  |
+| P19-26 | the same event delivered twice (same message id) is handled once and the repeat is ignored | PASS | handled 1, ignored 1 |
+| P19-27 | the subscriber keeps working after all of that: a real message is still logged | PASS |  |
+| P19-28 | events published more than 24 h ago are deleted by the dispatcher (exactly those 5); recent ones are kept | PASS | rows 220 -> 215 |
+| P19-29 | Outbox:Enabled=false: chat works (201), no event row is written, and no dispatcher runs | PASS |  |
+| P19-30 | no RabbitMQ configured: chat works exactly as before and the outbox writes nothing (the app runs with only MySQL) | PASS |  |
+
+### 15.7 `07-black-hole-and-scale`: After 18 and 19: black-holed broker and Redis, three replicas, 3,000-event backlog, slow AI (24/24 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P20-01 | three API replicas (ports 18081, 18082, 18083) are up and healthy behind one MySQL, Redis and RabbitMQ | PASS |  |
+| P20-02 | async send with the broker black-holed: a prompt 503 "ai_service_unavailable" (not a 500, not a 20 s wait), the question stays saved, no orphan job | PASS | status 503 after 8237 ms |
+| P20-03 | forgot-password with the broker black-holed: the SAME generic 200 for a registered and an unknown email, promptly (no 500 that would reveal accounts) | PASS | known 200 in 8449 ms, unknown 200 in 17 ms |
+| P20-04 | direct chat keeps working while the broker is black-holed: 30 messages all 201, each fast (the outbox only writes to MySQL) | PASS | slowest 791 ms |
+| P20-05 | their 30 events wait in the database (undispatched) and every replica stays healthy | PASS | waiting events: 30 |
+| P20-06 | broker answers again: every waiting event is published by itself (no restart) | PASS |  |
+| P20-07 | all three replicas re-attach their reply workers, and a new question is answered normally | PASS | {"m":0,"c":3} |
+| P20-08 | Redis black-holed: a direct message is still saved (201) and the list still loads, each within a few seconds (2 s Redis timeouts), never hanging | PASS | send 4606 ms, list 2305 ms |
+| P20-09 | Redis black-holed: an async reply is still produced and saved (only the live push is lost) | PASS |  |
+| P20-10 | Redis black-holed: /health stays 200 on all three replicas | PASS |  |
+| P20-11 | Redis answers again: pushes cross replicas again with no restart and no reconnect, within 30 s of it answering (the keep-alive ping notices a silent connection in seconds, not the library's default minute) | PASS | first cross-replica push 2.1 s after Redis was unpaused |
+| P20-12 | 60 questions over three replicas: all answered, the AI called exactly 60 times, never more than 12 at once (prefetch 4 x 3) and more than 8 (all three replicas worked) | PASS | calls 60, max concurrent 12 |
+| P20-13 | every person received exactly one AssistantReplied per question (10 each), on whichever replica they were connected to | PASS |  |
+| P20-14 | 15 people each open a tab on all three replicas at the same instant: exactly ONE "came online" announcement per person | PASS | counts: 1 |
+| P20-15 | and exactly ONE "went offline" announcement per person after all three tabs close at the same instant | PASS | counts: 1 |
+| P20-16 | 150 direct messages sent through three replicas: three dispatchers publish every event exactly once (no row published twice, none missing) | PASS | 150 published, 150 distinct, 150 new rows |
+| P20-17 | the subscriber, competing across three replicas, saw no repeats | PASS |  |
+| P20-18 | one of three replicas is killed in the middle of AI calls: the other two finish all 9 jobs, each with exactly one reply | PASS |  |
+| P20-19 | RabbitMQ down: 3,000 messages are all accepted (201) while their events wait in the database | PASS | 201s: 3000 in 14 s, events waiting: 3000 |
+| P20-20 | the API stays healthy with that backlog | PASS |  |
+| P20-21 | RabbitMQ back: the whole backlog drains by itself, none lost, none published twice | PASS | 3000 events (3000 distinct) in about 80 s |
+| P20-22 | the subscriber handled every one of them (log lines carry ids only), and its queues are empty | PASS | 3182 distinct events logged |
+| P20-23 | an AI call that outlasts the 60 s timeout counts as a failed attempt: after 3 attempts the person gets AssistantFailed (about 3 minutes) | PASS | after 186 s, attempts 3 |
+| P20-24 | with the lease (90 s) longer than the AI timeout (60 s) no other worker steals the job: the AI was called exactly 3 times, once per attempt, and no reply was saved | PASS | AI calls 3 |
+
+### 15.8 `08-async-replies-browser`: Phase 18: async replies in the chat page (17/17 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| B18-01 | sending: the question appears at once and "Thinking…" shows while the reply is produced in the background | PASS | question shown after 519 ms |
+| B18-02 | while a reply is pending the Send button is disabled (no second question queued behind it) | PASS |  |
+| B18-03 | the reply appears by itself (no reload), after about the 4 s the AI took, "Thinking…" goes away | PASS | 5636 ms; reply: "stub reply to: What is DNS?" |
+| B18-04 | and the composer is usable again | PASS |  |
+| B18-05 | when the AI keeps failing, after the retries (about 5 s) the question shows "The assistant couldn't reply." with Send again | PASS | after 5.9 s |
+| B18-06 | no "Thinking…" is left behind and the composer is free | PASS |  |
+| B18-07 | Send again: the failed note disappears at once and "Thinking…" returns (same question, nothing re-typed) | PASS |  |
+| B18-08 | the reply arrives, and the chat still has exactly the two questions (no duplicate from Send again) | PASS |  |
+| B18-09 | reloading the page while a reply is pending still shows the question AND "Thinking…" (restored from the server) | PASS |  |
+| B18-10 | and the reply still arrives on the reloaded page | PASS |  |
+| B18-11 | if the live push is lost (Redis down) the reply is saved anyway and the page picks it up by itself within about 15-20 s, with no reload | PASS | appeared after 16 s |
+| B18-12 | and "Thinking…" is cleared | PASS |  |
+| B18-13 | switching to another chat while a reply is pending: that chat is clean, and coming back later shows the finished reply (no stuck "Thinking…") | PASS |  |
+| B18-14 | the same person with the chat open in two tabs: the reply appears in BOTH tabs | PASS |  |
+| B18-15 | accessibility scan (axe-core WCAG 2 A/AA) of the chat with a pending reply, a failed reply, and in dark theme: no serious or critical violations | PASS | none |
+| B18-16 | on a phone-width screen (390 px) the failed state does not overflow | PASS |  |
+| B18-17 | no uncaught JavaScript errors in either tab | PASS |  |
+
+### 15.9 `09-chaos`: Phase 20: combined and sequential failures with consistency invariants (20/20 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| X-01 | three replicas, RabbitMQ, Redis and MySQL are up, every reply worker is attached, and the balancer answers | PASS |  |
+| X-02 | RabbitMQ stopped while the AI was answering: the worker still saves the reply (job done in the database) although it cannot acknowledge the message | PASS |  |
+| X-03 | RabbitMQ back: the unacknowledged message is delivered again and does nothing: still exactly ONE AI call and ONE reply | PASS | AI calls 1 |
+| X-04 | Alice received the reply push exactly once, and the queues are empty | PASS |  |
+| X-05 | both brokers down: a new async question is refused with a prompt 503 (question kept), direct chat still works (10 of 10 saved), every replica stays healthy | PASS | ask 503 in 72 ms; sends 201201201201201201201201201201 |
+| X-06 | the reply that was in flight was still produced and saved while both were down | PASS |  |
+| X-07 | both back: the 10 chat events waiting in the database are all published, reply workers re-attach, and the invariants hold | PASS | after C2: duplicate replies 0, done-without-reply 0, reply-but-not-done 0, jobs still open 0, events waiting 0, ai.dead 0, direct.events.dead 0 |
+| X-08 | both back: a new question is answered and the live push works again | PASS |  |
+| X-09 | rolling restart under load: every ACCEPTED question (81) still gets its reply, none lost | PASS | failed requests during the restarts: 0 (none) |
+| X-10 | and each accepted job has exactly one reply (no duplicates), even though workers were killed mid-call | PASS | AI calls 83 for 81 jobs |
+| X-11 | every accepted direct message (81) was saved, and every one has a published "sent" event | PASS |  |
+| X-12 | after the rolling restart all invariants hold (no stuck jobs, no waiting events, empty dead-letter queues) | PASS | after C3: duplicate replies 0, done-without-reply 0, reply-but-not-done 0, jobs still open 0, events waiting 0, ai.dead 0, direct.events.dead 0 |
+| X-13 | MySQL down: requests fail with the standard error shape (not a hang, not an HTML page) within a bounded time, and /health stays 200 | PASS | ask 500 internal_error in 20 ms; list 500 in 31 ms |
+| X-14 | MySQL back: the job that was in flight is finished by itself, with exactly one reply | PASS | {"status":"done","attempts":2,"hasReply":true} |
+| X-15 | MySQL back: chat works, the outbox dispatcher is still alive and publishes the new event, and the invariants hold | PASS | after C4: duplicate replies 0, done-without-reply 0, reply-but-not-done 0, jobs still open 0, events waiting 0, ai.dead 0, direct.events.dead 0 |
+| X-16 | everything restarted at once: all 6 in-flight questions are answered, each exactly once | PASS |  |
+| X-17 | and all invariants hold afterwards (nothing stuck, nothing waiting, nothing dead-lettered) | PASS | after C5: duplicate replies 0, done-without-reply 0, reply-but-not-done 0, jobs still open 0, events waiting 0, ai.dead 0, direct.events.dead 0 |
+| X-18 | presence and live pushes work again after the big restart (a message reaches Bob over SignalR) | PASS |  |
+| X-19 | FINAL CONSISTENCY after every failure above: no duplicate replies, no done job without a reply, no stuck job, no waiting event, empty dead-letter queues | PASS | final: duplicate replies 0, done-without-reply 0, reply-but-not-done 0, jobs still open 0, events waiting 0, ai.dead 0, direct.events.dead 0 |
+| X-20 | FINAL: every direct message that exists has its "sent" event (the outbox never lost one, whatever failed) | PASS | messages without a sent event: 0 |
+
+### 15.10 `10a-real-llm-failure`: Real Python service and provider: invalid key, then the right key (7/7 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P20F-01 | async send answers 202 at once even though the real AI provider will reject the request | PASS | status 202 in 249 ms |
+| P20F-02 | the provider's real rejection (401) is retried (5 s, then 20 s) and then reported as AssistantFailed with a safe message | PASS | after 28 s: "The assistant couldn't reply this time." |
+| P20F-03 | the job is failed after 3 attempts, no reply was invented, and the job id sits in the dead-letter queue | PASS | {"status":"failed","attempts":3,"hasReply":false} |
+| P20F-04 | what is stored for the operator does not contain the API key or any secret | PASS | The AI service returned 502. |
+| P20F-05 | with the right key, Send again (retry) gets a REAL reply from the real LLM for the same question, with no duplicate question | PASS | "Pong" |
+| P20F-06 | default mode with a bad key: the answer is 503 "ai_service_unavailable" (never a 500), the question is saved, and the message tells the person to try again | PASS | status 503 in 1184 ms |
+| P20F-07 | with the right key restored the default mode answers normally again (200, real reply) | PASS | status 200 |
+
+### 15.11 `10b-regression-sync`: Regression with the real AI service, default (synchronous) mode (10/10 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| R-01 (sync) | register through the form lands on the chat page | PASS |  |
+| R-02 (sync) | a real AI reply arrives (sync: 200 with both messages) through the real Python service and DeepInfra | PASS | "pong" after 1.7 s |
+| R-03 (sync) | the stored job state matches the mode: async leaves one finished job, sync leaves none | PASS | jobs=0 |
+| R-04 (sync) | forgot-password shows the same confirmation for a registered and an unknown email | PASS |  |
+| R-05 (sync) | a wrong password shows the inline error | PASS |  |
+| R-06 (sync) | direct message: Bob receives Alice's message | PASS |  |
+| R-07 (sync) | Alice's message shows the blue read tick once Bob has it open | PASS |  |
+| R-08 (sync) | Bob's reply reaches Alice live | PASS |  |
+| R-09 (sync) | direct-chat events were written (sent, delivered, read) and every one was published by the dispatcher | PASS | 6 events, 0 waiting |
+| R-10 (sync) | no uncaught JavaScript errors in any window | PASS |  |
+
+### 15.12 `10b-regression-async`: Regression with the real AI service, Chat:AsyncReplies on (10/10 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| R-01 (async) | register through the form lands on the chat page | PASS |  |
+| R-02 (async) | a real AI reply arrives (async: 202, then pushed over SignalR) through the real Python service and DeepInfra | PASS | "pong" after 1.6 s |
+| R-03 (async) | the stored job state matches the mode: async leaves one finished job, sync leaves none | PASS | jobs=1 |
+| R-04 (async) | forgot-password shows the same confirmation for a registered and an unknown email | PASS |  |
+| R-05 (async) | a wrong password shows the inline error | PASS |  |
+| R-06 (async) | direct message: Bob receives Alice's message | PASS |  |
+| R-07 (async) | Alice's message shows the blue read tick once Bob has it open | PASS |  |
+| R-08 (async) | Bob's reply reaches Alice live | PASS |  |
+| R-09 (async) | direct-chat events were written (sent, delivered, read) and every one was published by the dispatcher | PASS | 6 events, 0 waiting |
+| R-10 (async) | no uncaught JavaScript errors in any window | PASS |  |
+
+### 17.15 Findings
+
+| # | Severity | Finding | Evidence and cause | Resolution |
+|---|---|---|---|---|
+| F45 | **Medium (real defect, found by this run, before release)** | **After a Redis that had gone silent (paused or partitioned) answered again, cross-replica SignalR pushes could stay dead for about a minute.** | `P20-11` failed in one run and passed in another: the black-holed Redis connection was only noticed by the library's default keep-alive of about 60 s, and the backplane's subscription does not reconnect until it notices. | **Fixed:** the Redis connection sends a keep-alive ping every 4 s (`RealtimeExtensions.BuildRedisOptions`), so a silent connection is noticed in seconds. `P20-11` now measures the time from Redis answering to the first cross-replica push and requires 30 s or less; 2 unit tests pin the settings. |
+| F46 | Info (recorded) | While **MySQL is down** the API answers `500` with the standard `{ error: { code: "internal_error" } }` body within about 100 ms, not a hang and not a `503`. It recovers by itself, the in-flight reply job finishes with exactly one reply, and the outbox dispatcher keeps working (`X-13` to `X-15`). | A database outage is reported like any unexpected server error. | Left as is: the shape and timing are right; a `503` for database outages could be added later if clients need to tell the two apart. |
+| F47 | Info (a good result worth recording) | **Rolling restart of all three replicas under continuous load lost nothing and failed no request** (79 accepted questions, 79 direct messages, 0 failed requests; the AI was called 81 times for 79 jobs, the two extra being calls cut short by a restart and repeated safely). | `X-09` to `X-12`: the balancer moves a request to another replica when one is restarting, and the job lease, claim token and outbox make every restart harmless. | None needed. |
+| F48 | Info (test setup, not the app) | The harness itself needed hardening, and now has it: a suite that crashed part-way used to be reported as passed (now every suite writes a "finished" marker and the report shows `CRASH`); `docker compose up` leaves a container "Created" when a dependency is briefly unhealthy (now retried); the balancer will not start if a replica's container is stopped (now every replica is started first); the unread badge holds a hidden "unread" word for screen readers (now only the number is read); headless Chrome treats every window as visible (hidden tabs are simulated); Redis de-duplication keys outlive a database reset (cleared with it). | Found while writing the suites. | Fixed in `e2e/lib.mjs` and the suites. |
+| F49 | Resolved (from F22/F30) | **The long Phase 12 to 14 browser suites that were lost are rebuilt and committed**, together with the Phase 15 to 19 suites, as `e2e/` with a single runner. | Suite `04-direct-chat-browser` repeats the whole direct-chat feature in two real browsers across replicas (19 checks), including the hidden tab, two tabs, delete, last seen, paging, races, privacy, accessibility, phone width and a replica dying. | Phase T6's main item is done. |
+
+### 17.16 Not covered
+
+- **RabbitMQ clustering and Redis Sentinel/Cluster**: not supported by the design (single nodes, classic queues), so not tested; recorded in Phase T6.
+- **A firewall that silently drops packets**: a paused container (open connections, no answers) is the closest thing available here.
+- **More than three replicas**, **backlogs far beyond 3,000 events**, **sustained load or soak testing**.
+- **Real SMTP delivery** (no credentials here), **Firefox, Safari and real phones** (Chrome only; phone width is a resized window).
+- **Real LLM failure modes other than a rejected key** (rate limits, very slow replies are simulated with the stub).
 - Load, security and penetration testing are out of scope (section 1).
