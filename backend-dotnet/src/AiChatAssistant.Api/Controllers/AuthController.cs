@@ -4,6 +4,7 @@ using System.Text;
 using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
+using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Services;
 using FluentValidation;
@@ -22,7 +23,7 @@ public class AuthController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly ITokenService _tokenService;
-    private readonly IEmailSender _emailSender;
+    private readonly IEmailQueue _emailQueue;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
     private readonly IValidator<RegisterRequest> _registerValidator;
@@ -33,7 +34,7 @@ public class AuthController : ControllerBase
     public AuthController(
         AppDbContext db,
         ITokenService tokenService,
-        IEmailSender emailSender,
+        IEmailQueue emailQueue,
         IConfiguration configuration,
         IValidator<RegisterRequest> registerValidator,
         IValidator<LoginRequest> loginValidator,
@@ -43,7 +44,7 @@ public class AuthController : ControllerBase
     {
         _db = db;
         _tokenService = tokenService;
-        _emailSender = emailSender;
+        _emailQueue = emailQueue;
         _configuration = configuration;
         _registerValidator = registerValidator;
         _loginValidator = loginValidator;
@@ -164,15 +165,15 @@ public class AuthController : ControllerBase
         var resetLink = $"{frontendBaseUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}";
         try
         {
-            await _emailSender.SendPasswordResetEmailAsync(user.Email, user.Name, resetLink, cancellationToken);
+            await _emailQueue.EnqueuePasswordResetAsync(user.Email, user.Name, resetLink, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // A mail failure (SMTP down, bad credentials, not configured) must not change the answer: a
+            // A mail or queue failure (SMTP down, bad credentials, not configured, broker unreachable) must not change the answer: a
             // 500 here, against a 200 for an unknown email, would reveal which emails have accounts -
             // the exact thing the generic message exists to prevent. Log it for the operator instead.
             // Logged by user id, not email address.
-            _logger.LogError(ex, "Could not send the password reset email for user {UserId}", user.Id);
+            _logger.LogError(ex, "Could not send or queue the password reset email for user {UserId}", user.Id);
         }
 
         return Ok(new AuthMessageResponse(genericMessage));

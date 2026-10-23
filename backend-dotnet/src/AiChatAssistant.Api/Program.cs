@@ -5,6 +5,7 @@ using AiChatAssistant.Api.Dtos.Auth;
 using AiChatAssistant.Api.Dtos.Chat;
 using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Hubs;
+using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Middleware;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Validators;
@@ -31,10 +32,11 @@ builder.Services.AddScoped<IValidator<RegisterRequest>, RegisterRequestValidator
 builder.Services.AddScoped<IValidator<LoginRequest>, LoginRequestValidator>();
 builder.Services.AddScoped<IValidator<ForgotPasswordRequest>, ForgotPasswordRequestValidator>();
 builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordRequestValidator>();
-// Real SMTP email (see SmtpEmailSender's doc comment for the Smtp:Username/Password secrets it
-// needs). ConsoleEmailSender (logs the link instead of sending) is still available as a dev-only
-// swap if you don't want to hit a real SMTP server locally.
-builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+// Password-reset email delivery. Email:Provider picks the sender (smtp = real mail via MailKit, see
+// SmtpEmailSender for the Smtp:Username/Password secrets; console = log the link, dev only). With
+// RabbitMq:Host set the email is queued and a background worker sends, retries and dead-letters it;
+// without it, it is sent inline as before. See Messaging/MessagingExtensions.cs.
+builder.Services.AddEmailDelivery(builder.Configuration);
 
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();

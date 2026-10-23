@@ -104,6 +104,7 @@ One command starts MySQL, the database migration, the .NET API, the Python servi
 ```bash
 ./scripts/gen-docker-env.sh                       # once: creates docker.env (gitignored) with random secrets
 # edit docker.env and set DEEPINFRA_API_KEY=<your key>   (SMTP_* is optional, only for real reset emails)
+# already have a docker.env from before RabbitMQ and Redis? append RABBITMQ_PASSWORD=<random> and REDIS_PASSWORD=<random> to it
 docker compose --env-file docker.env up --build -d
 ```
 
@@ -114,10 +115,13 @@ Open **http://localhost:8080**. Stop with `docker compose --env-file docker.env 
 | `mysql` | MySQL 8.4 with its own `mysql-data` volume. It is separate from any MySQL you run on your machine. |
 | `migrate` | One-off job: applies the EF Core migrations (a self-contained migration bundle, not run at API startup), then exits. |
 | `ai-service` | The Python/FastAPI LLM service. Not published to the host. |
-| `api` | The .NET API. Not published to the host; it has a liveness-only `/health`. |
+| `api` | The .NET API. Not published to the host; it has a liveness-only `/health`. It also runs the email worker. |
+| `rabbitmq` | RabbitMQ 3.13. Carries the password-reset email queue. Own user and password; not published to the host. |
+| `redis` | Redis 7 with a password. Running but not used yet (Phase 16). Not published to the host. |
 | `web` | nginx serving the Angular build and proxying `/api` to `api`, so the browser is same-origin and needs no CORS. Published on port 8080. |
 
 Notes:
+- Password-reset emails are queued in RabbitMQ and sent by a worker inside the `api`. Without SMTP credentials every send fails, is retried (after 10 s and 60 s) and ends in the `email.dead` queue; to see the link instead, run the `api` with `Email__Provider=console` and read its log. Inspect queues with `docker compose --env-file docker.env exec rabbitmq rabbitmqctl list_queues name messages`. Running the API outside Docker needs no broker: leave `RabbitMq:Host` blank and the email is sent inline.
 - All settings come from the one gitignored `docker.env` (template: `docker.env.example`). `INTERNAL_API_KEY` is generated once and shared by the API and the Python service.
 - The containers run as non-root users. nginx's `proxy_read_timeout` (75 s) must stay above the API's 60 s Python timeout.
 - To become an Admin in this stack, run the SQL from "Becoming an Admin" against the `mysql` container (`docker compose --env-file docker.env exec mysql mysql -uaichat -p AiChatAssistant`).
@@ -420,7 +424,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8, test phase T1 and Phases 9–14 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phases 9–15 and 17 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -439,8 +443,8 @@ Phases 1–8, test phase T1 and Phases 9–14 are **done**. Everything below is 
 | 13 | **12** | Messages UI with ticks, badge and toast | 11 | **Done** (early, at the user's request) |
 | 14 | **13** | Typing, online / last seen, delete message | 12 | **Done** (early, at the user's request) |
 | 15 | **14** | End-to-end check of the chat feature | 13 | **Done** (early, at the user's request) |
-| 16 | **15** | Redis and RabbitMQ foundation | 11 | Planned |
-| 17 | **17** | Async emails (RabbitMQ) | 15 | Planned |
+| 16 | **15** | Redis and RabbitMQ foundation | 11 | **Done** (early, at the user's request) |
+| 17 | **17** | Async emails (RabbitMQ) | 15 | **Done** (early, at the user's request) |
 | 18 | **16** | Redis: SignalR backplane and presence | 11, 15 | Planned |
 | 19 | **18** | Async AI replies (revisit after streaming, Phase 25) | 11, 15 | Planned |
 | 20 | **19** | Direct-chat event fan-out | 11, 15 | Planned |
@@ -563,9 +567,9 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 3. Ticks on your own messages: one grey = sent, two grey = delivered to their device, two blue = read. Hover a message of yours and choose **Delete** to remove it for both of you.
 4. The Messages tab shows an unread count on every page; a new message while you are elsewhere shows a toast.
 
-### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **planned, not started**
+### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **in progress: Phases 15 and 17 done, 16 and 18–20 not started**
 
-> Status: **planned.** No message broker exists today: there is no RabbitMQ, Redis or Kafka in the code or in `docker-compose.yml`. Everything is a direct call (the API waits for Python for up to 60 s, and password-reset email is sent inline). Nothing in this section is built; the checkboxes are all open. This work builds on the user-to-user chat plan above and starts **after Phase 11** (SignalR must exist first).
+> Status: **in progress.** Done: Phase 15 (RabbitMQ and Redis containers, config, no behaviour change) and Phase 17 (password-reset email through a RabbitMQ queue). Not built: Redis is running but unused until Phase 16; async AI replies (18), direct-chat events (19) and the end-to-end check (20) are still planned and their checkboxes are open. The AI call is still a direct call (the API waits for Python for up to 60 s). This work builds on the user-to-user chat above (built).
 
 **Why both:** Redis holds fast, shared, short-lived state and pub/sub (the SignalR backplane, presence). RabbitMQ holds durable work and events (jobs, retries, dead letters, fan-out).
 
@@ -586,32 +590,36 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 - **Timeouts stay nested:** the consumer's call to Python keeps the existing budget (Python about 50 s worst case, inside .NET's 60 s).
 - **Emails:** `forgot-password` publishes only when the user exists and always returns the same generic message. The queued message holds a raw reset link, so the broker is internal-only with credentials and the message TTL equals the token's 1-hour expiry.
 - **Event fan-out uses a transactional outbox** (`OutboxMessages` table written in the same transaction as the change), so an event is never lost or invented. **Events carry ids and status only, never message text.** Version 1 ships one subscriber (a structured log/metrics consumer) to prove the fan-out.
-- **Library:** MassTransit 8.x, pinned. The first task of Phase 15 is to verify its current licence terms and that its outbox works with MySQL (Pomelo). Fallback: `RabbitMQ.Client` with a small wrapper and a hand-written outbox.
-- **Tests never touch a real broker:** the code depends on `IAiReplyQueue`, `IEmailQueue` and `IDirectEventPublisher` (mocked, like `IPythonAiClient`), and consumers are tested with the library's in-memory harness.
+- **Library (decided in Phase 15): `RabbitMQ.Client` 7.x directly**, with a small wrapper and a hand-written outbox. MassTransit was ruled out: 9.x is commercial and the open 8.x line is frozen (details in the Phase 15 note below).
+- **Tests never touch a real broker:** the code depends on `IAiReplyQueue`, `IEmailQueue` and `IDirectEventPublisher` (mocked, like `IPythonAiClient`), and the consumer's decision logic is a plain class tested without a broker; the RabbitMQ wiring itself is checked against a real broker in the Docker run.
 - **Infra:** `redis` and `rabbitmq` services in `docker-compose.yml` with healthchecks; passwords come from the gitignored `docker.env`. New config keys: `RabbitMq:Host/Username/Password` and `Redis:ConnectionString` (secrets, same layering as `Jwt:Key`). `/health` stays liveness-only (no broker check), for the same reason it has no database check.
 
 **Planned schema additions** (migrations are generated, never applied to the dev database without asking)
 ```sql
 AiReplyJobs (id GUID, session_id, user_message_id, status ENUM('pending','done','failed'), attempts, error NULL, created_at, updated_at)
-OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact shape follows the chosen library's outbox
+OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-written outbox (Phase 19)
 ```
 
 **Order:** 15, then 17 (lowest risk), 16, 18, 19, then 20. Phases 16, 18 and 19 need SignalR (Phase 11).
 
-#### Phase 15 — Broker foundation *(no behaviour change)*
-- [ ] Verify MassTransit's licence terms and MySQL outbox support; pick the library
-- [ ] `redis` and `rabbitmq` in `docker-compose.yml` with healthchecks; passwords in `docker.env` generation and `docker.env.example`
-- [ ] Config keys and registration behind configuration; the app still works with the brokers switched off
-- [ ] README setup steps updated
+#### Phase 15 — Broker foundation *(no behaviour change)* — **done**
+- [x] Verify MassTransit's licence terms and MySQL outbox support; pick the library
+- [x] `redis` and `rabbitmq` in `docker-compose.yml` with healthchecks; passwords in `docker.env` generation and `docker.env.example`
+- [x] Config keys and registration behind configuration; the app still works with the brokers switched off
+- [x] README setup steps updated
+
+> Done. **Library decision: `RabbitMQ.Client` 7.2.2 directly, not MassTransit.** Checked on NuGet on 2026-10-22: MassTransit 9.x is under a commercial licence (Massient, Inc.; the package has no open-source licence expression), and the last open one, 8.5.12 (Apache-2.0), is frozen, with no new features or fixes planned from upstream. Taking a frozen dependency (or a paid one) for a few queues is not worth it, and the MySQL-outbox check became moot. `RabbitMQ.Client` is Apache-2.0/MPL, maintained, and enough for what is planned (publish with confirms, consume, retry queues, dead-letter queues). Phase 19's outbox will therefore be hand-written (a small table plus a dispatcher), as the plan's fallback already said. **What was added:** `redis` (7, password, append-only file) and `rabbitmq` (3.13, its own user and password) in `docker-compose.yml`, each with a healthcheck and a named volume, **no published ports** (only `web` is reachable from outside; RabbitMQ will carry raw password-reset links). `scripts/gen-docker-env.sh` and `docker.env.example` gained `RABBITMQ_PASSWORD` and `REDIS_PASSWORD`; **if you already have a `docker.env`, append those two lines** (any long random value; for example `openssl rand -hex 32`), because the script never overwrites an existing file. New config: `RabbitMq:Host/Port/Username/Password/VirtualHost` (blank `Host` = no broker, the app runs with only MySQL) and `Redis:ConnectionString` (passed to the API but read first in Phase 16). A host with no credentials makes the API refuse to start with a message naming the missing setting. `/health` stays liveness-only. `appsettings.Production.json` now logs the `Messaging` namespace at `Information` so the worker's start-up line is visible. Verified on the Docker stack: 13/13 checks (healthy, not reachable from outside, Redis and RabbitMQ reject missing or wrong passwords and RabbitMQ has no `guest` login, topology durable, existing register/login/401 behaviour unchanged); see `TESTING.md` section 13. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
 #### Phase 16 — Redis: SignalR backplane and presence
 - [ ] SignalR Redis backplane; `RedisPresenceTracker` (per-user connection set with a TTL and heartbeat); in-memory fallback when Redis is not configured
 - [ ] Tests; two API replicas in Docker prove a push crosses instances
 
-#### Phase 17 — RabbitMQ: async emails
-- [ ] `IEmailQueue`, `email.send` queue, consumer calling `IEmailSender`, retries, dead-letter queue, message TTL
-- [ ] `ForgotPassword` publishes only for existing users; same generic response either way
-- [ ] Tests: generic response, retries, dead-lettering
+#### Phase 17 — RabbitMQ: async emails — **done**
+- [x] `IEmailQueue`, `email.send` queue, consumer calling `IEmailSender`, retries, dead-letter queue, message TTL
+- [x] `ForgotPassword` publishes only for existing users; same generic response either way
+- [x] Tests: generic response, retries, dead-lettering
+
+> Done. **Flow:** `AuthController.ForgotPassword` calls `IEmailQueue.EnqueuePasswordResetAsync` (only for an existing user, after the reset token is saved) and always answers the same generic `200`. With `RabbitMq:Host` set, `RabbitMqEmailQueue` publishes a persistent message to the `email` exchange (confirmed by the broker) and `EmailSendWorker` (a hosted service in the API) consumes `email.send` (prefetch 4) and calls `IEmailSender`. Without a host, `InlineEmailQueue` sends right there, exactly as before. **Retries:** a failed send is republished to `email.retry.<delay>s` (a queue that holds it for the delay and then dead-letters it back to `email.send`); the delays come from `Email:RetryDelaysSeconds` (default `[10, 60]`, so three attempts in all). After the last failure the message goes to `email.dead` with `x-attempt` and `x-error` headers and is kept for 7 days. Retry queues are named after their delay so changing the setting never clashes with an existing queue (RabbitMQ refuses to re-declare a queue with different arguments). **TTL:** a message older than `Email:MessageTtlMinutes` (60, the reset link's lifetime) is dropped, not sent: RabbitMQ expires it at the head of the queue, and the worker also checks an absolute `x-expires-at` header because a message that went through a retry queue loses its per-message expiry. **Provider switch:** new `Email:Provider` = `smtp` (default) or `console` (logs the link; dev and tests), replacing "swap the DI line". **If the broker is unreachable at request time** the request still answers the same generic `200` (a `503` would reveal which emails have accounts), the failure is logged by user id, and that one email is not sent (there is no inline fallback); the rest of the app is unaffected, and the worker and the publisher reconnect by themselves when the broker returns. **Guarantees and limits:** at-least-once (a crash between sending and acknowledging can send one email twice); the broker holds the raw reset link, so it must stay internal-only; with the broker down, a request for a registered email takes about as long as the connection attempt (a few hundred ms in Docker, up to 5 s on a black-holed network) against ~50 ms for an unknown email, a small timing difference that inline SMTP had before (and worse); changing `Email:MessageTtlMinutes` or the dead-letter retention needs no queue change. A real bug was found and fixed by the tests: the shared connection was replaced by a publish that arrived during a broker outage, which disposed the connection the worker's consumer was attached to, so the worker never came back; the connection object is now kept and left to recover by itself. **Tests:** 19 new .NET tests (`EmailQueueTests.cs`: retry/dead-letter/expiry decisions, options and DI wiring, topology names) and the controller tests now use `IEmailQueue` (141 .NET); 28 checks against a real RabbitMQ on the Docker stack all passed, covering the generic answer, delivery and password reset through the queue, retries and the dead-letter queue (and its message), a broker stopped and started, a broker restart and an API restart while a message waits, expiry, 40 requests at once (all delivered exactly once), no broker configured, and fail-fast configuration; see `TESTING.md` section 13. The plan's "library in-memory harness" is replaced by that real-broker run because MassTransit was not chosen. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
 #### Phase 18 — RabbitMQ: async AI replies
 - [ ] `AiReplyJobs` migration, flag `Chat:AsyncReplies`, `202` contract, consumer, idempotency, retries, dead-letter queue, SignalR `AssistantReplied` / `AssistantFailed`
@@ -629,7 +637,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- exact sh
 
 ### Post-plan — Test plan (Phases T1–T5)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 302 automated tests (122 .NET, 12 Python, 168 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 321 automated tests (141 .NET, 12 Python, 168 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -760,7 +768,7 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Angular UI | 5–6 | Week 2 |
 | Admin + polish | 7–8 | Week 3 |
 | User-to-user chat (done) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
-| Message brokers: Redis + RabbitMQ (planned) | 15–20 | after the chat phases (needs Phase 11 SignalR) |
+| Message brokers: Redis + RabbitMQ (15 and 17 done; 16, 18–20 planned) | 15–20 | 15 and 17 done early at the user's request; the rest after the chat phases |
 | Test plan and gap tests (T1 done, T2–T5 planned) | T1–T5 | T2 first; T3–T5 last (see the Roadmap) |
 | Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |
 
