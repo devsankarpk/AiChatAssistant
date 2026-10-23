@@ -151,6 +151,20 @@ describe('DirectHubService', () => {
     expect(presence).toEqual([{ userId: 2, online: false, lastSeenAt: '2026-10-21T10:00:00Z' }]);
   });
 
+  it('forwards the async-reply events (AssistantReplied, AssistantFailed) to their streams', async () => {
+    const replied: unknown[] = [];
+    const failed: unknown[] = [];
+    service.assistantReplied$.subscribe((e) => replied.push(e));
+    service.assistantFailed$.subscribe((e) => failed.push(e));
+    await service.start();
+
+    hub.emit('AssistantReplied', { jobId: 'j1', sessionId: 's1', userMessageId: 3, assistantMessage: { id: 4 } });
+    hub.emit('AssistantFailed', { jobId: 'j2', sessionId: 's1', userMessageId: 5, error: { code: 'x', message: 'y' } });
+
+    expect(replied).toEqual([{ jobId: 'j1', sessionId: 's1', userMessageId: 3, assistantMessage: { id: 4 } }]);
+    expect(failed).toEqual([{ jobId: 'j2', sessionId: 's1', userMessageId: 5, error: { code: 'x', message: 'y' } }]);
+  });
+
   it('tells the server we are typing by invoking Typing with the conversation id', async () => {
     await service.start();
 

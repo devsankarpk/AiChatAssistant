@@ -38,6 +38,8 @@ builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordReques
 // RabbitMq:Host set the email is queued and a background worker sends, retries and dead-letters it;
 // without it, it is sent inline as before. See Messaging/MessagingExtensions.cs.
 builder.Services.AddEmailDelivery(builder.Configuration);
+// Async AI replies (Chat:AsyncReplies) and direct-chat event fan-out through the outbox (Phases 18 and 19). Both need RabbitMQ.
+builder.Services.AddBrokerFeatures(builder.Configuration);
 
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();

@@ -3,6 +3,7 @@ import { DestroyRef, Injectable, InjectionToken, inject, signal } from '@angular
 import { Subject } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { AssistantFailedEvent, AssistantRepliedEvent } from '../models/chat.models';
 import {
   DirectMessageResponse,
   MessageDeletedEvent,
@@ -72,6 +73,9 @@ export class DirectHubService {
   readonly messageDeleted$ = new Subject<MessageDeletedEvent>();
   readonly peerTyping$ = new Subject<PeerTypingEvent>();
   readonly peerPresence$ = new Subject<PeerPresenceEvent>();
+  /** Async AI replies (Phase 18) arrive on the same connection. */
+  readonly assistantReplied$ = new Subject<AssistantRepliedEvent>();
+  readonly assistantFailed$ = new Subject<AssistantFailedEvent>();
   /** Emits after the browser reconnected: events may have been missed, so listeners should refetch. */
   readonly reconnected$ = new Subject<void>();
 
@@ -122,6 +126,8 @@ export class DirectHubService {
       hub.on('MessageDeleted', (event: MessageDeletedEvent) => this.messageDeleted$.next(event));
       hub.on('PeerTyping', (event: PeerTypingEvent) => this.peerTyping$.next(event));
       hub.on('PeerPresenceChanged', (event: PeerPresenceEvent) => this.peerPresence$.next(event));
+      hub.on('AssistantReplied', (event: AssistantRepliedEvent) => this.assistantReplied$.next(event));
+      hub.on('AssistantFailed', (event: AssistantFailedEvent) => this.assistantFailed$.next(event));
       hub.onreconnected(() => {
         this.connected.set(true);
         this.reconnected$.next();

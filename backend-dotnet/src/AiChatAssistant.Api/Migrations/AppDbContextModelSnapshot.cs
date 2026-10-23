@@ -22,6 +22,66 @@ namespace AiChatAssistant.Api.Migrations
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
+            modelBuilder.Entity("AiChatAssistant.Api.Models.AiReplyJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<int?>("AssistantMessageId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ClaimToken")
+                        .IsConcurrencyToken()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("enum('pending','processing','done','failed')");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UserMessageId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssistantMessageId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserMessageId")
+                        .IsUnique();
+
+                    b.HasIndex("SessionId", "Status");
+
+                    b.ToTable("AiReplyJobs", (string)null);
+                });
+
             modelBuilder.Entity("AiChatAssistant.Api.Models.ChatSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -145,6 +205,48 @@ namespace AiChatAssistant.Api.Migrations
                     b.HasIndex("SessionId");
 
                     b.ToTable("Messages", (string)null);
+                });
+
+            modelBuilder.Entity("AiChatAssistant.Api.Models.OutboxMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ClaimToken")
+                        .IsConcurrencyToken()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<DateTime?>("DispatchedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DispatchedAt", "Id");
+
+                    b.ToTable("OutboxMessages", (string)null);
                 });
 
             modelBuilder.Entity("AiChatAssistant.Api.Models.PasswordResetToken", b =>
@@ -307,6 +409,40 @@ namespace AiChatAssistant.Api.Migrations
                     b.HasIndex("RoleId");
 
                     b.ToTable("UserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("AiChatAssistant.Api.Models.AiReplyJob", b =>
+                {
+                    b.HasOne("AiChatAssistant.Api.Models.Message", "AssistantMessage")
+                        .WithMany()
+                        .HasForeignKey("AssistantMessageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("AiChatAssistant.Api.Models.ChatSession", "Session")
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AiChatAssistant.Api.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AiChatAssistant.Api.Models.Message", "UserMessage")
+                        .WithMany()
+                        .HasForeignKey("UserMessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AssistantMessage");
+
+                    b.Navigation("Session");
+
+                    b.Navigation("User");
+
+                    b.Navigation("UserMessage");
                 });
 
             modelBuilder.Entity("AiChatAssistant.Api.Models.ChatSession", b =>
