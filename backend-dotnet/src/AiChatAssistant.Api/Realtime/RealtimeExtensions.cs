@@ -23,14 +23,7 @@ public static class RealtimeExtensions
             return services;
         }
 
-        var redis = ConfigurationOptions.Parse(redisConnection);
-        // Start even when Redis is not up yet and keep trying: a Redis outage must not stop the API booting.
-        redis.AbortOnConnectFail = false;
-        redis.ClientName = "aichat-api";
-        // A down Redis must slow a request by seconds at most, not the library's default of 5 s per call.
-        redis.AsyncTimeout = 2000;
-        redis.SyncTimeout = 2000;
-        redis.ConnectTimeout = 3000;
+        var redis = BuildRedisOptions(redisConnection);
 
         signalR.AddStackExchangeRedis(options =>
         {
@@ -45,5 +38,24 @@ public static class RealtimeExtensions
         services.AddSingleton<IPresenceTracker, RedisPresenceTracker>();
         services.AddHostedService<PresenceHeartbeatService>();
         return services;
+    }
+
+    /// <summary>
+    /// How this app connects to Redis. Separate and public so a test can check the settings that matter in an outage:
+    /// short command timeouts (a down Redis slows a request by seconds, not the library's 5 s), start-up that tolerates
+    /// Redis not being there yet, and a keep-alive ping every few seconds. Without the keep-alive, a connection whose far
+    /// end silently stopped answering (a paused or partitioned Redis) is only noticed after the library's default of about
+    /// a minute, so SignalR pushes stayed dead for that long after Redis came back (seen in the black-hole test).
+    /// </summary>
+    public static ConfigurationOptions BuildRedisOptions(string connectionString)
+    {
+        var redis = ConfigurationOptions.Parse(connectionString);
+        redis.AbortOnConnectFail = false;
+        redis.ClientName = "aichat-api";
+        redis.AsyncTimeout = 2000;
+        redis.SyncTimeout = 2000;
+        redis.ConnectTimeout = 3000;
+        redis.KeepAlive = 4;
+        return redis;
     }
 }

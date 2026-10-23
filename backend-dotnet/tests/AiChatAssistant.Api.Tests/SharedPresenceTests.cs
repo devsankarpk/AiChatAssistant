@@ -230,6 +230,33 @@ public class InMemoryPresenceTrackerAsyncTests
     }
 }
 
+public class RedisConnectionOptionsTests
+{
+    [Fact]
+    public void TheConnectionSettings_BoundAnOutage_ShortTimeouts_ToleratedStartUp_AndAKeepAlivePing()
+    {
+        var options = RealtimeExtensions.BuildRedisOptions("redis:6379,password=secret");
+
+        Assert.Equal(2000, options.AsyncTimeout);
+        Assert.Equal(2000, options.SyncTimeout);
+        Assert.Equal(3000, options.ConnectTimeout);
+        Assert.False(options.AbortOnConnectFail); // the API starts even when Redis is not up yet
+        // A connection whose far end silently stopped answering is noticed after about this many seconds. The library's own
+        // default is far longer, which left SignalR pushes dead for a minute after a paused Redis came back.
+        Assert.InRange(options.KeepAlive, 1, 10);
+        Assert.Equal("aichat-api", options.ClientName);
+    }
+
+    [Fact]
+    public void TheHostAndPasswordFromTheConnectionString_AreKept()
+    {
+        var options = RealtimeExtensions.BuildRedisOptions("redis:6379,password=secret");
+
+        Assert.Equal("secret", options.Password);
+        Assert.Contains(options.EndPoints, e => e.ToString()!.Contains("redis:6379"));
+    }
+}
+
 public class RealtimeWiringTests
 {
     private static ServiceProvider Build(params (string Key, string? Value)[] values)
