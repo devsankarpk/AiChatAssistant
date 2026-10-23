@@ -117,10 +117,11 @@ Open **http://localhost:8080**. Stop with `docker compose --env-file docker.env 
 | `ai-service` | The Python/FastAPI LLM service. Not published to the host. |
 | `api` | The .NET API. Not published to the host; it has a liveness-only `/health`. It also runs the email worker. |
 | `rabbitmq` | RabbitMQ 3.13. Carries the password-reset email queue. Own user and password; not published to the host. |
-| `redis` | Redis 7 with a password. Running but not used yet (Phase 16). Not published to the host. |
+| `redis` | Redis 7 with a password. SignalR backplane and shared presence (Phase 16). Not published to the host. |
 | `web` | nginx serving the Angular build and proxying `/api` to `api`, so the browser is same-origin and needs no CORS. Published on port 8080. |
 
 Notes:
+- To run two API replicas: `docker compose --env-file docker.env up -d --scale api=2`, then `docker compose --env-file docker.env restart web` (nginx looks the replicas up when it starts). Redis must be reachable, or pushes and presence will not cross replicas.
 - Password-reset emails are queued in RabbitMQ and sent by a worker inside the `api`. Without SMTP credentials every send fails, is retried (after 10 s and 60 s) and ends in the `email.dead` queue; to see the link instead, run the `api` with `Email__Provider=console` and read its log. Inspect queues with `docker compose --env-file docker.env exec rabbitmq rabbitmqctl list_queues name messages`. Running the API outside Docker needs no broker: leave `RabbitMq:Host` blank and the email is sent inline.
 - All settings come from the one gitignored `docker.env` (template: `docker.env.example`). `INTERNAL_API_KEY` is generated once and shared by the API and the Python service.
 - The containers run as non-root users. nginx's `proxy_read_timeout` (75 s) must stay above the API's 60 s Python timeout.
@@ -424,7 +425,7 @@ interaction with routing/effects, not in `ChatService` or the backend:
 
 ### Roadmap — execution order for the planned work
 
-Phases 1–8, test phase T1 and Phases 9–15 and 17 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
+Phases 1–8, test phase T1 and Phases 9–17 are **done**. Everything below is **planned**, and is built **one phase at a time in this order**, with a review checkpoint after each. **Phase numbers are stable IDs, not the order**: they were assigned as each plan was written, so the sequence below differs from the numbers. The detailed checklist for each phase is in its own section further down.
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
@@ -445,13 +446,14 @@ Phases 1–8, test phase T1 and Phases 9–15 and 17 are **done**. Everything be
 | 15 | **14** | End-to-end check of the chat feature | 13 | **Done** (early, at the user's request) |
 | 16 | **15** | Redis and RabbitMQ foundation | 11 | **Done** (early, at the user's request) |
 | 17 | **17** | Async emails (RabbitMQ) | 15 | **Done** (early, at the user's request) |
-| 18 | **16** | Redis: SignalR backplane and presence | 11, 15 | Planned |
+| 18 | **16** | Redis: SignalR backplane and presence | 11, 15 | **Done** (early, at the user's request) |
 | 19 | **18** | Async AI replies (revisit after streaming, Phase 25) | 11, 15 | Planned |
 | 20 | **19** | Direct-chat event fan-out | 11, 15 | Planned |
 | 21 | **20** | End-to-end check of the brokers | 16–19 | Planned |
 | 22 | **T3** | Python gap tests | — | Planned |
 | 23 | **T4** | Angular gap specs | — | Planned |
 | 24 | **T5** | Test close-out | T3, T4 | Planned |
+| 25 | **T6** | Test follow-ups from the broker and realtime phases (committed browser suites, partition test, 3 replicas, migration check) | — | Planned (can be done any time) |
 
 **Carry-overs created by this order** (work in an earlier phase that a later phase must honour; each is also a checklist item in the later phase):
 - **Phase 23 before 11:** the SignalR hub (Phase 11) must authenticate with the *refreshed* access token (`accessTokenFactory`), not a stale one.
@@ -506,7 +508,7 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 
 **Limits to know about**
 - **Direct messages are private.** Admins get no special access; an admin asking for someone else's conversation gets `404` like anyone else.
-- **Presence is kept in memory**, so the API must stay at **one replica** (it already is, because the migration initContainer needs that). Scaling out needs a shared presence store, which Phase 16 (Redis) adds.
+- **Presence** is shared through Redis since Phase 16, so the API can run as several replicas. Without `Redis:ConnectionString` it is kept in memory and the API must stay at one replica.
 - Online status and last seen are visible to people you share a conversation with, and cannot be hidden in v1.
 
 #### Phase 9 — Top navigation and appointments placeholder *(frontend only, no database)* — **done**
@@ -567,9 +569,9 @@ A message's tick state is derived: `read_at` set = read, else `delivered_at` set
 3. Ticks on your own messages: one grey = sent, two grey = delivered to their device, two blue = read. Hover a message of yours and choose **Delete** to remove it for both of you.
 4. The Messages tab shows an unread count on every page; a new message while you are elsewhere shows a toast.
 
-### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **in progress: Phases 15 and 17 done, 16 and 18–20 not started**
+### Post-plan — Message brokers: Redis + RabbitMQ (Phases 15–20) — **in progress: Phases 15, 16 and 17 done, 18–20 not started**
 
-> Status: **in progress.** Done: Phase 15 (RabbitMQ and Redis containers, config, no behaviour change) and Phase 17 (password-reset email through a RabbitMQ queue). Not built: Redis is running but unused until Phase 16; async AI replies (18), direct-chat events (19) and the end-to-end check (20) are still planned and their checkboxes are open. The AI call is still a direct call (the API waits for Python for up to 60 s). This work builds on the user-to-user chat above (built).
+> Status: **in progress.** Done: Phase 15 (RabbitMQ and Redis containers, config, no behaviour change), Phase 16 (Redis: SignalR backplane and shared presence) and Phase 17 (password-reset email through a RabbitMQ queue). Not built: async AI replies (18), direct-chat events (19) and the end-to-end check (20); their checkboxes are open. The AI call is still a direct call (the API waits for Python for up to 60 s). This work builds on the user-to-user chat above (built).
 
 **Why both:** Redis holds fast, shared, short-lived state and pub/sub (the SignalR backplane, presence). RabbitMQ holds durable work and events (jobs, retries, dead letters, fan-out).
 
@@ -610,9 +612,11 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 > Done. **Library decision: `RabbitMQ.Client` 7.2.2 directly, not MassTransit.** Checked on NuGet on 2026-10-22: MassTransit 9.x is under a commercial licence (Massient, Inc.; the package has no open-source licence expression), and the last open one, 8.5.12 (Apache-2.0), is frozen, with no new features or fixes planned from upstream. Taking a frozen dependency (or a paid one) for a few queues is not worth it, and the MySQL-outbox check became moot. `RabbitMQ.Client` is Apache-2.0/MPL, maintained, and enough for what is planned (publish with confirms, consume, retry queues, dead-letter queues). Phase 19's outbox will therefore be hand-written (a small table plus a dispatcher), as the plan's fallback already said. **What was added:** `redis` (7, password, append-only file) and `rabbitmq` (3.13, its own user and password) in `docker-compose.yml`, each with a healthcheck and a named volume, **no published ports** (only `web` is reachable from outside; RabbitMQ will carry raw password-reset links). `scripts/gen-docker-env.sh` and `docker.env.example` gained `RABBITMQ_PASSWORD` and `REDIS_PASSWORD`; **if you already have a `docker.env`, append those two lines** (any long random value; for example `openssl rand -hex 32`), because the script never overwrites an existing file. New config: `RabbitMq:Host/Port/Username/Password/VirtualHost` (blank `Host` = no broker, the app runs with only MySQL) and `Redis:ConnectionString` (passed to the API but read first in Phase 16). A host with no credentials makes the API refuse to start with a message naming the missing setting. `/health` stays liveness-only. `appsettings.Production.json` now logs the `Messaging` namespace at `Information` so the worker's start-up line is visible. Verified on the Docker stack: 13/13 checks (healthy, not reachable from outside, Redis and RabbitMQ reject missing or wrong passwords and RabbitMQ has no `guest` login, topology durable, existing register/login/401 behaviour unchanged); see `TESTING.md` section 13. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
-#### Phase 16 — Redis: SignalR backplane and presence
-- [ ] SignalR Redis backplane; `RedisPresenceTracker` (per-user connection set with a TTL and heartbeat); in-memory fallback when Redis is not configured
-- [ ] Tests; two API replicas in Docker prove a push crosses instances
+#### Phase 16 — Redis: SignalR backplane and presence — **done**
+- [x] SignalR Redis backplane; `RedisPresenceTracker` (per-user connection set with a TTL and heartbeat); in-memory fallback when Redis is not configured
+- [x] Tests; two API replicas in Docker prove a push crosses instances
+
+> Done. **What it does:** with `Redis:ConnectionString` set, SignalR uses the Redis backplane (a push from one API replica reaches users connected to another; channels are prefixed `aichat`) and presence lives in Redis, so the API can run as several replicas (`docker compose --env-file docker.env up -d --scale api=2`, then `docker compose --env-file docker.env restart web` so nginx re-resolves the replicas). Without it (local development with no Docker) everything stays in memory exactly as before. **Presence design:** one sorted set per user, `presence:user:{id}`, members are connection ids, scores are the moment each connection's mark lapses. Come-online and go-offline decisions run as Lua scripts, so two replicas handling a user's first two tabs at the same instant announce "online" exactly once. Each replica refreshes the marks of its own connections every `Presence:HeartbeatSeconds` (15) and a mark lapses after `Presence:TtlSeconds` (45), so a replica that dies drops its users offline within that time. The tracker also keeps this process's own connections in memory: it is what the heartbeat refreshes, and what answers when Redis is unreachable (presence then reflects only this server; connections made during the outage are re-created in Redis by the next heartbeat). `IPresenceTracker` became async (`IsOnlineAsync`, `OnlineAmongAsync`, `UserConnectedAsync`, `UserDisconnectedAsync`, `RefreshAsync`); the conversation list asks for all peers in one round trip. **Frontend:** the SignalR client now connects with WebSockets only and `skipNegotiation: true`, because behind a round-robin proxy the negotiate request and the socket can land on different replicas (14 of 30 connections worked with negotiation, 30 of 30 without). **Failure behaviour:** Redis down means live pushes stop for everyone (the backplane carries them) while REST, saving and `/health` keep working; a request that touches Redis is slowed by at most the 2 s timeout; pushes resume by themselves when Redis returns. A crashed replica sends no "went offline" event and saves no last-seen time. **Tests:** 20 new .NET tests (161 .NET, 341 overall) and, against a real Redis and two replicas, 32 API/SignalR checks, 4 negative-control checks, 2 proxy checks, 16 browser checks and an 8-check regression, all passing; see `TESTING.md` section 14. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
 #### Phase 17 — RabbitMQ: async emails — **done**
 - [x] `IEmailQueue`, `email.send` queue, consumer calling `IEmailSender`, retries, dead-letter queue, message TTL
@@ -635,9 +639,9 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 - [ ] This section and `CLAUDE.md` changed from *planned* to *done*
 - [ ] Docker test data deleted and the stack stopped; the dev database stays untouched unless asked
 
-### Post-plan — Test plan (Phases T1–T5)
+### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 321 automated tests (141 .NET, 12 Python, 168 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 341 automated tests (161 .NET, 12 Python, 168 Angular), all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -666,6 +670,14 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 - [ ] `TESTING.md` statuses changed from *Planned* to real test names; before/after counts recorded
 - [ ] Mutation spot-check: break one rule (for example the 100 page-size cap, or the `401` body), confirm the matching test fails, revert
 - [ ] Full run of all three suites
+
+#### Phase T6 — Test follow-ups from Phases 15–17 *(open, to be done later)*
+Gaps recorded in `TESTING.md` sections 13.6 and 14.8 that were not closed when Phases 15 to 17 were built. Not blocking anything; pick them up whenever convenient.
+- [ ] **Commit the browser suites to the repo** (largest item): rebuild the long two-browser scripts for Phases 12, 13 and 14 (ticks/badge/toast, typing/presence/delete, the 17-step walkthrough) plus the Phase 16 two-replica and Phase 15/17 broker checks, under `e2e/` with its own `package.json`, a README and one `run.sh` that starts the stack, empties the database before each run, runs the suites and stops the stack. They were lost twice because they lived in a scratch folder. Update `TESTING.md` section 1 ("no committed browser suite").
+- [ ] **Network-partition test for Redis**: cut the API off from a running Redis with `docker network disconnect` (packets dropped, not refused), then reconnect. Check that a send still answers within the 2 s Redis timeouts, requests do not pile up, and pushes resume. If it fails, tighten timeouts or add a circuit breaker around the presence calls.
+- [ ] **Three or more replicas**: rerun the two-replica scripts with `--scale api=3` and add a check that a push reaches users on all three.
+- [ ] **Migration drift check without the host MySQL**: run `dotnet ef migrations has-pending-model-changes` against a throwaway MySQL container, as a script that does not depend on a local database.
+- [ ] *(Only if Redis Sentinel or Cluster will be used)* support them: Sentinel-aware connection settings, failover tests. Until then the documented setup is a single Redis node.
 
 New feature phases (9–20) add their own rows to `TESTING.md` section 7 as they are built.
 
@@ -768,8 +780,8 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Angular UI | 5–6 | Week 2 |
 | Admin + polish | 7–8 | Week 3 |
 | User-to-user chat (done) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
-| Message brokers: Redis + RabbitMQ (15 and 17 done; 16, 18–20 planned) | 15–20 | 15 and 17 done early at the user's request; the rest after the chat phases |
-| Test plan and gap tests (T1 done, T2–T5 planned) | T1–T5 | T2 first; T3–T5 last (see the Roadmap) |
+| Message brokers: Redis + RabbitMQ (15, 16 and 17 done; 18–20 planned) | 15–20 | 15 to 17 done early at the user's request; the rest after the chat phases |
+| Test plan and gap tests (T1 done, T2–T6 planned) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
 | Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |
 
 ---

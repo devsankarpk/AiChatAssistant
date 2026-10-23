@@ -90,6 +90,7 @@ public class DirectChatController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
+        var online = await _presence.OnlineAmongAsync(rows.Select(r => r.PeerId).ToList(), cancellationToken);
         var conversations = rows
             .OrderByDescending(r => r.Last != null ? r.Last.CreatedAt : r.CreatedAt)
             .ThenByDescending(r => r.CreatedAt)
@@ -101,7 +102,7 @@ public class DirectChatController : ControllerBase
                     ? null
                     : ToMessageResponse(r.Id, r.Last.Id, r.Last.SenderId, r.Last.Content, r.Last.CreatedAt, r.Last.DeliveredAt, r.Last.ReadAt, r.Last.DeletedAt),
                 UnreadCount = r.Unread,
-                PeerOnline = _presence.IsOnline(r.PeerId),
+                PeerOnline = online.Contains(r.PeerId),
                 PeerLastSeenAt = r.PeerLastSeenAt,
             })
             .ToList();
@@ -180,7 +181,7 @@ public class DirectChatController : ControllerBase
             Peer = new PeerResponse { Id = peer.Id, Name = peer.Name },
             LastMessage = last is null ? null : ToMessageResponse(last),
             UnreadCount = unread,
-            PeerOnline = _presence.IsOnline(peer.Id),
+            PeerOnline = await _presence.IsOnlineAsync(peer.Id, cancellationToken),
             PeerLastSeenAt = peer.LastSeenAt,
         };
 
@@ -247,7 +248,7 @@ public class DirectChatController : ControllerBase
 
         // One grey tick (sent) is the message being saved. Two grey ticks (delivered) is the recipient
         // having a live connection right now; if they connect later, the hub marks it delivered then.
-        if (_presence.IsOnline(recipientId))
+        if (await _presence.IsOnlineAsync(recipientId, cancellationToken))
         {
             message.DeliveredAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(cancellationToken);

@@ -44,7 +44,8 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # Not used by any feature yet: Phase 16 adds the SignalR backplane and presence on it.
+  # SignalR backplane and shared presence (Phase 16): lets the api run as several replicas,
+  # `docker compose --env-file docker.env up -d --scale api=2`.
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set in docker.env}", "--appendonly", "yes"]

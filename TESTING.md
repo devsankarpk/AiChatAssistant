@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 321 automated tests (141 .NET, 12 Python, 168 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 13** (Phases 15 and 17, latest), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 341 automated tests (161 .NET, 12 Python, 168 Angular), all passing. There is no committed browser E2E suite and no CI; end-to-end checks are a manual checklist (section 8). The most recent runs, with results and findings, are in **section 14** (Phase 16, latest), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (141 tests)
+# .NET (161 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -315,6 +315,38 @@ Test cases, with the automated test (or manual check) that covers each. "Hub" = 
 | QUE-E01 to QUE-E28 | Async email against a real RabbitMQ: generic answer, delivery and password reset, retries, dead letter, broker outage and recovery, broker and API restart, expiry, 40 at once, no broker, fail-fast | All pass | Manual | Manual: `P17-01` to `P17-28` (section 13.3) |
 | REG-01 to REG-09 | Browser regression with the brokers running: register, AI reply, forgot-password page, wrong password, direct messages with live delivery and blue ticks, no JavaScript errors | All pass | Manual | Manual: `R-01` to `R-09` (section 13.4) |
 
+### 5.15 REDIS: SignalR backplane and shared presence (Phase 16)
+
+"Store" = `IPresenceStore` (the Redis operations behind an interface). The tracker's decisions and its fallback when Redis is down are tested with a fake store; the real Lua scripts, the real backplane and a real second replica are verified against a **real Redis and two real replicas** in the Docker run (section 14). No unit test connects to Redis.
+
+| ID | Test case (scenario) | Expected result | Layer | Status |
+|---|---|---|---|---|
+| PRS-R01 | First connection reported by the shared store | `UserConnectedAsync` returns what the store says (false when the user already has a tab on another replica, true when first anywhere) | .NET | `RedisPresenceTrackerTests.UserConnected_ReportsWhatTheSharedStoreSays_NotJustThisServer` |
+| PRS-R02 | What is passed to the store | Same user, connection, the clock's time and the configured lifetime | .NET | `UserConnected_PassesTheUserConnectionTimeAndTtlToTheStore` |
+| PRS-R03 | Last connection reported by the shared store | `UserDisconnectedAsync` returns what the store says (false while another replica still holds a tab) | .NET | `UserDisconnected_ReportsWhatTheSharedStoreSays` |
+| PRS-R04 | Online checks | Single and many-at-once checks are answered by the store | .NET | `OnlineChecks_AskTheSharedStore` |
+| PRS-R05 | Redis down: connect and disconnect | Never throws; falls back to this server's own view (first tab here = came online, last tab here = went offline) | .NET | `WhenRedisIsDown_ConnectAndDisconnectFallBackToThisServersOwnView_AndNeverThrow` |
+| PRS-R06 | Redis down: online checks | Never throws; answers from this server's own connections | .NET | `WhenRedisIsDown_OnlineChecksUseThisServersOwnView_AndNeverThrow` |
+| PRS-R07 | Heartbeat | Sends exactly the connections this server holds (not ones already closed) with the configured lifetime | .NET | `Refresh_SendsEveryConnectionThisServerHolds_WithTheConfiguredTtl` |
+| PRS-R08 | Heartbeat with nothing to refresh | No call to the store | .NET | `Refresh_DoesNothing_WhenThisServerHoldsNoConnections` |
+| PRS-R09 | Heartbeat when Redis is down | Swallowed, so the timer loop keeps running | .NET | `Refresh_SwallowsAStoreFailure_SoTheHeartbeatLoopKeepsRunning` |
+| PRS-R10 | Connections made during an outage | Re-created in Redis by the next heartbeat after Redis returns | .NET | `ConnectionsMadeDuringARedisOutage_AreRecreatedInRedisByTheNextRefresh` |
+| PRS-R11 | Redis key naming | One key per user, `presence:user:{id}` | .NET | `RedisKeys_AreNamedPerUser` |
+| PRS-R12 | Timing defaults | The heartbeat is at most a third of the lifetime, so a slow beat never makes a live user look offline | .NET | `PresenceTimingDefaults_KeepTheHeartbeatWellInsideTheTtl` |
+| PRS-M01 | In-memory tracker, async API | Behaves exactly like the synchronous one (first/last connection, online) | .NET | `InMemoryPresenceTrackerAsyncTests.AsyncMethods_BehaveLikeTheSyncOnes` |
+| PRS-M02 | In-memory "online among" | Returns only the online users; empty input gives empty output | .NET | `OnlineAmong_ReturnsOnlyTheOnlineUsers` |
+| PRS-M03 | In-memory snapshot | Lists every live (user, connection) pair | .NET | `Snapshot_ListsEveryConnection` |
+| PRS-M04 | In-memory heartbeat | No-op | .NET | `Refresh_IsANoOp` |
+| PRS-W01 | No Redis configured | In-memory presence, no heartbeat service, default SignalR | .NET | `RealtimeWiringTests.WithoutRedis_PresenceIsInMemory_AndThereIsNoHeartbeat` |
+| PRS-W02 | Redis configured | Shared presence store and tracker, heartbeat registered, nothing connects at start-up | .NET | `WithRedis_PresenceIsShared_AndTheHeartbeatIsRegistered_WithoutConnectingYet` |
+| PRS-W03 | SignalR backplane | `RedisHubLifetimeManager` when Redis is set, `DefaultHubLifetimeManager` when not | .NET | `WithRedis_SignalRUsesTheRedisBackplane_AndWithoutRedisItDoesNot` |
+| PRS-W04 | Malformed Redis connection string | Fails at start-up, not on the first message | .NET | `ABadRedisConnectionString_FailsAtStartup_NotOnTheFirstMessage` |
+| PRS-X01 to PRS-X32 | Two real replicas with a real Redis: pushes cross replicas, shared presence, atomic first/last connection, heartbeat, replica kill, Redis stop/start/flush | All pass | Manual | Manual: `P16-01` to `P16-32` (section 14.2) |
+| PRS-N01 to PRS-N04 | Negative control: Redis off, two replicas must NOT see each other | All behave as expected (broken across replicas, working on one) | Manual | Manual: `N-01` to `N-04` (section 14.3) |
+| PRS-T01, PRS-T02 | The proxy with two replicas: negotiation fails sometimes, skipping it never | 14/30 against 30/30 | Manual | Manual: `X-01`, `X-02` (section 14.4) |
+| PRS-B01 to PRS-B16 | Real browsers through nginx with `--scale api=2`: ticks, badge, typing, online, delete, reload, last seen, replica killed | All pass | Manual | Manual: `P16-B01` to `P16-B16` (section 14.5) |
+| REG-R01 to REG-R08 | Browser regression on the standard stack (one api, Redis and RabbitMQ on) | All pass | Manual | Manual: `R-01` to `R-08` (section 14.6) |
+
 ## 6. Coverage gaps and the phases that close them
 
 | Phase | Gap | New tests |
@@ -330,7 +362,7 @@ These rows are filled in (and their test names recorded) when the feature phase 
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
-| BRK-01 | Presence and push across two API replicas | Event reaches a user connected to the other replica | Manual | Planned (Phase 16) |
+| BRK-01 | Presence and push across two API replicas | Event reaches a user connected to the other replica | Manual | Built in Phase 16, see 5.15 (`PRS-*`) and section 14 |
 | BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Built in Phase 17, see 5.14 (`QUE-*`) |
 | BRK-03 | Async AI reply (`Chat:AsyncReplies` on) | `202` then `AssistantReplied`; a redelivered job is a no-op; failure then retry then `AssistantFailed`; broker down gives `503` with the user message kept | .NET + Angular | Planned (Phase 18) |
 | BRK-04 | Direct-chat events | Written in the same transaction as the change; payload never contains message text | .NET | Planned (Phase 19) |
@@ -715,7 +747,7 @@ The API was stopped for 130 s with both people connected (more than SignalR's re
 
 - **A real phone or a real network drop** (airplane mode): the lost-network case is covered by the server timeout only; the stop/start of the API stands in for it.
 - **Real password-reset emails:** no SMTP credentials in this environment.
-- **More than two people / more than one API replica:** one replica by design until Phase 16.
+- **More than two people / more than one API replica:** covered by Phase 16 (section 14).
 - Load, security and penetration testing are out of scope (section 1).
 
 ## 13. Phases 15 and 17 test run (2026-10-22)
@@ -816,7 +848,142 @@ Real Chrome windows against the stack with RabbitMQ on and no SMTP credentials.
 
 - **Real SMTP delivery:** no credentials here. The `console` provider stood in for a successful send and the unconfigured SMTP sender for a failing one.
 - **Redis:** it only has to start, be protected and be reachable; nothing uses it until Phase 16.
-- **More than one API replica:** each replica would run its own worker on the same queue (safe), but the in-memory presence still limits the API to one replica until Phase 16.
+- **More than one API replica:** each replica runs its own email worker on the same queue (safe); presence and pushes across replicas are covered in section 14.
 - **A black-holed network** (packets dropped rather than refused): the 5 s connection timeout is configured but was not exercised.
 - **The long Phase 12 to 14 browser suites** (see F22) and the **migration drift check** (see 13.1).
+- Load, security and penetration testing are out of scope (section 1).
+
+## 14. Phase 16 test run (2026-10-23)
+
+Run after Phase 16 (Redis: SignalR backplane and shared presence), against the **real Docker stack** with a **real Redis 7**, **two API replicas** sharing one MySQL, Redis and RabbitMQ, real nginx, real SignalR clients over real WebSockets, and real Chrome windows. Two set-ups were used: (A) a test-only compose override that publishes the two replicas on separate host ports (18081 and 18082; 8081 is used by Docker Desktop's Kubernetes here) so each client can be pointed at a chosen replica, and (B) `docker compose up --scale api=2` behind nginx, the way a real deployment would run. Redis was stopped, restarted and flushed, and a replica was killed with SIGKILL, during the run. A short presence lifetime (6 s, heartbeat 2 s) was used in set-up A so expiry could be observed; set-up B used the real defaults (45 s / 15 s). Throwaway accounts only; all test data was deleted afterwards (users removed, Redis flushed, queues emptied) and the stack stopped. **The host dev MySQL was not touched.**
+
+### 14.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **161 passed, 0 failed** (141 before + 20 new: shared presence tracker 12, in-memory tracker async 4, wiring 4) |
+| Python (`pytest`) | **12 passed, 0 failed** (unchanged) |
+| Angular unit (`ng test`, ChromeHeadless) | **168 passed, 0 failed** (unchanged; the one-line change to the real hub factory is not reachable from unit tests, it is verified in 14.5) |
+| Angular production build | Succeeded, no warnings. Initial bundle 327.1 kB |
+| Database migration drift | **Not re-run**: it starts the app, which connects to the host MySQL, and that server was not running. No file under `Models/`, `Data/` or `Migrations/` changed, so no migration is needed |
+| **Total** | **341 passed, 0 failed** |
+
+### 14.2 Two replicas with a real Redis: API and SignalR level (32/32 passed)
+
+Alice on replica 1, Bob on replica 2, and so on, using real SignalR clients. "Section" letters match the scenario groups in the script.
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P16-01 | two API replicas are up and healthy (ports 18081 and 18082), sharing one MySQL, Redis and RabbitMQ | PASS |  |
+| P16-02 | both people are recorded in Redis presence (one key per user) | PASS | presence:user:1, presence:user:2 |
+| P16-03 | each presence key has an expiry, so an abandoned key cleans itself up | PASS | PTTL 17736 ms |
+| P16-04 | Alice (replica 1) sees Bob (connected to replica 2) as online in the conversation list | PASS |  |
+| P16-05 | Bob (replica 2) sees Alice (replica 1) as online | PASS |  |
+| P16-06 | a message sent through replica 1 is "delivered" at once because Bob is online on replica 2 (shared presence) | PASS | status=delivered |
+| P16-07 | Bob, connected to replica 2, receives the live MessageReceived push from replica 1 (Redis backplane) | PASS | payload: "hello bob (sent through replica 1)" |
+| P16-08 | Bob marks it read on replica 2; Alice's read tick arrives live on replica 1 | PASS |  |
+| P16-09 | Alice's typing signal (replica 1) reaches Bob (replica 2) | PASS |  |
+| P16-10 | delete through replica 1 is pushed to both people, on both replicas | PASS | delete status 200 |
+| P16-11 | Carol's first tab (replica 1) makes her come online: Alice is told exactly once | PASS |  |
+| P16-12 | Carol's second tab on the OTHER replica does not announce her online again | PASS |  |
+| P16-13 | closing tab 1 (replica 1) does not take her offline: no event, still online per the other replica | PASS |  |
+| P16-14 | closing the last tab (replica 2) takes her offline: exactly one event, with a last-seen time | PASS |  |
+| P16-15 | afterwards the list shows Carol offline with the saved last-seen time | PASS | 2026-10-23T05:52:49.500775Z |
+| P16-16 | exactly ONE "came online" announcement per person, even with two simultaneous first connections on different replicas (atomic Lua) | PASS | counts: 1 over 20 people |
+| P16-17 | exactly ONE "went offline" announcement per person after both tabs close at the same instant | PASS | counts: 1 over 20 people |
+| P16-18 | Bob has been idle for 12 s (twice the 6 s mark lifetime) and is still online: the heartbeat refreshes his mark | PASS |  |
+| P16-19 | Bob's replica is killed: within the mark lifetime (plus one beat) Alice's replica reports him offline, with no manual cleanup | PASS |  |
+| P16-20 | a message to him now stays at "sent" (one grey tick), not falsely "delivered" | PASS | status=sent |
+| P16-21 | KNOWN LIMIT: a crashed replica sends no "went offline" event and saves no last-seen time (recorded, not a pass of a requirement) | PASS | offline events for Bob: 0 |
+| P16-22 | Bob reconnects to the surviving replica: his waiting message becomes "delivered" and Alice is told live | PASS |  |
+| P16-23 | the killed replica starts again and is healthy | PASS |  |
+| P16-24 | Redis down: sending a message still works (201, saved) and is not a 500 | PASS | status 201 in 2603 ms, delivery status=sent |
+| P16-25 | Redis down: the request is slowed by seconds at most, not left hanging (2 s Redis timeouts) | PASS | 2603 ms |
+| P16-26 | Redis down: the conversation list still loads (presence falls back to this server) | PASS | status 200 in 16 ms |
+| P16-27 | Redis down: /health stays 200 on both replicas (liveness only, no dependency check) | PASS |  |
+| P16-28 | Redis down: the message was saved and Bob can read it (REST is unaffected) | PASS |  |
+| P16-29 | Redis back: live pushes cross replicas again WITHOUT reconnecting Bob or restarting anything | PASS | delivery status=delivered |
+| P16-30 | after FLUSHALL no presence keys remain (simulated data loss) | PASS |  |
+| P16-31 | within a heartbeat the replicas re-create their connections' marks and Bob shows online again, with nobody reconnecting | PASS |  |
+| P16-32 | when everyone has disconnected no presence keys are left in Redis | PASS |  |
+
+### 14.3 Negative control: Redis switched off, two replicas (4/4 passed)
+
+Both replicas were restarted with `Redis:ConnectionString` empty. Everything then stays in memory, so the two replicas must NOT see each other. This is what Phase 16 fixes, and it proves the checks in 14.2 are not vacuous.
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| N-01 | without Redis, a message to someone on the OTHER replica is only "sent" (presence is not shared) | PASS | status=sent |
+| N-02 | without Redis, the other replica gets NO live push | PASS |  |
+| N-03 | without Redis, Alice cannot see that Bob is online (he is on the other replica) | PASS |  |
+| N-04 | without Redis, two people on the SAME replica still work (delivered and pushed): the single-replica mode is intact | PASS | status=delivered |
+
+### 14.4 Why the browser client skips negotiation (2/2 passed)
+
+30 connections each through nginx with two replicas behind it.
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| X-01 | WITH the negotiate step, connections through the proxy fail when negotiate and socket land on different replicas | PASS | 14/30 connected (failures are the proof the change is needed) |
+| X-02 | WITHOUT the negotiate step (what the app now does), every connection through the proxy succeeds | PASS | 30/30 connected |
+
+### 14.5 Real browsers, nginx and two replicas (16/16 passed)
+
+Two Chrome windows (Alice and Bob) through nginx with `--scale api=2`. The script confirms from the replicas' own logs that the two people are connected to different replicas.
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| P16-B01 | Alice and Bob are connected to DIFFERENT API replicas behind the same nginx | PASS | Alice -> aichat-api-2, Bob -> aichat-api-1 (after 1 page load(s) for Bob) |
+| P16-B02 | Alice's message shows two grey ticks (delivered) because Bob is online on the other replica | PASS |  |
+| P16-B03 | Bob's list shows Alice's message live, with an unread count (cross-replica push) | PASS |  |
+| P16-B04 | Bob opens the chat: Alice's ticks turn blue live (read receipt crosses replicas) | PASS |  |
+| P16-B05 | Bob's unread count clears | PASS |  |
+| P16-B06 | Alice sees "typing…" while Bob types on the other replica | PASS |  |
+| P16-B07 | Bob's reply reaches Alice live | PASS |  |
+| P16-B08 | Alice sees Bob as "Online" while he is connected to the other replica | PASS | Online |
+| P16-B09 | Alice deletes her message; Bob sees "This message was deleted" live and the text is gone from his page | PASS | the transient toast from the first arrival may still be on screen; the thread and list do not show the text |
+| P16-B10 | Bob reloads four times (each may land on either replica): live messages from Alice arrive every time | PASS | 4/4 |
+| P16-B11 | Bob signs out: Alice sees "Last seen today at …" (offline event crosses replicas) | PASS | Last seen today at 11:21 |
+| P16-B12 | Bob signs back in: Alice sees him Online again, live | PASS |  |
+| P16-B13 | Bob's replica is killed: his browser reconnects to the surviving replica on its own and the message reaches him | PASS | received 0.653 s after the kill |
+| P16-B14 | the new connection is on the other replica | PASS | aichat-api-2 -> aichat-api-1 |
+| P16-B15 | Alice's message after the crash shows at least two ticks (delivered) once Bob is back | PASS |  |
+| P16-B16 | no uncaught JavaScript errors in either window | PASS |  |
+
+### 14.6 Browser regression on the standard stack: one API, Redis and RabbitMQ on (8/8 passed)
+
+| ID | Check | Result | Evidence |
+|---|---|---|---|
+| R-01 | register through the form lands on the chat page | PASS | http://localhost:8080/ |
+| R-02 | a chat message gets a real AI reply (Angular -> .NET -> Python -> LLM -> MySQL) | PASS | pong |
+| R-03 | forgot-password page shows the same confirmation for a registered and an unknown email | PASS |  |
+| R-04 | wrong password shows the inline error | PASS | Email or password is incorrect. |
+| R-05 | direct message: Bob receives Alice's message | PASS |  |
+| R-06 | Alice's message shows the blue read tick once Bob has it open | PASS |  |
+| R-07 | Bob's reply reaches Alice live | PASS |  |
+| R-08 | no uncaught JavaScript errors in any window | PASS |  |
+
+### 14.7 Findings
+
+| # | Severity | Finding | Evidence and cause | Resolution |
+|---|---|---|---|---|
+| F23 | **Medium (real defect for any multi-replica set-up, found before release)** | With two API replicas behind the proxy, the browser's SignalR connection fails about half the time. | `X-02`/`X-01`: 14 of 30 connections worked with the negotiate step, 30 of 30 without. SignalR negotiates on one request and then opens the WebSocket on another; behind a round-robin proxy these can land on different replicas, and the second replica does not know the connection token. | **Fixed:** the Angular client now connects with WebSockets only and `skipNegotiation: true` (`direct-hub.service.ts`). WebSockets are supported by every browser this app targets; the long-polling fallback is gone. |
+| F24 | Low (by design, recorded) | If a replica **crashes** (not a clean stop), its users drop offline after the presence lifetime (45 s by default) but no "went offline" event is sent and their last-seen time is not saved. | `P16-21`: zero offline events for Bob. The clean-stop path writes last-seen in the hub's disconnect handler, which a SIGKILL never reaches. | Accepted for now. If it matters, a sweeper that notices lapsed marks can emit the event and save last-seen; not planned. |
+| F25 | Low (by design) | While Redis is down, **live pushes stop** for everyone (SignalR's Redis backplane carries even same-replica pushes), although REST keeps working. A message sent in that time is saved but not pushed; the receiver sees it after their next refetch (tab becomes visible again, or a reconnect). | `P16-24`/`P16-28`: the send returns 201 and the message is readable, but no live event. `P16-29`: pushes resume by themselves, with no reconnect and no restart, when Redis returns. | Documented. Redis availability should be monitored (Phase 27). |
+| F26 | Low | With Redis down, a request that touches presence or a push waits for the Redis timeout (2 s by default in this app; the library default is 5 s) before continuing. | `P16-24`: a send took 2.8 s. | Timeouts set to 2 s so the slowdown is bounded; presence then falls back to this server's own view. |
+| F27 | Low | A message that is deleted for everyone can still be visible in the **toast** that announced it, for up to 6 s (the toast's lifetime). | `P16-B09` run 1: the first message's text was still inside `.toast-stack` after the delete. The thread and list were correct. | Not changed (the recipient had already seen the message when it arrived). Could dismiss the matching toast on `MessageDeleted`; not planned. |
+| F28 | Info (environment, not the app) | Host port 8081 is already used by Docker Desktop's Kubernetes (a leftover `aichat` namespace), so the first two-replica run silently hit the wrong service (a 502 from a different nginx). | `lsof` showed the Docker backend listening on 8081. | Tests use ports 18081 and 18082. |
+| F29 | Info (test setup, not the app) | Several harness slips: nginx's round robin kept putting both browser users on the same replica (page loads make an even number of API calls), Bob's page was a hidden tab so a read receipt was not sent, and `zsh` did not split a command held in a variable. | Each time the app behaved correctly; the scripts were corrected (shift the rotation, `bringToFront()`, run through `bash`). | None needed. |
+| F30 | Info | The long browser suites for Phases 12 to 14 are still not available (lost with the earlier scratch folder), see F22. The checks in 14.5 repeat the key parts across two replicas. | | Rebuild and commit the long suites in a later test phase. |
+
+### 14.8 Not covered by this run
+
+**These gaps (and those in 13.6) are tracked as Phase T6 in `README.md` ("Test plan"), to be done later.**
+
+- **More than two replicas** and a **rolling restart** under load (two replicas were used, one killed and restarted).
+- **Redis Sentinel/Cluster or a managed Redis** (a single Redis container was used).
+- **A real network partition** between the API and Redis (the container was stopped and started, not firewalled).
+- **A crashed replica's last-seen and offline event** (F24, a known limit).
+- **nginx with a replica added or replaced while running:** nginx resolves the `api` name when it starts, so after scaling or replacing replicas run `docker compose restart web`.
+- **The long Phase 12 to 14 browser suites** (F30) and the **migration drift check** (14.1).
 - Load, security and penetration testing are out of scope (section 1).

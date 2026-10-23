@@ -1,4 +1,5 @@
 using AiChatAssistant.Api.Services;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AiChatAssistant.Api.Messaging;
 
@@ -16,7 +17,7 @@ public static class MessagingExtensions
 
         services.Configure<RabbitMqOptions>(configuration.GetSection(RabbitMqOptions.SectionName));
         services.Configure<EmailQueueOptions>(configuration.GetSection(EmailQueueOptions.SectionName));
-        services.AddSingleton(TimeProvider.System);
+        services.TryAddSingleton(TimeProvider.System);
 
         var provider = configuration.GetSection(EmailQueueOptions.SectionName).Get<EmailQueueOptions>()?.Provider ?? "smtp";
         if (string.Equals(provider, "console", StringComparison.OrdinalIgnoreCase))

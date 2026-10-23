@@ -46,7 +46,7 @@ public class DirectHub : Hub
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupFor(userId));
         // Online first, then deliver what was waiting: a message sent in between sees the user as
         // online and is marked delivered by the sender, and the pending query skips it.
-        var cameOnline = _presence.UserConnected(userId, Context.ConnectionId);
+        var cameOnline = await _presence.UserConnectedAsync(userId, Context.ConnectionId);
         // Presence problems ("why does Bob still show as online?") are only diagnosable with these two lines.
         _logger.LogInformation("Hub connected: user {UserId}, connection {ConnectionId}, cameOnline={CameOnline}", userId, Context.ConnectionId, cameOnline);
         await _delivery.MarkPendingDeliveredAsync(userId);
@@ -61,7 +61,7 @@ public class DirectHub : Hub
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var userId = Context.User?.GetUserId() ?? 0;
-        var wentOffline = userId != 0 && _presence.UserDisconnected(userId, Context.ConnectionId);
+        var wentOffline = userId != 0 && await _presence.UserDisconnectedAsync(userId, Context.ConnectionId);
         _logger.LogInformation("Hub disconnected: user {UserId}, connection {ConnectionId}, wentOffline={WentOffline}, reason={Reason}", userId, Context.ConnectionId, wentOffline, exception?.Message ?? "closed normally");
         if (wentOffline)
         {

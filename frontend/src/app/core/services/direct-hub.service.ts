@@ -31,8 +31,12 @@ export type HubFactory = (url: string, accessTokenFactory: () => string) => Prom
  */
 const createRealHub: HubFactory = async (url, accessTokenFactory) => {
   const signalR = await import('@microsoft/signalr');
+  // WebSockets only, no negotiate round trip: with several API replicas behind the proxy, the negotiate
+  // request and the socket can land on different replicas, and a replica that did not negotiate refuses
+  // the connection. Skipping negotiation removes that hand-off (the transport is WebSockets everywhere
+  // this app runs; the long-polling fallback is not needed).
   return new signalR.HubConnectionBuilder()
-    .withUrl(url, { accessTokenFactory })
+    .withUrl(url, { accessTokenFactory, skipNegotiation: true, transport: signalR.HttpTransportType.WebSockets })
     .withAutomaticReconnect()
     .configureLogging(signalR.LogLevel.Warning)
     .build();

@@ -1,8 +1,9 @@
 namespace AiChatAssistant.Api.Services;
 
 /// <summary>
-/// Process-local presence. It is correct only while the API runs as a single replica, which is why
-/// CLAUDE.md pins the api to 1 replica until Phase 16 moves this (and the SignalR backplane) to Redis.
+/// Process-local presence. Correct only for a single API replica, so it is used when Redis is not
+/// configured (local development without Docker). With Redis, <c>RedisPresenceTracker</c> shares presence
+/// across replicas and keeps one of these as its per-process record of its own connections.
 /// </summary>
 public class InMemoryPresenceTracker : IPresenceTracker
 {
@@ -51,4 +52,27 @@ public class InMemoryPresenceTracker : IPresenceTracker
             return true;
         }
     }
+
+    /// <summary>Every (user, connection) this process holds; the Redis tracker refreshes these on a timer.</summary>
+    public IReadOnlyList<(int UserId, string ConnectionId)> Snapshot()
+    {
+        lock (_gate)
+        {
+            return _connections.SelectMany(kv => kv.Value.Select(c => (kv.Key, c))).ToList();
+        }
+    }
+
+    public Task<bool> IsOnlineAsync(int userId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(IsOnline(userId));
+
+    public Task<IReadOnlySet<int>> OnlineAmongAsync(IReadOnlyCollection<int> userIds, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlySet<int>>(userIds.Where(IsOnline).ToHashSet());
+
+    public Task<bool> UserConnectedAsync(int userId, string connectionId) =>
+        Task.FromResult(UserConnected(userId, connectionId));
+
+    public Task<bool> UserDisconnectedAsync(int userId, string connectionId) =>
+        Task.FromResult(UserDisconnected(userId, connectionId));
+
+    public Task RefreshAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
