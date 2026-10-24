@@ -434,8 +434,8 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
-| 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | **Next up** |
-| 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Planned |
+| 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | Done |
+| 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | **Next up** |
 | 3 | **22** | Change password, profile, delete account, optional email verification | — | Planned |
 | 4 | **23** | Access and refresh tokens, real logout | 22 | Planned |
 | 5 | **24** | Chat rename, delete, search, paging | — | Planned |
@@ -652,20 +652,22 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 439 automated tests (239 .NET, 12 Python, 188 Angular) and 261 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 544 automated tests (344 .NET, 12 Python, 188 Angular) and 261 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
 - [x] Links from this README and `CLAUDE.md`
 
 #### Phase T2 — .NET gap tests
-- [ ] `AdminControllerTests` (page-size cap of 100, date filter, `from` > `to` is `400`, joined fields)
-- [ ] `TokenServiceTests` (claims, expiry, signature)
-- [ ] `PythonAiClientTests` with a stubbed `HttpMessageHandler` (snake_case body, `X-Internal-Key`, timeout and non-success become `PythonServiceUnavailableException`)
-- [ ] `ValidatorTests` (register, login, reset-password, send-message edge cases)
-- [ ] `ExceptionHandlingMiddlewareTests` (`500` in the standard shape, no stack trace)
-- [ ] `ErrorShapeIntegrationTests` with `WebApplicationFactory` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`): `401`, `403`, `404`, `/health`
-- [ ] `SmtpEmailSender` fail-fast test; history-window test in `ChatControllerTests`
+- [x] `AdminControllerTests` (page-size cap of 100, date filter, `from` > `to` is `400`, joined fields) - 9 tests
+- [x] `TokenServiceTests` (claims, expiry, signature) - 8 tests
+- [x] `PythonAiClientTests` with a stubbed `HttpMessageHandler` (snake_case body, `X-Internal-Key`, timeout and non-success become `PythonServiceUnavailableException`) - 12 tests
+- [x] `ValidatorTests` (register, login, reset-password, send-message edge cases) - 28 tests
+- [x] `ExceptionHandlingMiddlewareTests` (`500` in the standard shape, no stack trace) - 4 tests
+- [x] Pipeline tests with `WebApplicationFactory` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`; `PipelineTests`, 21): `401`, `403`, `404`, `500`, `/health`, hub token rules, direct-chat privacy, forgot-password sameness
+- [x] `AsyncReplyPipelineTests` (9): `202`, `503`, the jobs and retry endpoints
+- [x] `StartupConfigurationTests` (10): fail-fast configuration; `SmtpEmailSender` fail-fast tests already existed; history-window tests added to `ChatControllerTests` (4)
+- [x] Fixed on the way: a caller cancellation was reported as an AI outage (`PythonAiClient`). Report: `TESTING.md` section 18. 344 .NET tests, 544 automated overall.
 
 #### Phase T3 — Python gap tests
 - [ ] Malformed or missing body fields return `422`
@@ -756,7 +758,7 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 - [ ] Forwarded-headers and trusted-proxy configuration so the real client IP is used; fix the HTTPS-redirect warning in containers
 - [ ] Account lockout after repeated failed logins (with a clear message and a timed unlock)
 - [ ] nginx security headers (CSP, `X-Content-Type-Options`, frame-ancestors, referrer policy, `server_tokens off`); HSTS in production
-- [ ] Tests with `WebApplicationFactory` (needs test phase T2)
+- [ ] Tests with `WebApplicationFactory` (the setup exists since test phase T2: `TestSupport/ApiFactory.cs`)
 
 #### Phase 22 — Account management *(backend + frontend)*
 - [ ] Change password (requires the current password), edit profile name, delete account with confirmation
@@ -810,7 +812,7 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Admin + polish | 7–8 | Week 3 |
 | User-to-user chat (done) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
 | Message brokers: Redis + RabbitMQ (done) | 15–20 | all six done early at the user's request |
-| Test plan and gap tests (T1 done, T2–T6 planned) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
+| Test plan and gap tests (T1 and T2 done, T3–T6 planned) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
 | Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |
 
 ---

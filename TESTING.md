@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 439 automated tests (239 .NET, 12 Python, 188 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 544 automated tests (344 .NET, 12 Python, 188 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (239 tests)
+# .NET (344 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -67,8 +67,8 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | AUTH-11 | Reset password with a valid token | Password changes; the old password stops working | .NET | Automated: `ResetPassword_ChangesThePassword_AndTheOldPasswordNoLongerWorks` |
 | AUTH-12 | Reset with an unknown / reused / expired token | `400` in each case | .NET | Automated: `ResetPassword_Returns400_ForAnUnknownToken`, `..._WhenTheSameTokenIsUsedTwice`, `..._ForAnExpiredToken` |
 | AUTH-23 | Forgot password when sending the email fails (SMTP down, bad credentials, not configured) | Same `200` and the same generic message as for an unknown email, so no account is revealed; the failure is logged by user id; a cancelled request still cancels | .NET | Automated: `ForgotPassword_ReturnsTheSameGenericMessage_WhenSendingTheEmailFails_SoNoAccountIsRevealed`, `ForgotPassword_StillPropagatesCancellation_RatherThanSwallowingIt` |
-| AUTH-13 | Token claims and expiry | `sub`, `email`, `role` present; expiry from config; wrong key fails validation | .NET | Planned (T2): `TokenServiceTests` |
-| AUTH-14 | Register / login / reset-password input edge cases | Length, email format, whitespace rejected with `400` | .NET | Planned (T2): `ValidatorTests` |
+| AUTH-13 | Token claims and expiry | `sub`, `email`, `role` present; expiry from config; wrong key fails validation | .NET | `TokenServiceTests` (8): claims `sub`/`email`/`role`, unique `jti`, 60-minute default and configured expiry, issuer/audience defaults, signature valid/invalid, tampered payload, missing key |
+| AUTH-14 | Register / login / reset-password input edge cases | Length, email format, whitespace rejected with `400` | .NET | `ValidatorTests` (register name/email/password limits, login, forgot-password, reset-password) |
 | AUTH-15 | `AuthService` session handling | Starts logged out; register/login store token and user; logout clears; expired token is cleared; valid stored session survives a reload | Angular | Automated: 6 specs in `auth.service.spec.ts` |
 | AUTH-16 | Auth interceptor | Adds `Authorization: Bearer` only to our own API, never to another host, nothing when logged out | Angular | Automated: 3 specs in `auth.interceptor.spec.ts` |
 | AUTH-17 | Login / register / forgot / reset pages | Invalid forms don't submit; short password rejected; generic forgot-password message; missing token shows an "invalid link" state; mismatched passwords rejected; success messages | Angular | Automated: login 2, register 2, forgot-password 3, reset-password 3 specs |
@@ -94,9 +94,9 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | CHAT-10 | Another user's session | `404`, not `403` | .NET | Automated: `SendMessage_Returns404_WhenSessionBelongsToAnotherUser` |
 | CHAT-11 | Unknown session | `404` | .NET | Automated: `GetMessages_Returns404_WhenSessionDoesNotExist` |
 | CHAT-12 | Admin reads another user's session | Allowed | .NET | Automated: `GetMessages_AllowsAdmin_ToReadAnotherUsersSession` |
-| CHAT-13 | History window | Only the last 20 prior messages are sent to Python | .NET | Planned (T2): extend `ChatControllerTests` |
-| CHAT-14 | Request JSON to Python | snake_case body, `X-Internal-Key` header; timeout or non-success becomes `PythonServiceUnavailableException` | .NET | Planned (T2): `PythonAiClientTests` |
-| CHAT-15 | Send-message input edge cases | Whitespace-only and over-length content rejected | .NET | Planned (T2): `ValidatorTests` |
+| CHAT-13 | History window | Only the last 20 prior messages are sent to Python | .NET | `ChatControllerTests.SendMessage_SendsPythonOnlyTheLast20PriorMessages_OldestFirst`, `SendMessage_WithShortHistory_SendsAllOfIt_WithLowerCaseRoles`, `SendMessage_HistoryIgnoresOtherSessions` |
+| CHAT-14 | Request JSON to Python | snake_case body, `X-Internal-Key` header; timeout or non-success becomes `PythonServiceUnavailableException` | .NET | `PythonAiClientTests` (12): POST `/generate`, snake_case body, `X-Internal-Key`, empty history, reply mapping, `401`/`422`/`500`/`502`/`503` and connection failure and own timeout and `null` body become `PythonServiceUnavailableException`, a caller cancellation does not |
+| CHAT-15 | Send-message input edge cases | Whitespace-only and over-length content rejected | .NET | `ValidatorTests.SendMessage_*` (8000 limit, blank and whitespace-only), `ChatControllerTests.SendMessage_Returns400_ForWhitespaceOnlyContent_AndSavesNothing` |
 | CHAT-16 | Composer | Empty or whitespace draft is not sent; example prompt fills the composer | Angular | Automated: `does not send an empty or whitespace-only draft`, `fills the composer when an example prompt is used` |
 | CHAT-17 | Copy a reply | Shows "Copied" briefly; does not claim it when the clipboard is blocked | Angular | Automated: `copies a reply to the clipboard and shows "Copied" briefly`, `does not claim "Copied" when the clipboard is blocked` |
 | CHAT-18 | Sessions grouped by date | Today, Yesterday, Previous 7 days, Older; empty groups dropped | Angular | Automated: 3 specs in `session-groups.spec.ts` |
@@ -108,11 +108,11 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
-| ADM-01 | Usage list paging | `pageSize` capped at 100, page/total counts correct | .NET | Planned (T2): `AdminControllerTests` |
-| ADM-02 | Date filter | `from` / `to` inclusive bounds | .NET | Planned (T2) |
-| ADM-03 | `from` later than `to` | `400` | .NET | Planned (T2) |
-| ADM-04 | Joined display fields | User name, email and session title present | .NET | Planned (T2) |
-| ADM-05 | Non-admin calls `/api/admin/usage` | `403` with the standard error body | .NET | Planned (T2): `ErrorShapeIntegrationTests` |
+| ADM-01 | Usage list paging | `pageSize` capped at 100, page/total counts correct | .NET | `AdminControllerTests.Usage_PageSizeIsCappedAt100_AndFloorsAtOne`, `Usage_PagesAreNewestFirst_AndPageBelowOneBecomesOne`, `Usage_EmptyTable_ReturnsAnEmptyPage_NotAnError` |
+| ADM-02 | Date filter | `from` / `to` inclusive bounds | .NET | `AdminControllerTests.Usage_DateFilter_IncludesBothBounds`, `Usage_OnlyFrom_And_OnlyTo_WorkAlone`, `Usage_FromEqualToTo_IsAllowed` |
+| ADM-03 | `from` later than `to` | `400` | .NET | `AdminControllerTests.Usage_FromLaterThanTo_Is400_InTheStandardShape` |
+| ADM-04 | Joined display fields | User name, email and session title present | .NET | `AdminControllerTests.Usage_RowsCarryTheJoinedUserAndSessionFields` |
+| ADM-05 | Non-admin calls `/api/admin/usage` | `403` with the standard error body | .NET | `PipelineTests.AdminRoute_AsANormalUser_Is403_InTheStandardShape`, `AdminRoute_AsAnAdmin_Is200` |
 | ADM-06 | Usage page | Applying a filter resets to page 1 | Angular | Automated: `resets to page 1 when a filter is applied` |
 | ADM-07 | Usage page paging, filter, "Not tracked" cost | Pager buttons enable/disable correctly; cost shows "Not tracked" | Angular | Planned (T4): more `UsageComponent` specs |
 | ADM-08 | `AdminService` HTTP | Correct URL and query parameters | Angular | Planned (T4): `AdminService` spec |
@@ -137,11 +137,11 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
-| ERR-01 | Missing or invalid token on a protected route | `401` with `{ error: { code, message } }` | .NET | Planned (T2): `ErrorShapeIntegrationTests` |
-| ERR-02 | Wrong role | `403` with the standard body | .NET | Planned (T2) |
-| ERR-03 | Unknown route | `404` with the standard body | .NET | Planned (T2) |
-| ERR-04 | Unhandled exception | `500` with the standard body, no stack trace | .NET | Planned (T2): `ExceptionHandlingMiddlewareTests` |
-| ERR-05 | `/health` | `200`, no database check | .NET | Planned (T2) |
+| ERR-01 | Missing or invalid token on a protected route | `401` with `{ error: { code, message } }` | .NET | `PipelineTests.ProtectedRoute_WithoutAToken_Is401_InTheStandardShape`, `..._WithAGarbageOrMisSignedToken_...`, `..._WithATokenSignedByAnotherKey_Is401` |
+| ERR-02 | Wrong role | `403` with the standard body | .NET | `PipelineTests.AdminRoute_AsANormalUser_Is403_InTheStandardShape` |
+| ERR-03 | Unknown route | `404` with the standard body | .NET | `PipelineTests.UnknownRoute_Is404_InTheStandardShape` |
+| ERR-04 | Unhandled exception | `500` with the standard body, no stack trace | .NET | `ExceptionHandlingMiddlewareTests` (4) and `PipelineTests.UnhandledException_Is500_InTheStandardShape_WithNoStackTraceOrExceptionText` |
+| ERR-05 | `/health` | `200`, no database check | .NET | `PipelineTests.Health_Is200_WithoutAToken` |
 | ERR-06 | SMTP username or password missing, empty or whitespace | Fails fast with a clear message naming the setting and its environment variable; never attempts a mail login | .NET | Automated: `ABlankOrMissingUsername_FailsFastWithAClearMessage_NotAGmailLoginAttempt` (3 cases), `ABlankOrMissingPassword_FailsFastWithAClearMessage` (3 cases) in `SmtpEmailSenderTests` |
 | ERR-07 | Global error interceptor | Tracks loading on success and failure; toasts and re-throws on an unexpected `500`; no toast for handled `503` or validation `400`; stale session logs out, toasts and redirects to login; other hosts untouched | Angular | Automated: 6 specs in `error.interceptor.spec.ts` |
 | ERR-08 | `extractErrorMessage` | Handles the API error shape, plain text, network errors | Angular | Planned (T4) |
@@ -478,7 +478,7 @@ The suites are listed with every check in section 17. They run with `./e2e/run.s
 
 | Phase | Gap | New tests |
 |---|---|---|
-| T2 | .NET: admin usage, token service, Python client, validators, exception middleware, `401`/`403`/`404`/`/health` pipeline behaviour, SMTP fail-fast, history window | `AdminControllerTests`, `TokenServiceTests`, `PythonAiClientTests`, `ValidatorTests`, `ExceptionHandlingMiddlewareTests`, `ErrorShapeIntegrationTests` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`) |
+| T2 (done) | .NET: admin usage, token service, Python client, validators, exception middleware, `401`/`403`/`404`/`/health` pipeline behaviour, SMTP fail-fast, history window | `AdminControllerTests`, `TokenServiceTests`, `PythonAiClientTests`, `ValidatorTests`, `ExceptionHandlingMiddlewareTests`, `ErrorShapeIntegrationTests` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`) |
 | T3 | Python: malformed bodies (`422`) and invalid history role | Added to `ai-service-python/tests/` |
 | T4 | Angular: guards, `jwt.ts`, `extractErrorMessage`, `ChatService`, `AdminService`, `AppTitleStrategy`, chat send/retry/`503`/title flows, usage paging, login/register error mapping | New specs next to their sources |
 | T5 | Close-out | Statuses in this file changed from *Planned* to real test names; before/after counts; mutation spot-check; full run |
@@ -487,7 +487,7 @@ The suites are listed with every check in section 17. They run with `./e2e/run.s
 
 The last rows (`LIM-01` to `LIM-10`) are test cases for the known limits and improvements listed in `README.md` ("Known limits and improvement backlog"); the first column says what the behaviour is today and which existing check records it.
 
-These rows are filled in (and their test names recorded) when the feature phase is built. Phases are built in the order given by the Roadmap in `README.md` (next up: T2), not in number order; rows marked *because Phase N is built first* are obligations that a later phase picks up. Source plans in `README.md`: "User-to-user chat (Phases 9-14, done)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
+These rows are filled in (and their test names recorded) when the feature phase is built. Phases are built in the order given by the Roadmap in `README.md` (next up: Phase 21), not in number order; rows marked *because Phase N is built first* are obligations that a later phase picks up. Source plans in `README.md`: "User-to-user chat (Phases 9-14, done)", "Message brokers (Phases 15-20)" and "Hardening and product gaps (Phases 21-28)".
 
 | ID | Scenario | Expected result | Layer | Status |
 |---|---|---|---|---|
@@ -1776,3 +1776,49 @@ Every check, with the evidence it recorded, is listed below.
 - **Real SMTP delivery** (no credentials here), **Firefox, Safari and real phones** (Chrome only; phone width is a resized window).
 - **Real LLM failure modes other than a rejected key** (rate limits, very slow replies are simulated with the stub).
 - Load, security and penetration testing are out of scope (section 1).
+
+## 18. Phase T2: .NET gap tests (2026-10-24)
+
+Closes the .NET gaps listed in section 6. The new tests need no database, broker, mail server or LLM: the pipeline tests start the real `Program.cs` in memory through `WebApplicationFactory<Program>` (test-only package `Microsoft.AspNetCore.Mvc.Testing` 8.0.11, `public partial class Program;` added to `Program.cs`), with the database replaced by EF InMemory, and the AI client, the email queue and the AI-reply queue replaced by mocks (`TestSupport/ApiFactory.cs`). Every token in them is a real JWT made by the real `TokenService` and checked by the real JWT middleware. The async-reply fixture sets `Chat:AsyncReplies` and a RabbitMQ host so start-up validation passes, then removes the broker queue and every background worker.
+
+### 18.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **344 passed, 0 failed** (239 before + 105 new) |
+| Python (`pytest`) | **12 passed, 0 failed** (unchanged) |
+| Angular unit (`ng test`) | **188 passed, 0 failed** (unchanged) |
+| Migration drift | None |
+| **Total automated** | **544 passed, 0 failed** |
+
+The end-to-end suites in `e2e/` were not re-run: the only application changes are the cancellation fix below (one exception filter) and the `Program` declaration, neither on a path those suites exercise.
+
+### 18.2 The new tests
+
+| Class | Tests | What it checks |
+|---|---|---|
+| `AdminControllerTests` | 9 | ping; page size capped at 100 and floored at 1; newest first, page below 1 becomes 1, last partial page; empty table; `from`/`to` inclusive, each alone, `from` = `to`; `from` > `to` is `400 validation_error`; joined user name, email, session title |
+| `TokenServiceTests` | 8 | `sub`/`email`/`role` (several roles); unique `jti`; 60-minute default and configured expiry (and the token's own `exp` agrees); issuer/audience defaults and overrides; valid with its key, invalid with another; tampered payload rejected; missing `Jwt:Key` fails with a message naming it |
+| `PythonAiClientTests` | 12 | POST `/generate`; snake_case body; `X-Internal-Key`; empty history is `[]`; reply and `tokens_used` mapped; `401`/`422`/`500`/`502`/`503` become `PythonServiceUnavailableException`; connection failure keeps its cause; own timeout; `null` body; **a caller cancellation stays a cancellation** |
+| `ValidatorTests` | 28 | register (blank/over-long name, bad emails, 256 limit, password 8 minimum), login, forgot-password, reset-password, send-message (8000 limit, blank, whitespace-only), create-session (200), direct message (8000, blank) |
+| `ExceptionHandlingMiddlewareTests` | 4 | `500 internal_error`; no exception text or stack frames in the body; success untouched; half-written response discarded |
+| `PipelineTests` | 21 | `401` (no token, garbage, bad signature, another key); `403` for a user on an admin route; admin `200` and page cap; `404` for unknown routes; unhandled exception `500` with nothing leaked; `/health`; malformed JSON `400`; send `503` keeps the question; send `200`; other user's session `404`; forgot-password gives one identical answer for unknown, known and broken-queue emails; hub negotiate: anonymous `401`, `access_token` accepted, garbage rejected, ignored outside `/hubs`; an Admin gets `404` on someone else's direct conversation (read and send); user search never returns emails |
+| `AsyncReplyPipelineTests` | 9 | send is `202 pending` and queues the job without calling Python; broker refusal is `503` with the question kept and no orphan job; jobs list shows pending/failed only; other user's chat `404`; no token `401`; retry of a failed job `202` and re-queued; retry of a delivered job `409`; retry of another user's or unknown job `404`; retry with the broker down `503` and the job stays failed |
+| `StartupConfigurationTests` | 10 | `Chat:AsyncReplies` without a broker host, a host without credentials (missing or blank), and an unknown `Email:Provider` all fail at start-up naming the setting; provider picks the sender; no broker means inline email, no workers and a no-op outbox; no Redis means in-memory presence |
+| `ChatControllerTests` (added) | 4 | only the last 20 prior messages are sent, oldest first, new question not in history; short history sent whole with lower-case roles; other chats' messages ignored; whitespace-only content is `400` and nothing is saved |
+
+The existing `SmtpEmailSenderTests` already cover the SMTP fail-fast rule (missing, empty and whitespace username and password).
+
+### 18.3 Findings
+
+| ID | Status | Finding | Resolution |
+|---|---|---|---|
+| T2-F1 | Fixed | **A caller cancellation was reported as an AI outage.** `PythonAiClient` caught `TaskCanceledException` to recognise its own 60 s timeout, but a cancelled request (the browser went away) throws the same type, so it was logged as "Could not reach the Python AI service" and rethrown as `PythonServiceUnavailableException`; its own comment claimed the opposite. Found by `ACallerCancellation_IsNotDisguisedAsAnAiOutage`. | The catch now requires `!cancellationToken.IsCancellationRequested`; the cancellation passes through, and the test pins it. |
+| T2-F2 | Info | Tests that share a `WebApplicationFactory` also share its mocks; one test's `ThrowsAsync` leaked into the next (seen as a wrong `503`). | The fixture classes reset the mocks in their constructors. |
+| T2-F3 | Info | Program.cs reads the connection string, `Jwt:Key` and the Python key while it builds, before a test host can add configuration, so the factory sets them as environment variables once. | Recorded in `ApiFactory`. |
+
+### 18.4 Not covered by this run
+
+- The Docker end-to-end suites (see 18.1).
+- `/health/ready`, rate limiting, lockout, security headers, refresh tokens and the other features of Phases 21 to 28 do not exist yet; their cases stay in section 7.
+- A real MySQL failure through the pipeline (LIM-01) is still only recorded by the Docker chaos suite; the in-memory pipeline tests prove the `500` shape, not the MySQL error path.

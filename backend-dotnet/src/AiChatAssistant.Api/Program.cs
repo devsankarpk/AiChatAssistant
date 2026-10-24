@@ -229,3 +229,6 @@ app.MapFallback(context =>
         .WriteAsync(context, StatusCodes.Status404NotFound));
 
 app.Run();
+
+// Lets the pipeline tests (WebApplicationFactory<Program>) see the entry point of this top-level-statements file.
+public partial class Program;
