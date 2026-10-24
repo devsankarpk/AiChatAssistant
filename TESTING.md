@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 544 automated tests (344 .NET, 12 Python, 188 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 597 automated tests (344 .NET, 65 Python, 188 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -35,7 +35,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
-# Python (12 tests)
+# Python (65 tests)
 cd ai-service-python && source .venv/bin/activate && pytest
 pytest tests/test_generate.py::test_returns_reply                      # one test
 
@@ -130,8 +130,13 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | AI-07 | Other upstream error / unexpected exception | `502`, never a bare `500` | Python | Automated: `test_other_upstream_error_maps_to_502_not_a_crash`, `test_unexpected_exception_maps_to_502_never_a_bare_500` |
 | AI-08 | Timeout nesting | Python's worst case (about 50 s) stays inside .NET's 60 s | Python | Automated: `test_llm_client_worst_case_fits_inside_dotnet_timeout` |
 | AI-09 | Reply length cap | The SDK call receives `max_tokens` equal to `DEEPINFRA_MAX_TOKENS` | Python | Automated: `test_caps_reply_length` |
-| AI-10 | Malformed body (missing prompt, wrong types) | `422` | Python | Planned (T3) |
-| AI-11 | Invalid role in `history` | Rejected | Python | Planned (T3) |
+| AI-10 | Malformed body (missing prompt, wrong types) | `422`, names the field, LLM never called | Python | Automated: `test_malformed_body_is_422_and_the_llm_is_never_called` (14 bodies), `test_a_body_that_is_not_json_is_422`, `test_a_json_array_instead_of_an_object_is_422`, `test_an_empty_request_body_is_422`, `test_the_422_names_the_offending_field` |
+| AI-11 | Invalid role in `history` | `422`, LLM never called; only `user` and `assistant` allowed | Python | Automated: `test_an_invalid_history_role_is_rejected_and_the_llm_is_never_called` (9 roles incl. `system`, `tool`, wrong case), `test_one_bad_role_among_good_messages_rejects_the_whole_request`, `test_the_two_allowed_roles_are_accepted` |
+| AI-12 | Intended leniency | `history` optional; extra fields ignored and never forwarded; empty prompt accepted (the .NET side rejects blanks); Unicode and long history pass through unchanged and in order | Python | Automated: `test_history_is_optional_and_defaults_to_empty`, `test_unknown_extra_fields_are_ignored_not_forwarded`, `test_an_empty_prompt_is_accepted_here_because_the_dotnet_side_validates_it`, `test_unicode_and_multiline_text_pass_through_untouched`, `test_a_long_history_is_forwarded_whole_in_order`, `test_the_model_and_token_cap_come_from_configuration` |
+| AI-13 | Response shape and odd provider answers | Exactly `reply` + `tokens_used` (int); no usage gives `0`; no choices gives an empty reply | Python | Automated: `test_the_response_has_exactly_reply_and_tokens_used`, `test_a_provider_answer_without_usage_reports_zero_tokens`, `test_a_provider_answer_without_choices_gives_an_empty_reply` |
+| AI-14 | Auth details | Checked before the body; empty or wrong-case key `401`; header name case-insensitive; the key is never echoed or in `/openapi.json` | Python | Automated: `test_auth_is_checked_before_the_body_...`, `test_an_empty_key_header_is_401`, `test_the_key_is_case_sensitive`, `test_the_header_name_is_not_case_sensitive`, `test_the_401_body_keeps_the_error_shape_and_does_not_echo_the_key`, `test_the_generated_docs_do_not_leak_the_key` |
+| AI-15 | Other routes | `GET /` health without a key; `GET /generate` `405`; unknown route `404` | Python | Automated: `test_the_health_route_needs_no_key`, `test_get_on_generate_is_405`, `test_an_unknown_route_is_404` |
+| AI-16 | Configuration fails fast | Missing or blank `DEEPINFRA_API_KEY` / `INTERNAL_API_KEY` stops start-up naming the variable; token cap defaults to 600 and is configurable (clean child process, empty working directory) | Python | Automated: `test_config_imports_with_both_secrets_and_defaults_the_token_cap`, `test_config_refuses_to_start_without_a_secret_and_names_it` (2), `test_config_treats_a_blank_secret_as_missing`, `test_config_reads_the_token_cap_from_the_environment` |
 
 ### 5.5 ERRORS AND CROSS-CUTTING
 
@@ -479,7 +484,7 @@ The suites are listed with every check in section 17. They run with `./e2e/run.s
 | Phase | Gap | New tests |
 |---|---|---|
 | T2 (done) | .NET: admin usage, token service, Python client, validators, exception middleware, `401`/`403`/`404`/`/health` pipeline behaviour, SMTP fail-fast, history window | `AdminControllerTests`, `TokenServiceTests`, `PythonAiClientTests`, `ValidatorTests`, `ExceptionHandlingMiddlewareTests`, `ErrorShapeIntegrationTests` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`) |
-| T3 | Python: malformed bodies (`422`) and invalid history role | Added to `ai-service-python/tests/` |
+| T3 (done) | Python: malformed bodies (`422`) and invalid history role | `ai-service-python/tests/test_contract.py` |
 | T4 | Angular: guards, `jwt.ts`, `extractErrorMessage`, `ChatService`, `AdminService`, `AppTitleStrategy`, chat send/retry/`503`/title flows, usage paging, login/register error mapping | New specs next to their sources |
 | T5 | Close-out | Statuses in this file changed from *Planned* to real test names; before/after counts; mutation spot-check; full run |
 
@@ -1822,3 +1827,50 @@ The existing `SmtpEmailSenderTests` already cover the SMTP fail-fast rule (missi
 - The Docker end-to-end suites (see 18.1).
 - `/health/ready`, rate limiting, lockout, security headers, refresh tokens and the other features of Phases 21 to 28 do not exist yet; their cases stay in section 7.
 - A real MySQL failure through the pipeline (LIM-01) is still only recorded by the Docker chaos suite; the in-memory pipeline tests prove the `500` shape, not the MySQL error path.
+
+## 19. Phase T3: Python gap tests (2026-10-24)
+
+Closes the Python gap from section 6. New file `ai-service-python/tests/test_contract.py` (53 tests, 65 in the service now). No real LLM call: the SDK call is replaced by a mock, and every "rejected" case also asserts the mock was never called, because an invalid request must cost nothing.
+
+### 19.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| Python (`pytest`) | **65 passed, 0 failed** (12 before + 53 new) |
+| .NET | 344 passed (unchanged, not touched) |
+| Angular | 188 passed (unchanged, not touched) |
+| **Total automated** | **597 passed, 0 failed** |
+
+### 19.2 Do the tests catch regressions? (mutation spot-check)
+
+Each change was made temporarily to the service, the suite run, and the change reverted (`git status` shows only the new test file).
+
+| Temporary change | Result |
+|---|---|
+| `role: Literal["user","assistant"]` loosened to `role: str` | **10 tests failed** |
+| `prompt` made optional | **2 tests failed** |
+| API-key check removed | **6 tests failed** |
+
+### 19.3 What the 53 tests cover
+
+| Area | Tests |
+|---|---|
+| Malformed bodies: 14 shapes (missing or null or wrongly typed `prompt`/`session_id`, `history` not a list, bad items, missing `content`/`role`), not JSON, JSON array, empty body, error names the field | 18 |
+| History roles: 9 invalid roles (`system`, `tool`, `function`, `developer`, wrong case, empty, leading space, `admin`), one bad role rejects all, the 2 valid roles | 12 |
+| Intended leniency and pass-through: optional history, extra fields ignored, empty prompt, Unicode, 40-message history in order, model and token cap | 6 |
+| Response shape and odd provider answers | 3 |
+| Auth details and other routes | 9 |
+| Configuration fail-fast (child processes) | 5 |
+
+### 19.4 Findings
+
+| ID | Status | Finding |
+|---|---|---|
+| T3-F1 | Info (good result) | No defect found: the service already rejected every malformed body and every role other than `user`/`assistant`. Notably a `system` message in history is refused, so the .NET side can never be used to inject one. |
+| T3-F2 | Info (test design) | `python-dotenv` started with `-c` looks for `.env` in the **current directory**, so a developer's real `.env` would silently fill a "missing" secret and the fail-fast tests would pass or fail depending on the machine. The config tests run in an empty temporary directory to avoid this. |
+| T3-F3 | Info (recorded behaviour) | An empty `prompt` is accepted by Python; blank messages are rejected by the .NET validator before the call. This is the division of labour, pinned by a test so a change on either side is noticed. |
+
+### 19.5 Not covered by this run
+
+- The Docker end-to-end suites were not re-run: no application code changed in this phase.
+- Real DeepInfra behaviour (rate limits, slow replies) stays covered only by the earlier real-LLM end-to-end suites.

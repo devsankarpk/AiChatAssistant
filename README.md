@@ -455,7 +455,7 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 | 19 | **18** | Async AI replies (revisit after streaming, Phase 25) | 11, 15 | **Done** (early, at the user's request) |
 | 20 | **19** | Direct-chat event fan-out | 11, 15 | **Done** (early, at the user's request) |
 | 21 | **20** | End-to-end check of the brokers (and the committed `e2e/` suites) | 16–19 | **Done** (early, at the user's request) |
-| 22 | **T3** | Python gap tests | — | Planned |
+| 22 | **T3** | Python gap tests | — | Done (done early, at your request) |
 | 23 | **T4** | Angular gap specs | — | Planned |
 | 24 | **T5** | Test close-out | T3, T4 | Planned |
 | 25 | **T6** | Test follow-ups from the broker and realtime phases (committed browser suites, partition test, 3 replicas, migration check) | — | Planned (can be done any time) |
@@ -652,7 +652,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 544 automated tests (344 .NET, 12 Python, 188 Angular) and 261 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 597 automated tests (344 .NET, 65 Python, 188 Angular) and 261 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -670,8 +670,9 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 - [x] Fixed on the way: a caller cancellation was reported as an AI outage (`PythonAiClient`). Report: `TESTING.md` section 18. 344 .NET tests, 544 automated overall.
 
 #### Phase T3 — Python gap tests
-- [ ] Malformed or missing body fields return `422`
-- [ ] `history` with an invalid role is rejected
+- [x] Malformed or missing body fields return `422` (18 tests; the LLM is never called)
+- [x] `history` with an invalid role is rejected (12 tests; only `user` and `assistant`)
+- [x] Extra: leniency and pass-through, response shape, auth details, config fail-fast (23 tests), plus a mutation spot-check. Report: `TESTING.md` section 19. 65 Python tests, 597 automated overall.
 
 #### Phase T4 — Angular gap specs
 - [ ] `authGuard` / `adminGuard`, `jwt.ts`, `extractErrorMessage`, `AppTitleStrategy`
@@ -812,7 +813,7 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Admin + polish | 7–8 | Week 3 |
 | User-to-user chat (done) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
 | Message brokers: Redis + RabbitMQ (done) | 15–20 | all six done early at the user's request |
-| Test plan and gap tests (T1 and T2 done, T3–T6 planned) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
+| Test plan and gap tests (T1–T3 done, T4–T6 planned) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
 | Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |
 
 ---
