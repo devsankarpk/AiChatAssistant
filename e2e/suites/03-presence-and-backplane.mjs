@@ -73,7 +73,15 @@ dc('kill api2');
 check('P-19', "Bob's replica is killed: within the mark lifetime (plus one beat) Alice's replica reports him offline, with no manual cleanup", !!(await waitFor(async () => (await peerOnline(R1, alice, bob)) === false, 25000, 500)));
 const whileDown = await dsend(alice, convAB, 'bob, are you there?', R1);
 check('P-20', 'a message to him now stays at "sent" (one grey tick), not falsely "delivered"', whileDown.status === 201 && whileDown.json?.status === 'sent', `status=${whileDown.json?.status}`);
-check('P-21', 'KNOWN LIMIT (recorded, not a requirement): a crashed replica sends no "went offline" event and saves no last-seen time', hA.of('PeerPresenceChanged', p => p.userId === bob.id && !p.online).length === 0);
+const killedAt = Date.now();
+const swept = await hA.wait('PeerPresenceChanged', p => p.userId === bob.id && !p.online, 30000);
+check('P-21', "the crashed replica sent no goodbye, yet the surviving replicas' sweeper announces Bob offline to Alice (live push, no manual cleanup)", !!swept, swept ? `${((Date.now() - killedAt) / 1000).toFixed(1)} s after the kill` : 'no event within 30 s');
+await sleep(6000); // two more sweep rounds, with both surviving replicas sweeping
+check('P-21a', 'exactly ONE offline announcement for Bob although two surviving replicas both sweep (the Redis script hands him to one of them)', hA.of('PeerPresenceChanged', p => p.userId === bob.id && !p.online).length === 1, `${hA.of('PeerPresenceChanged', p => p.userId === bob.id && !p.online).length} event(s)`);
+const bobRow = (await list(R1, alice)).json?.find(c => c.peer.id === bob.id);
+check('P-21b', "Bob's last-seen time was saved, and is about when he was last alive (not when the sweep ran)", !!bobRow?.peerLastSeenAt && Math.abs(new Date(bobRow.peerLastSeenAt).getTime() - killedAt) < 20000 && bobRow.peerOnline === false, bobRow?.peerLastSeenAt);
+check('P-21c', "Bob's presence key and index entry are gone from Redis (nothing left to sweep again)", redisCli(`EXISTS presence:user:${bob.id}`).trim() === '0' && redisCli(`ZSCORE presence:index ${bob.id}`).trim() === '', `index score: "${redisCli(`ZSCORE presence:index ${bob.id}`).trim()}"`);
+check('P-21d', 'a person whose replica did NOT die (Alice, on replica 1) was not announced offline by the sweeper: Bob (via the surviving replica) still sees her online', (await peerOnline(R1, bob, alice)) === true);
 const hB1 = await hub(bob, R1, 'bob@r1');
 check('P-22', 'Bob reconnects to the surviving replica: his waiting message becomes "delivered" and Alice is told live', !!(await hA.wait('MessageStatusChanged', p => p.status === 'delivered' && p.messageIds?.includes(whileDown.json?.id))));
 dc('start api2');
@@ -95,6 +103,14 @@ check('P-28', 'Redis down: the message was saved and Bob can read it (REST is un
 dc('start redis'); await redisUp(); await sleep(6000);
 const afterBack = await dsend(alice, convAB, 'after redis came back', R1);
 check('P-29', 'Redis back: live pushes cross replicas again WITHOUT reconnecting Bob or restarting anything', afterBack.status === 201 && !!(await hB2.wait('MessageReceived', p => p.content === 'after redis came back', 15000)), `delivery status=${afterBack.json?.status}`);
+
+console.log('\n--- F2: a long Redis outage must not make the sweeper declare live people gone ---');
+const offlineBefore = hA.of('PeerPresenceChanged', p => p.userId === bob.id && !p.online).length;
+dc('pause redis'); await sleep(16000); // longer than the 6 s mark lifetime + 4 s grace + 2 s sweep: every mark has lapsed
+dc('unpause redis'); await redisUp();
+await sleep(9000); // several sweep rounds and heartbeats after Redis returns
+check('P-29a', "after a 16 s Redis outage (every mark lapsed) nobody who is still connected was announced offline by the sweeper", hA.of('PeerPresenceChanged', p => p.userId === bob.id && !p.online).length === offlineBefore, `offline events for Bob before/after: ${offlineBefore}/${hA.of('PeerPresenceChanged', p => p.userId === bob.id && !p.online).length}`);
+check('P-29b', 'and Bob still shows online afterwards (his replica re-created his mark)', (await peerOnline(R1, alice, bob)) === true);
 
 console.log('\n--- G: Redis loses its data ---');
 const marksBefore = presenceKeys().length;

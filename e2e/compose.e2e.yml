@@ -28,6 +28,8 @@ services:
     environment: &tune
       Presence__TtlSeconds: ${T_TTL:-6}
       Presence__HeartbeatSeconds: ${T_HB:-2}
+      Presence__SweepSeconds: ${T_SWEEP:-2}
+      Presence__SweepGraceSeconds: ${T_GRACE:-4}
       Chat__AsyncReplies: ${T_ASYNC:-true}
       Chat__ReplyRetryDelaysSeconds__0: ${T_R0:-2}
       Chat__ReplyRetryDelaysSeconds__1: ${T_R1:-3}

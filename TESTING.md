@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 597 automated tests (344 .NET, 65 Python, 188 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 725 automated tests (365 .NET, 65 Python, 295 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -31,7 +31,7 @@ The test plan and test-case catalogue for the whole application. It is the singl
 ## 4. How to run
 
 ```bash
-# .NET (344 tests)
+# .NET (365 tests)
 cd backend-dotnet && dotnet test
 dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one class
 
@@ -39,7 +39,7 @@ dotnet test --filter "FullyQualifiedName~ChatControllerTests"          # one cla
 cd ai-service-python && source .venv/bin/activate && pytest
 pytest tests/test_generate.py::test_returns_reply                      # one test
 
-# Angular (188 tests)
+# Angular (295 tests)
 cd frontend && npm test -- --watch=false --browsers=ChromeHeadless
 npm test -- --include='**/auth.service.spec.ts' --watch=false --browsers=ChromeHeadless   # one spec
 ```
@@ -72,10 +72,10 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | AUTH-15 | `AuthService` session handling | Starts logged out; register/login store token and user; logout clears; expired token is cleared; valid stored session survives a reload | Angular | Automated: 6 specs in `auth.service.spec.ts` |
 | AUTH-16 | Auth interceptor | Adds `Authorization: Bearer` only to our own API, never to another host, nothing when logged out | Angular | Automated: 3 specs in `auth.interceptor.spec.ts` |
 | AUTH-17 | Login / register / forgot / reset pages | Invalid forms don't submit; short password rejected; generic forgot-password message; missing token shows an "invalid link" state; mismatched passwords rejected; success messages | Angular | Automated: login 2, register 2, forgot-password 3, reset-password 3 specs |
-| AUTH-18 | Route guards | Logged-out user is redirected to login; non-admin cannot open `/admin/usage` | Angular | Planned (T4): `authGuard` / `adminGuard` specs |
-| AUTH-19 | JWT decoding helper | Valid, malformed and bad-base64 tokens | Angular | Planned (T4): `jwt.ts` spec |
+| AUTH-18 | Route guards | Logged-out user is redirected to login; non-admin cannot open `/admin/usage` | Angular | `guards.spec.ts` (8): `authGuard` lets a signed-in user through and sends others to `/login?returnUrl=`; `adminGuard` admits only an authenticated Admin, sends an ordinary user to `/`, a visitor to `/login`, ignores a stale Admin role and a differently-cased `admin` |
+| AUTH-19 | JWT decoding helper | Valid, malformed and bad-base64 tokens | Angular | `jwt.spec.ts` (15): payload decoding (base64url, missing padding, non-ASCII), malformed and non-JSON tokens never throw, roles single/array/none, `isExpired` incl. the exact expiry moment |
 | AUTH-20 | Password show/hide | Toggles `type` without touching the value | Angular | Automated: `flips the input between password and text without touching its value` |
-| AUTH-21 | Login error mapping on the page (wrong password shows the inline error) | Inline error, no toast | Angular | Planned (T4) |
+| AUTH-21 | Login error mapping on the page (wrong password shows the inline error) | Inline error, no toast | Angular | `login-flows.spec.ts` (11): `401` shows the server message inline (`role=alert`), no navigation and no stored token; unreachable server; non-API error body; double click sends one request; success goes to `/` or the `returnUrl`; local field checks |
 | AUTH-22 | Real forgot-password email arrives and the link works | Email in the inbox, reset succeeds | Manual | Manual: section 8 |
 
 ### 5.2 CHAT (.NET `ChatControllerTests`, Angular chat specs)
@@ -100,8 +100,8 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | CHAT-16 | Composer | Empty or whitespace draft is not sent; example prompt fills the composer | Angular | Automated: `does not send an empty or whitespace-only draft`, `fills the composer when an example prompt is used` |
 | CHAT-17 | Copy a reply | Shows "Copied" briefly; does not claim it when the clipboard is blocked | Angular | Automated: `copies a reply to the clipboard and shows "Copied" briefly`, `does not claim "Copied" when the clipboard is blocked` |
 | CHAT-18 | Sessions grouped by date | Today, Yesterday, Previous 7 days, Older; empty groups dropped | Angular | Automated: 3 specs in `session-groups.spec.ts` |
-| CHAT-19 | Send flow in the component | Success shows the reply; `503` shows "didn't send" with "Send again"; retry works; title refreshes after the first send | Angular | Planned (T4): more `ChatComponent` specs |
-| CHAT-20 | `ChatService` HTTP | Correct URLs, methods and bodies for the four chat endpoints | Angular | Planned (T4): `ChatService` spec |
+| CHAT-19 | Send flow in the component | Success shows the reply; `503` shows "didn't send" with "Send again"; retry works; title refreshes after the first send | Angular | `chat-flows.spec.ts` (26): success replaces the temporary question; `503` marks it failed with the server message and "Send again"; retry resends once without a duplicate; unreachable server; double send ignored; Enter / Shift+Enter; title refetched after the first message (also after a `503`), not when already titled, kept if the refetch fails; auto-created chat; chat-list and message-load errors; new chat; log out |
+| CHAT-20 | `ChatService` HTTP | Correct URLs, methods and bodies for the four chat endpoints | Angular | `chat.service.spec.ts` (existing, 7 with the async endpoints) |
 | CHAT-21 | Reply with real LLM | A real answer appears in the UI | Manual | Manual: section 8 |
 
 ### 5.3 ADMIN
@@ -114,8 +114,8 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | ADM-04 | Joined display fields | User name, email and session title present | .NET | `AdminControllerTests.Usage_RowsCarryTheJoinedUserAndSessionFields` |
 | ADM-05 | Non-admin calls `/api/admin/usage` | `403` with the standard error body | .NET | `PipelineTests.AdminRoute_AsANormalUser_Is403_InTheStandardShape`, `AdminRoute_AsAnAdmin_Is200` |
 | ADM-06 | Usage page | Applying a filter resets to page 1 | Angular | Automated: `resets to page 1 when a filter is applied` |
-| ADM-07 | Usage page paging, filter, "Not tracked" cost | Pager buttons enable/disable correctly; cost shows "Not tracked" | Angular | Planned (T4): more `UsageComponent` specs |
-| ADM-08 | `AdminService` HTTP | Correct URL and query parameters | Angular | Planned (T4): `AdminService` spec |
+| ADM-07 | Usage page paging, filter, "Not tracked" cost | Pager buttons enable/disable correctly; cost shows "Not tracked" | Angular | `usage-flows.spec.ts` (22): first request, row content, "Not tracked" versus `$0.50`, empty hint, summary tiles, per-day chart rules, Previous/Next enabled and disabled states and page label, date range sent as start of day and end of day, filter resets to page 1, Clear dates, errors cleared by the next load |
+| ADM-08 | `AdminService` HTTP | Correct URL and query parameters | Angular | `admin.service.spec.ts` (6): URL, `page`/`pageSize`, empty dates left out, dates sent, result passed through, error passed through |
 
 ### 5.4 AI SERVICE (Python `test_generate.py`)
 
@@ -149,7 +149,7 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | ERR-05 | `/health` | `200`, no database check | .NET | `PipelineTests.Health_Is200_WithoutAToken` |
 | ERR-06 | SMTP username or password missing, empty or whitespace | Fails fast with a clear message naming the setting and its environment variable; never attempts a mail login | .NET | Automated: `ABlankOrMissingUsername_FailsFastWithAClearMessage_NotAGmailLoginAttempt` (3 cases), `ABlankOrMissingPassword_FailsFastWithAClearMessage` (3 cases) in `SmtpEmailSenderTests` |
 | ERR-07 | Global error interceptor | Tracks loading on success and failure; toasts and re-throws on an unexpected `500`; no toast for handled `503` or validation `400`; stale session logs out, toasts and redirects to login; other hosts untouched | Angular | Automated: 6 specs in `error.interceptor.spec.ts` |
-| ERR-08 | `extractErrorMessage` | Handles the API error shape, plain text, network errors | Angular | Planned (T4) |
+| ERR-08 | `extractErrorMessage` | Handles the API error shape, plain text, network errors | Angular | `http-error.spec.ts` (6): API message used for any status, unreachable server, plain text, empty or null body, wrong shape or empty message |
 
 ### 5.6 FRONTEND (other)
 
@@ -159,7 +159,7 @@ If Angular's tests can't find Chrome, set `CHROME_BIN` (see the README's "Runnin
 | FE-02 | Markdown safety | Raw HTML shown as text; images never load; `javascript:` links neutralised; normal links open in a new tab | Angular | Automated: 4 specs in `markdown.component.spec.ts` |
 | FE-03 | Theme | Defaults to light; toggle sets `data-theme` and is remembered; restores on startup; still works when storage throws | Angular | Automated: 4 specs in `theme.service.spec.ts` |
 | FE-04 | App shell | App component creates | Angular | Automated: `should create the app` |
-| FE-05 | Tab titles | Each route sets "Page - AI Chat Assistant" | Angular | Planned (T4): `AppTitleStrategy` spec |
+| FE-05 | Tab titles | Each route sets "Page - AI Chat Assistant" | Angular | `app-title-strategy.spec.ts` (3): "Page - AI Chat Assistant", changes with the route, app name only for an untitled route |
 | FE-06 | Top navigation | A Chatbot tab links to `/`; it is the current page (`aria-current="page"`) on `/` and on `/?session=<id>`, and not on another page; projected controls appear at the right-hand end | Angular | Automated: 5 specs in `top-nav.component.spec.ts` |
 | FE-08 | Chat sidebar: pinned Book appointment row and "+" new-chat button | The first element in the sidebar is a link to `/appointments`; new chat is an icon-only button labelled "New chat" in the header and starts a new chat | Angular | Automated: `pins a Book appointment row at the top of the sidebar, linking to /appointments`, `starts a new chat from an icon-only "+" button in the sidebar header` |
 | FE-07 | Appointments placeholder page | Says booking is coming soon, links back to the chatbot, shows the top nav, Log out returns to login | Angular | Automated: 3 specs in `appointments.component.spec.ts` |
@@ -485,8 +485,8 @@ The suites are listed with every check in section 17. They run with `./e2e/run.s
 |---|---|---|
 | T2 (done) | .NET: admin usage, token service, Python client, validators, exception middleware, `401`/`403`/`404`/`/health` pipeline behaviour, SMTP fail-fast, history window | `AdminControllerTests`, `TokenServiceTests`, `PythonAiClientTests`, `ValidatorTests`, `ExceptionHandlingMiddlewareTests`, `ErrorShapeIntegrationTests` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`) |
 | T3 (done) | Python: malformed bodies (`422`) and invalid history role | `ai-service-python/tests/test_contract.py` |
-| T4 | Angular: guards, `jwt.ts`, `extractErrorMessage`, `ChatService`, `AdminService`, `AppTitleStrategy`, chat send/retry/`503`/title flows, usage paging, login/register error mapping | New specs next to their sources |
-| T5 | Close-out | Statuses in this file changed from *Planned* to real test names; before/after counts; mutation spot-check; full run |
+| T4 (done) | Angular: guards, `jwt.ts`, `extractErrorMessage`, `ChatService`, `AdminService`, `AppTitleStrategy`, chat send/retry/`503`/title flows, usage paging, login/register error mapping | New specs next to their sources |
+| T5 (done) | Close-out | Statuses in this file changed from *Planned* to real test names; before/after counts; mutation spot-check; full run |
 
 ## 7. Planned test cases for features not built yet
 
@@ -539,7 +539,7 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | LIM-01 | MySQL down (L-01) | A database connection failure answers `503 service_unavailable` in the standard error shape, and the chat page shows "try again shortly" (today: `500 internal_error`) | .NET + `e2e/` | Planned (backlog L-01); today's behaviour is checked by `X-13` |
 | LIM-02 | Reset email while RabbitMQ is down (L-02) | The email is queued in the outbox with the reset token and delivered after the broker returns; the answer stays the same generic `200` (today: that email is not sent) | .NET + `e2e/` | Planned (backlog L-02); today's behaviour is checked by `E-13`, `E-14` and `P20-03` |
 | LIM-03 | Outbox throughput (L-03) | At least 200 events/s across three replicas; a 3,000-event backlog drains in under 20 s (today: about 85 s) | `e2e/` | Planned (backlog L-03); today's figure is recorded by `P20-21` |
-| LIM-04 | Crashed replica (L-04) | Within the mark lifetime plus one sweep the person is announced offline and their last-seen time is saved (today: neither) | .NET + `e2e/` | Planned (backlog L-04); today's behaviour is recorded by `P-21` |
+| LIM-04 | Crashed replica (L-04) | Within the mark lifetime plus one sweep the person is announced offline once and their last-seen time is saved | .NET + `e2e/` | Done: `PresenceSweepTrackerTests`, `PresenceSweeperTests` (21 tests) and `e2e` checks `P-21` to `P-21d`, `P-29a`, `P-29b` |
 | LIM-05 | Redis down (L-05) | Same-replica pushes still arrive, or an alert fires (today: pushes stop; the page recovers within about 15 s) | .NET + `e2e/` | Planned (backlog L-05); today's behaviour is checked by `P-24` to `P-29` and `B18-11` |
 | LIM-06 | Event order with several replicas (L-06) | Events of one conversation reach RabbitMQ in id order whichever replica dispatched them | `e2e/` | Planned (backlog L-06); today only one replica is ordered (`P19-04`) |
 | LIM-07 | Several pending replies per chat (L-07) | Two questions can be pending; replies arrive in the order asked | Angular + `e2e/` | Planned (backlog L-07); today's lock is checked by `ASY-A14` |
@@ -1522,7 +1522,7 @@ Every check, with the evidence it recorded, is listed below.
 | P-18 | Bob has been idle for 12 s (twice the 6 s mark lifetime) and is still online: the heartbeat refreshes his mark | PASS |  |
 | P-19 | Bob's replica is killed: within the mark lifetime (plus one beat) Alice's replica reports him offline, with no manual cleanup | PASS |  |
 | P-20 | a message to him now stays at "sent" (one grey tick), not falsely "delivered" | PASS | status=sent |
-| P-21 | KNOWN LIMIT (recorded, not a requirement): a crashed replica sends no "went offline" event and saves no last-seen time | PASS |  |
+| P-21 | The crashed replica sent no goodbye, yet a surviving replica's sweeper announces Bob offline to Alice (5.6 s after the kill with the test timings) | PASS |  |
 | P-22 | Bob reconnects to the surviving replica: his waiting message becomes "delivered" and Alice is told live | PASS |  |
 | P-23 | the killed replica starts again and is healthy | PASS |  |
 | P-24 | Redis down: sending a message still works (201, saved) and is not a 500 | PASS | status 201 in 2754 ms, delivery status=sent |
@@ -1874,3 +1874,140 @@ Each change was made temporarily to the service, the suite run, and the change r
 
 - The Docker end-to-end suites were not re-run: no application code changed in this phase.
 - Real DeepInfra behaviour (rate limits, slow replies) stays covered only by the earlier real-LLM end-to-end suites.
+
+## 20. Phases T4 and T5: Angular gap specs and close-out (2026-10-24)
+
+### 20.1 Automated suites (final run of this phase)
+
+| Suite | Before T2 | Now |
+|---|---|---|
+| .NET (`dotnet test`) | 239 | **344 passed, 0 failed** (+105 in T2) |
+| Python (`pytest`) | 12 | **65 passed, 0 failed** (+53 in T3) |
+| Angular (`ng test`) | 188 | **295 passed, 0 failed** (+107 in T4) |
+| Angular production build | | succeeds, initial bundle 327.25 kB (was 323.7 kB; the specs add nothing to it) |
+| Migration drift | none | none |
+| **Total automated** | **439** | **704 passed, 0 failed** |
+
+The Docker end-to-end suites (261 checks) were not re-run: nothing in the application changed in T3, T4 or T5, and T2 changed one exception filter.
+
+### 20.2 The 107 new Angular specs
+
+| File | Specs | What it checks |
+|---|---|---|
+| `core/utils/jwt.spec.ts` | 15 | decoding, malformed input, roles, expiry |
+| `core/utils/http-error.spec.ts` | 6 | every shape of error the page can get |
+| `core/app-title-strategy.spec.ts` | 3 | tab titles |
+| `core/services/admin.service.spec.ts` | 6 | URL and query parameters |
+| `auth/guards/guards.spec.ts` | 8 | both route guards |
+| `auth/login/login-flows.spec.ts` | 11 | login success and every failure on the page |
+| `auth/register/register-flows.spec.ts` | 10 | register success and failures, local checks |
+| `chat/chat-flows.spec.ts` | 26 | synchronous send, `503`, retry, titles, errors, sidebar, log out |
+| `admin/usage/usage-flows.spec.ts` | 22 | paging, date filter, cost column, summary, errors |
+
+### 20.3 Mutation spot-check (T5)
+
+Each change was made temporarily, the suite was run, and the file was restored (`git status` shows no modified source).
+
+| Layer | Temporary change | Result |
+|---|---|---|
+| .NET | usage page-size cap 100 changed to 1000 | **2 tests failed** |
+| .NET | `401` error code changed from `unauthorized` | **3 tests failed** |
+| .NET | LLM history window 20 changed to 50 | **2 tests failed** |
+| Angular | `adminGuard` lets everyone in | **2 specs failed** |
+| Angular | `extractErrorMessage` ignores the API message | **14 specs failed** |
+| Angular | usage page "Next" never disabled | **2 specs failed** |
+| Python (T3) | any role allowed / prompt optional / no auth | 10 / 2 / 6 tests failed |
+
+### 20.4 Catalogue close-out
+
+Every *Planned (T2)*, *Planned (T3)* and *Planned (T4)* row in section 5 now names its real tests. The rows that remain *Planned* are the ones for features that do not exist yet (sections 6 and 7: Phases 21 to 28 and the limits LIM-01 to LIM-10), which is intended.
+
+### 20.5 Findings
+
+| ID | Status | Finding |
+|---|---|---|
+| T4-F1 | Info (good result) | No application defect found by the Angular specs; every flow behaved as documented, including the `503` keeps-the-question rule and the title refresh after a failed reply. |
+| T4-F2 | Info (recorded behaviour) | Specs now pin: `adminGuard` sends a signed-in non-admin to `/` (not to the login page); a wildcard route redirects silently to `/` (no 404 page, planned in Phase 28); the usage page shows "Not tracked" whenever cost is zero (Phase 26 will change this). |
+| T4-F3 | Info (test design) | The existing "should create" style specs never exercised a component through the API; the new flow specs answer every request by hand with `HttpTestingController` and `verify()` after each test, so an unexpected or missing request fails the test. |
+
+### 20.6 Not covered by this run
+
+- The Docker end-to-end suites (see 20.1).
+- `MessagesComponent` and `DirectStateService` already have extensive specs from Phases 12 and 13 and were not extended.
+- No visual or accessibility checks in this run (axe-core is covered by the Phase 14 browser run; a permanent automated check is Phase 28).
+- Mutation testing was a manual spot-check of nine rules, not a mutation-testing tool run across the whole code base.
+
+## 21. Phase 16 follow-up: crashed-replica sweeper, backlog item L-04 (2026-10-25)
+
+**The gap.** Phase 16 shared presence through Redis, but when an API replica was killed (not stopped) nobody ran its disconnect code: its people dropped to "offline" in queries after the 45 s mark lifetime, yet no "went offline" push was sent and no last-seen time was saved. This was recorded as a known limit (L-04, check `P-21`).
+
+**What was built.**
+- `presence:index` (Redis sorted set: user id, latest mark lapse), kept by the existing add/remove scripts and the heartbeat, so lapsed people are found without scanning keys.
+- `IPresenceStore.ExpireLapsedAsync` + one Lua script that atomically takes a person only if none of their marks is alive, and returns their last heartbeat; two replicas sweeping at once cannot both get the same person.
+- `PresenceSweeper` (hosted service on every replica, `Presence:SweepSeconds` 10, `Presence:SweepGraceSeconds` 20) and `PresenceAnnouncer`, the single place that saves last-seen and tells contacts. `DirectHub` now uses it too, so a clean disconnect and a crash cannot disagree.
+- Safety: people this server still holds live connections for are skipped, and each replica pauses sweeping for grace + one heartbeat after it last failed to reach Redis. **Found while designing the end-to-end test:** without that hold-off, a Redis outage longer than the mark lifetime plus grace leaves every mark lapsed, and a replica that does not own the connection could declare a live person gone before their own replica's heartbeat re-created the mark.
+
+### 21.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **365 passed, 0 failed** (344 before + 21 new) |
+| Python | 65 passed (unchanged) |
+| Angular | 295 passed (unchanged) |
+| Migration drift | none (no schema change) |
+| **Total automated** | **725 passed, 0 failed** |
+
+### 21.2 The 21 new .NET tests
+
+`PresenceSweepTrackerTests` (13): returns lapsed people with their last heartbeat as UTC; asks the store with the clock, grace and ttl from options; never announces someone this server still holds a live connection for; empty when nothing lapsed; Redis down returns nothing and does not throw; in-memory presence has nothing to sweep; defaults (10 s, 20 s, grace longer than a heartbeat); sweeper registered only with Redis; hold-off for grace + a heartbeat after an outage, then sweeping resumes; any of connect, disconnect, refresh or sweep failing starts the hold-off.
+`PresenceSweeperTests` (8): saves last-seen and tells exactly the contacts; strangers are not told; several people; nobody lapsed writes and pushes nothing; one failed push does not stop the others; a failing tracker is survived; a person who no longer exists; a real disconnect and the sweeper use the same announcer.
+
+### 21.3 Real Redis, three replicas, a replica killed with SIGKILL: suite `03` is now 44/44
+
+| Check | Result |
+|---|---|
+| `P-21` the killed replica sent no goodbye; a surviving replica's sweeper still announces Bob offline to Alice, live | PASS, 5.6 s after the kill (test timings: 6 s lifetime, 4 s grace, 2 s sweep) |
+| `P-21a` exactly one offline announcement although two surviving replicas both sweep | PASS, 1 event |
+| `P-21b` Bob's last-seen time saved, close to when he was last alive (not when the sweep ran) | PASS |
+| `P-21c` his presence key and index entry are gone from Redis | PASS |
+| `P-21d` a person whose replica did not die was not announced offline | PASS |
+| `P-29a` after a 16 s Redis outage (container paused, every mark lapsed) nobody still connected was announced offline | PASS (offline events 2 before, 2 after) |
+| `P-29b` and Bob still shows online afterwards | PASS |
+| `P-01` to `P-38` (the rest of the suite: backplane, atomic first/last tab, heartbeat, Redis down and flushed, Redis off, negotiate) | all PASS, no regression |
+
+The old `P-21` ("a crashed replica sends no event") passed before the change and was the negative control: the same kill now produces the event.
+
+### 21.4 Limits and findings
+
+| ID | Status | Note |
+|---|---|---|
+| S-F1 | Fixed before shipping | The false-positive after a long Redis outage described above, caught by reasoning while writing `P-29a`, covered by two unit tests and the pause test. |
+| S-F2 | Info | Detection takes up to `TtlSeconds + SweepGraceSeconds + SweepSeconds` = 75 s with the defaults (the grace is deliberately generous). A person is still treated as offline by queries after 45 s; only the announcement waits. |
+| S-F3 | Info | If a replica is partitioned from Redis but alive, its people are announced offline after the grace and re-announced online by the next heartbeat. A sweeper cannot tell a partitioned replica from a dead one; the hold-off only protects the case where the sweeping replica itself lost Redis. |
+| S-F4 | Info | `ZADD` in the heartbeat may lower an index score below another replica's later mark (the client library has no "greater than" option); harmless, the script re-checks the real marks before acting. |
+
+### 21.5 Not covered
+- The other Docker suites were not all re-run; suite `04` (two real browsers, touches `DirectHub`) is recorded in 21.6.
+- Several people crashing at once with a large index (the sweep takes up to 100 per round); not load tested.
+
+### 21.6 Regression: suite `04` (two real Chrome windows, three replicas, one killed) and an intermittent failure it exposed
+
+Because `DirectHub` now announces through `PresenceAnnouncer`, the two-browser suite was run against the change.
+
+| Run | Result |
+|---|---|
+| 1 | 18/19: `DC-18` failed |
+| 2 | 19/19 |
+| 3 | 19/19 |
+| 4 | 19/19 |
+| 5 | 18/19: `DC-18` failed |
+| after the balancer fix, runs 1 to 4 | **19/19 each** |
+
+**Cause (not the sweeper).** `DC-18` kills the replica Bob is connected to, then Alice sends a message and Bob must see it within 60 s. The test load balancer (`e2e/nginx-lb.conf`) had no connect timeout, so nginx's default of 60 s applied. A killed container's address does not refuse connections, it just never answers; whenever round-robin sent Alice's one request to the dead replica, nginx waited the full 60 s ("upstream timed out (110) while connecting" in its log, at 16:57:26.7, 60 s after the kill at 16:56:25.75) and only then retried on a live replica. The message was saved at 16:57:26.74, 0.4 s after the test's own 60 s wait ended. It fails only when the dead replica is picked, about one time in three, and failed 2 of the 5 runs.
+
+**Fix.** `proxy_connect_timeout 3s;` in both locations of `e2e/nginx-lb.conf`; four runs afterwards all passed, and `nginx -T` in the running balancer shows the setting applied.
+
+| ID | Status | Finding |
+|---|---|---|
+| S-F5 | Fixed (test infrastructure) | The 60 s hang above. |
+| S-F6 | Open, recommended | **The production nginx (`frontend/nginx.conf`) has the same default**: if an API container dies hard and `/api` is proxied to several replicas, a request that lands on it hangs for 60 s before nginx tries another. Adding a short `proxy_connect_timeout` and `proxy_next_upstream error timeout` there would remove it. Not changed here (not part of this task; with one API replica there is nothing to fail over to). |

@@ -19,11 +19,13 @@ public class DirectHub : Hub
     private readonly IPresenceTracker _presence;
     private readonly IDirectDeliveryService _delivery;
     private readonly IDirectNotifier _notifier;
+    private readonly PresenceAnnouncer _announcer;
     private readonly AppDbContext _db;
     private readonly ILogger<DirectHub> _logger;
 
-    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, AppDbContext db, ILogger<DirectHub> logger)
+    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, PresenceAnnouncer announcer, AppDbContext db, ILogger<DirectHub> logger)
     {
+        _announcer = announcer;
         _logger = logger;
         _presence = presence;
         _delivery = delivery;
@@ -52,7 +54,7 @@ public class DirectHub : Hub
         await _delivery.MarkPendingDeliveredAsync(userId);
         if (cameOnline)
         {
-            await BroadcastPresenceAsync(userId, online: true, lastSeenAt: null); // a second tab changes nothing
+            await _announcer.AnnounceOnlineAsync(userId); // a second tab changes nothing
         }
 
         await base.OnConnectedAsync();
@@ -66,14 +68,7 @@ public class DirectHub : Hub
         if (wentOffline)
         {
             // Only when the last tab closes: that moment is the user's "last seen".
-            var lastSeen = DateTime.UtcNow;
-            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
-            if (user is not null)
-            {
-                user.LastSeenAt = lastSeen;
-                await _db.SaveChangesAsync();
-            }
-            await BroadcastPresenceAsync(userId, online: false, lastSeenAt: lastSeen);
+            await _announcer.AnnounceOfflineAsync(userId, DateTime.UtcNow);
         }
 
         await base.OnDisconnectedAsync(exception);
@@ -102,15 +97,5 @@ public class DirectHub : Hub
 
         var recipientId = conversation.UserLowId == userId ? conversation.UserHighId : conversation.UserLowId;
         await _notifier.PeerTypingAsync(recipientId, conversationId, userId);
-    }
-
-    /// <summary>Tell everyone who shares a conversation with this user that they came online or went offline.</summary>
-    private async Task BroadcastPresenceAsync(int userId, bool online, DateTime? lastSeenAt)
-    {
-        var peerIds = await _db.DirectConversations.AsNoTracking()
-            .Where(c => c.UserLowId == userId || c.UserHighId == userId)
-            .Select(c => c.UserLowId == userId ? c.UserHighId : c.UserLowId)
-            .ToListAsync();
-        await _notifier.PeerPresenceChangedAsync(peerIds, userId, online, lastSeenAt);
     }
 }

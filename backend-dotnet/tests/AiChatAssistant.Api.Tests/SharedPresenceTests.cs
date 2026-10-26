@@ -39,6 +39,15 @@ internal sealed class FakeStore : IPresenceStore
         Check(); return Task.FromResult<IReadOnlySet<int>>(userIds.Where(Online.Contains).ToHashSet());
     }
 
+    public List<(int UserId, DateTimeOffset LastBeat)> Lapsed = new();
+    public List<(DateTimeOffset Now, TimeSpan Grace, TimeSpan Ttl)> Sweeps = new();
+
+    public Task<IReadOnlyList<(int UserId, DateTimeOffset LastBeat)>> ExpireLapsedAsync(DateTimeOffset now, TimeSpan grace, TimeSpan ttl, Func<int, bool> skip, int max)
+    {
+        Check(); Sweeps.Add((now, grace, ttl));
+        return Task.FromResult<IReadOnlyList<(int, DateTimeOffset)>>(Lapsed.Where(l => !skip(l.UserId)).ToList());
+    }
+
     public Task RefreshAsync(IReadOnlyList<(int UserId, string ConnectionId)> connections, DateTimeOffset now, TimeSpan ttl)
     {
         Check(); Refreshes.Add(connections.ToList()); RefreshTtl = ttl; return Task.CompletedTask;

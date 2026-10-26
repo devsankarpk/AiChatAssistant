@@ -51,6 +51,7 @@ builder.Services.AddScoped<IValidator<SendDirectMessageRequest>, SendDirectMessa
 // shared across API replicas through Redis; without it they stay in this process (one replica only).
 builder.Services.AddRealtime(builder.Configuration);
 builder.Services.AddSingleton<IDirectNotifier, SignalRDirectNotifier>();
+builder.Services.AddScoped<PresenceAnnouncer>();
 builder.Services.AddScoped<IDirectDeliveryService, DirectDeliveryService>();
 
 // Python AI service client. InternalApiKey is the shared secret from CLAUDE.md's X-Internal-Key

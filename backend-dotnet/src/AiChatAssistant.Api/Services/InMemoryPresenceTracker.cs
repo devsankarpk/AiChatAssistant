@@ -75,4 +75,7 @@ public class InMemoryPresenceTracker : IPresenceTracker
         Task.FromResult(UserDisconnected(userId, connectionId));
 
     public Task RefreshAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<LapsedPresence>> SweepLapsedAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<LapsedPresence>>(Array.Empty<LapsedPresence>());
 }
