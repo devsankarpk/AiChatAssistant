@@ -41,7 +41,12 @@ touch a MySQL outside the compose stack.**
 | `08-async-replies-browser` | async replies in the chat page: pending, replied, failed, Send again, reload, lost push, switching chats, two tabs, accessibility | Phase 18 |
 | `09-chaos` | combined and sequential failures: broker stops mid-reply, both brokers stop, rolling restart of every replica under load, MySQL down, everything restarting at once, with final consistency invariants | Phase 20 |
 | `10a-real-llm-failure` | the real Python service with an invalid provider key (async and default mode), then the right key | after 19 |
+| `11-security` | Phase 21 on the normal stack: the real nginx's security headers, the CSP in a real browser (with injected-script and framing negative controls), sign-in rate limit with a spoofed `X-Forwarded-For`, a counter shared through Redis that survives an API restart, chat quota, account lockout (known and unknown emails alike), the lock message on the login page, a typing flood | Phase 21 |
 | `10b-regression-real-llm` | register, a real AI reply, forgot-password, login error, direct messages with ticks and events, with async replies on and off | regression |
+
+`demo-phase21.mjs` is not a suite: it is a narrated demo of Phase 21 (two users signed in in two Chrome windows chatting live, the headers, the lockout screen, the rate limit) that saves screenshots under `e2e/shots/demo21/`. Run it against a normal stack started with the default limits.
+
+**Abuse limits and the suites:** `run.sh` exports `RATE_AUTH_PER_MINUTE`, `RATE_CHAT_PER_MINUTE` and `LOCKOUT_MAX_ATTEMPTS` as 100000 (and `compose.e2e.yml` defaults them the same) because the suites register dozens of people from one address. `11-security` lowers them itself by recreating the API and puts them back at the end.
 
 ## Adding a check
 

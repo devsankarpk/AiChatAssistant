@@ -124,6 +124,21 @@ describe('ChatComponent flows', () => {
       expect(text()).toContain('Send again');
     });
 
+    it('over the chat quota (429): keeps the question as failed, shows the wait, and offers "Send again"', async () => {
+      await send('one question too many');
+      http.expectOne(`${API}/sessions/s1/messages`).flush(
+        { error: { code: 'rate_limited', message: 'Too many requests. Try again in 30 seconds.' } },
+        { status: 429, statusText: 'Too Many Requests' },
+      );
+      http.expectOne(`${API}/sessions`).flush([session('s1', 'one question too many')]);
+      fixture.detectChanges();
+
+      expect(component.messages().map((m) => [m.content, !!m.failed])).toEqual([['one question too many', true]]);
+      expect(el('.composer-error')?.textContent).toContain('Try again in 30 seconds');
+      expect(text()).toContain('Send again');
+      expect(component.sending()).toBeFalse();
+    });
+
     it('"Send again" sends the same text once more, without a duplicate of the failed copy', async () => {
       await send('try me');
       http.expectOne(`${API}/sessions/s1/messages`).flush({ error: { code: 'x', message: 'down' } }, { status: 503, statusText: 'x' });

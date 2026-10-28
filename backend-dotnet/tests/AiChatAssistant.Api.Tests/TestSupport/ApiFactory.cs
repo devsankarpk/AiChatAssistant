@@ -2,7 +2,10 @@ using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Services;
+using System.Net;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -31,6 +34,12 @@ public class ApiFactory : WebApplicationFactory<Program>
     /// <summary>Switch on the async reply path (needs a RabbitMQ host to pass start-up validation; the broker itself is replaced).</summary>
     public bool AsyncReplies { get; init; }
 
+    /// <summary>Extra configuration for a test class that needs, for example, a low rate limit. Applied after the defaults below.</summary>
+    public Dictionary<string, string> Settings { get; } = new();
+
+    /// <summary>The address the test server pretends the caller connected from, when a test sends no X-Test-Remote-Ip header (a trusted private address, like the proxy in the containers).</summary>
+    public const string DefaultRemoteIp = "10.0.0.9";
+
     private readonly string _dbName = Guid.NewGuid().ToString();
     private readonly InMemoryDatabaseRoot _root = new();
 
@@ -45,6 +54,14 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        // The abuse limits are off by default so ordinary tests can make as many requests as they like; the tests that are about the limits turn them on.
+        builder.UseSetting("RateLimiting:AuthPerMinute", "100000");
+        builder.UseSetting("RateLimiting:ChatPerMinute", "100000");
+        builder.UseSetting("Lockout:MaxFailedAttempts", "100000");
+        foreach (var (key, value) in Settings)
+        {
+            builder.UseSetting(key, value);
+        }
         if (AsyncReplies)
         {
             builder.UseSetting("Chat:AsyncReplies", "true");
@@ -55,6 +72,7 @@ public class ApiFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
+            services.AddTransient<IStartupFilter, FakeRemoteIpFilter>();
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.AddDbContext<AppDbContext>(o => o
                 .UseInMemoryDatabase(_dbName, _root)
@@ -106,6 +124,24 @@ public class ApiFactory : WebApplicationFactory<Program>
             return (user, token);
         });
     }
+}
+
+/// <summary>
+/// The test server has no network, so every request would arrive from "no address". This gives each one a caller address (the
+/// X-Test-Remote-Ip header, else a trusted private one) before anything else runs, which is what the forwarded-headers and rate-limit tests need.
+/// </summary>
+internal sealed class FakeRemoteIpFilter : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use(async (context, nextMiddleware) =>
+        {
+            var fake = context.Request.Headers["X-Test-Remote-Ip"].FirstOrDefault() ?? ApiFactory.DefaultRemoteIp;
+            context.Connection.RemoteIpAddress = IPAddress.Parse(fake);
+            await nextMiddleware();
+        });
+        next(app);
+    };
 }
 
 public static class HttpClientExtensions

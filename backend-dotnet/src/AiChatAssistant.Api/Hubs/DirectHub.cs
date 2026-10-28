@@ -22,9 +22,15 @@ public class DirectHub : Hub
     private readonly PresenceAnnouncer _announcer;
     private readonly AppDbContext _db;
     private readonly ILogger<DirectHub> _logger;
+    private readonly TimeProvider _time;
 
-    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, PresenceAnnouncer announcer, AppDbContext db, ILogger<DirectHub> logger)
+    /// <summary>The most often one connection's typing signals are forwarded. The browser sends one every 3 s; anything faster is a script, not a person.</summary>
+    public static readonly TimeSpan TypingMinInterval = TimeSpan.FromMilliseconds(1000);
+    private const string LastTypingKey = "last-typing";
+
+    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, PresenceAnnouncer announcer, AppDbContext db, ILogger<DirectHub> logger, TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         _announcer = announcer;
         _logger = logger;
         _presence = presence;
@@ -87,6 +93,14 @@ public class DirectHub : Hub
         {
             return;
         }
+
+        // Cheapest check first, before any database work: a flood of signals from one connection costs nothing.
+        var now = _time.GetUtcNow();
+        if (Context.Items.TryGetValue(LastTypingKey, out var last) && last is DateTimeOffset lastAt && now - lastAt < TypingMinInterval)
+        {
+            return;
+        }
+        Context.Items[LastTypingKey] = now;
 
         var conversation = await _db.DirectConversations.AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == conversationId && (c.UserLowId == userId || c.UserHighId == userId));

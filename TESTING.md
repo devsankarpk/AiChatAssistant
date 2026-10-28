@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 725 automated tests (365 .NET, 65 Python, 295 Angular), all passing, plus 261 end-to-end checks in 12 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 787 automated tests (424 .NET, 65 Python, 298 Angular), all passing, plus 304 end-to-end checks in 13 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -500,11 +500,11 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | BRK-02 | Forgot password publishes an email job only for existing users | Same generic response either way; retries; dead-letter after the last failure | .NET | Built in Phase 17, see 5.14 (`QUE-*`) |
 | BRK-03 | Async AI reply (`Chat:AsyncReplies` on) | `202` then `AssistantReplied`; a redelivered job is a no-op; failure then retry then `AssistantFailed`; broker down gives `503` with the user message kept | .NET + Angular | Built in Phase 18, see 5.16 (`ASY-*`) and section 15 |
 | BRK-04 | Direct-chat events | Written in the same transaction as the change; payload never contains message text | .NET | Built in Phase 19, see 5.17 (`OBX-*`) and section 15 |
-| SEC-01 | More than the allowed login attempts from one IP | `429` in the standard error shape, then allowed again after the window | .NET | Planned (Phase 21) |
-| SEC-02 | Behind the proxy, `X-Forwarded-For` | The limiter keys on the real client IP, not the proxy address | .NET | Planned (Phase 21) |
-| SEC-03 | Repeated failed logins for one account | Account locked for the configured time; correct password still refused while locked | .NET | Planned (Phase 21) |
-| SEC-04 | Per-user chat quota exceeded | `429`, user message not sent to the LLM | .NET | Planned (Phase 21) |
-| SEC-05 | Response headers from nginx | CSP, `X-Content-Type-Options`, frame-ancestors and referrer policy present; no server version | Manual | Planned (Phase 21) |
+| SEC-01 | More than the allowed login attempts from one IP | `429` in the standard error shape, then allowed again after the window | .NET | Done: `AuthRateLimitTests` (8), `RateLimitCounterTests` (7), `ResilientRateLimitCounterTests` (3), `RateLimitSwitchTests`; real stack `S21-14`..`S21-19` |
+| SEC-02 | Behind the proxy, `X-Forwarded-For` | The limiter keys on the real client IP, not the proxy address | .NET | Done: `AuthRateLimitTests`: `BehindATrustedProxy_EachRealClientGetsItsOwnBucket`, `ASpoofedLeftmostAddress_DoesNotGiveAFreshBucket`, `FromAnUntrustedAddress_TheForwardedHeaderIsIgnored_...`; real stack `S21-14`, `S21-16` |
+| SEC-03 | Repeated failed logins for one account | Account locked for the configured time; correct password still refused while locked | .NET | Done: `LockoutPipelineTests` (8), `LoginLockoutTests` (7); real stack `S21-26`..`S21-34` |
+| SEC-04 | Per-user chat quota exceeded | `429`, user message not sent to the LLM | .NET | Done: `ChatRateLimitTests` (5); real stack `S21-22`..`S21-25` |
+| SEC-05 | Response headers from nginx | CSP, `X-Content-Type-Options`, frame-ancestors and referrer policy present; no server version | .NET + e2e | Done: Automated against the real nginx: suite `11-security`, `S21-01`..`S21-12` (headers, CSP in a real browser, blocked injected script, no framing) |
 | ACC-01 | Change password with the wrong current password | `400`, nothing changes | .NET | Planned (Phase 22) |
 | ACC-02 | Change password successfully | Old password stops working; other sessions' tokens are rejected | .NET | Planned (Phase 22) |
 | ACC-03 | Delete account | User and their chats, messages and tokens removed; cannot log in afterwards | .NET | Planned (Phase 22) |
@@ -2011,3 +2011,93 @@ Because `DirectHub` now announces through `PresenceAnnouncer`, the two-browser s
 |---|---|---|
 | S-F5 | Fixed (test infrastructure) | The 60 s hang above. |
 | S-F6 | Open, recommended | **The production nginx (`frontend/nginx.conf`) has the same default**: if an API container dies hard and `/api` is proxied to several replicas, a request that lands on it hangs for 60 s before nginx tries another. Adding a short `proxy_connect_timeout` and `proxy_next_upstream error timeout` there would remove it. Not changed here (not part of this task; with one API replica there is nothing to fail over to). |
+
+## 22. Phase 21: security hardening (2026-10-28)
+
+**What was built.** Rate limiting (per client address on register, login, forgot-password and reset-password; per signed-in user on sending a chat message and on retrying a reply), account lockout, trusted-proxy handling so the real client address is used, security headers from nginx (including a Content-Security-Policy) and from the API, no HTTPS-redirect warning in containers, and a throttle on typing signals. Details and settings: `README.md` Phase 21 and the `CLAUDE.md` entry.
+
+### 22.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **424 passed, 0 failed** (365 before + 59 new) |
+| Python | 65 passed (unchanged) |
+| Angular | **298 passed, 0 failed** (295 before + 3 new) |
+| Angular production build | succeeds, initial bundle 327.25 kB (unchanged), 0 inline event handlers in `index.html` |
+| Migration drift | none (no schema change: lockout and limits live in Redis or memory) |
+| **Total automated** | **787 passed, 0 failed** |
+
+### 22.2 The 59 new .NET tests and 3 new Angular specs
+
+| Class | Tests | What it checks |
+|---|---|---|
+| `AuthRateLimitTests` | 8 | the request over the limit is `429 rate_limited` with `Retry-After` and the standard shape; register, login, forgot and reset share one per-address bucket; another address has its own; limit headers on allowed responses; unmarked endpoints (`/health`, `/api/auth/me`) never limited; **behind a trusted proxy each real client has its own bucket, a spoofed leftmost `X-Forwarded-For` gives no fresh bucket, and from an untrusted address the header is ignored** |
+| `ChatRateLimitTests` | 5 | the per-user quota refuses the over-quota question before anything is saved and without calling the AI; per person, not per address; reading chats never limited; reply retries count against the same quota; a signed-out caller is still `401` |
+| `RateLimitSwitchTests` | 1 | switched off, nothing is limited even with a limit of 1 |
+| `LockoutPipelineTests` | 8 | the fifth wrong password is `423 account_locked` with the wait and `Retry-After`; the right password is refused while locked; **an email with no account behaves exactly like one with an account**; a success resets the count; one email's lock does not affect another; casing and spaces do not escape the lock; a badly formed login is `400` and not counted; resetting the password unlocks the account |
+| `ApiSecurityHeadersTests` | 7 | nosniff, `DENY` and `no-referrer` on every kind of response (`401`, `404`, `/health`, success, and an unhandled `500`); `no-store` under `/api` only; no HTTPS redirect without an HTTPS port |
+| `RateLimitCounterTests` | 7 | counting, window start and end, separate keys, peek without counting, reset, 200 parallel hits all counted, ended windows swept out |
+| `ResilientRateLimitCounterTests` | 3 | Redis used while it answers; memory used (and no exception) when it is down; reset clears both sides |
+| `LoginLockoutTests` | 7 | locks on the failure that reaches the limit; says how long is left and unlocks at the window end; per email; success clears; case and spaces do not give a fresh count; **the store never sees the email address**; switched off means never locked |
+| `SecurityConfigurationTests` | 9 | five nonsense limits stop start-up naming the setting; a switched-off feature is not validated; defaults (10 and 20 a minute, 5 failures, 15 minutes); in-memory counters without Redis, Redis-with-fallback with it |
+| `TypingThrottleTests` | 4 | a burst from one connection is forwarded once; allowed again after the interval; each connection has its own allowance; the browser's normal pace (every 3 s) is never dropped |
+| Angular `login-flows` (2) and `chat-flows` (1) | 3 | `423` shows the lock message and stores nothing; `429` shows the wait inline; a `429` on a chat question keeps it as failed with "Send again" |
+
+### 22.3 Real Docker stack: the normal stack (one API behind the real nginx, Redis on, real AI service): suite `11-security` is 37/37
+
+| Check | Result |
+|---|---|
+| `S21-01`..`S21-06` headers from the real nginx: CSP (scripts only from this site, no framing, plugins or foreign forms), the other headers, no nginx version, headers also on static files and SPA deep links, each API header once and `no-store`, HSTS only when `X-Forwarded-Proto` is https | all PASS |
+| `S21-07` `nginx -t` in the running container | PASS (`test is successful`) |
+| `S21-08` register, chat, Messages and Appointments under the policy in real Chrome | PASS, **no CSP violation** |
+| `S21-09` the SignalR WebSocket connects under `connect-src` | PASS |
+| `S21-10`/`S21-11`/`S21-12` negative controls: an injected `<script>` does not run (the browser reports `script-src-elem`), an inline `onclick` does not run, the app cannot be framed (Chrome shows "refused to connect") | all PASS |
+| `S21-13`..`S21-17` limit of 5: five wrong sign-ins `401`, the sixth `429`, **although each request carried a different fake `X-Forwarded-For`**; `Retry-After 58 s`; the counter is in Redis under the real client address (`ratelimit:auth:ip:192.168.65.1`; nginx itself is `172.18.0.7`), value 6, expires within the window | all PASS |
+| `S21-18` after the API container is recreated the address is still blocked (`429`): the count is in Redis, so a restart is not a way around the limit | PASS |
+| `S21-19` after the minute the address may try again | PASS (41 s of polling, statuses `429,401`) |
+| `S21-20`/`S21-21` no "Failed to determine the https port" warning; refusals are logged with policy and path but no email or password | PASS |
+| `S21-22`..`S21-25` chat quota of 2: two real AI answers (`200 200`), the third `429`, not saved and no AI call (4 messages), another person unaffected, reading never limited | all PASS |
+| `S21-26`..`S21-31` lockout after 4 failures: `401 401 401 423`; the right password refused while locked; **unknown email `401 401 401 423` too (identical)**; others unaffected; Redis keys are hashes with no email, each expiring within the minute | all PASS |
+| `S21-32` the login page shows "Too many failed login attempts. Try again in 1 minute, or reset your password." (screenshot) | PASS |
+| `S21-33`/`S21-34` after the minute the right password works and the count is cleared | PASS |
+| `S21-35`/`S21-36` 20 typing signals in a burst reach the other person once; after a second the next one goes through | PASS |
+| `S21-37` the API is put back to the standard configuration | PASS |
+
+### 22.4 Demo (`e2e/demo-phase21.mjs`, default limits, two real Chrome windows)
+
+Alice and Bob logged in in separate windows and chatted live (delivered and read ticks, online dots, a toast on the other side); 0 CSP violations while doing so; an injected script did not run; five wrong passwords for Bob gave `401 401 401 401 423` and the login page showed the 15-minute lock message; Bob's open window kept working and Alice could still log in (`200`); with a rotating fake `X-Forwarded-For`, requests 1 to 10 were `401` and 11 to 14 were `429` (`Retry-After 60`), counted under one Redis key. Screenshots: `e2e/shots/demo21/` (`1-alice-messages.png`, `2-bob-messages.png`, `3-lockout-login-page.png`).
+
+### 22.4b Regression: the earlier real-stack suites after Phase 21
+
+| Suite | Result | Why it matters for Phase 21 |
+|---|---|---|
+| `01-foundation` | 16/16 | error shapes (`401`, `404`) unchanged by the new middleware |
+| `02-email-queue` | 30/30 | forgot-password, now rate limited, still gives the same generic answer in every case |
+| `03-presence-and-backplane` | 44/44 | the hub (typing throttle, shared `PresenceAnnouncer`) and Redis still behave |
+| `04-direct-chat-browser` | 19/19 | two real browsers, three replicas: ticks, typing, presence, delete, privacy, accessibility (after the harness fix below) |
+| `05-async-replies` | 40/40 | the chat send path with the quota in front of it |
+| `08-async-replies-browser` | 17/17 | async replies in the chat page (after the harness fix below) |
+| `10b-regression-real-llm` (sync and async) | 10/10 and 10/10 | the **whole app in a real browser under the real CSP**, with the real AI service: register, a real reply, forgot-password, login error, direct messages |
+| `11-security` | 37/37 | the new suite |
+
+Not re-run: `06`, `07`, `09`, `10a` (outbox, black-hole and scale, chaos, invalid provider key): nothing they exercise changed in Phase 21.
+
+### 22.5 Findings
+
+| ID | Status | Finding |
+|---|---|---|
+| S21-F1 | **Fixed (real defect found by the real-browser check)** | Angular's production build loaded the global stylesheet with `media="print" onload="this.media='all'"`. A strict CSP forbids inline handlers, so with the new policy the browser would have blocked it and left the stylesheet unapplied. Unit tests cannot see this; the browser check (`S21-08`) reported `script-src-attr inline`. Fixed with `optimization.styles.inlineCritical: false` in `angular.json` (the stylesheet is now a plain `<link>`); the built page has 0 inline handlers and the same bundle size. |
+| S21-F2 | Fixed (test) | `nginx -t` check read an empty string because the helper returns only stdout on success and nginx prints its verdict on stderr. |
+| S21-F3 | Fixed (test) | A long-lived Chrome started for the CSP section was closed by the time the lockout screen was checked minutes later (`Protocol error: Connection closed`). Each section now starts its own browser. |
+| S21-F4 | Open (unexplained, once) | `S21-19` ("allowed again after the minute") failed once in 4 runs and passed in the others. Its failing run polled 75 s without seeing the window end, which the Redis script cannot normally cause (the window is set at the first hit and never extended). The wait is now 90 s and the check prints the statuses and the key's TTL, so a repeat will show whether it is timing or a real defect. The run that died with its session left no result. |
+| S21-F8 | Fixed (test harness) | Suites `04` and `08` inject the axe-core accessibility library into the page as an inline script, which the new CSP correctly blocks (`axe is not defined`, a crash after 14 of 19 checks). `openPage` now turns the policy off for the browsers of the other suites (`bypassCsp`, default on, and suite 08's own page helper does the same); `11-security` and the demo pass `bypassCsp: false` so the policy is only bypassed where it is not the thing being tested. Suite `10b` does not bypass it and passes. |
+| S21-F5 | Info (by design) | All four auth endpoints share one per-address bucket of 10 a minute, so people behind one NAT share it. The demo showed it: its own earlier sign-ins used the bucket up. Tunable with `RateLimiting:AuthPerMinute`. |
+| S21-F6 | Info | Lockout counts live in Redis (shared, survives a restart) or, with no Redis, in memory (per replica, lost on restart). The lock lasts to the end of the window that started at the first failure; it does not extend with further attempts. |
+| S21-F7 | Info | The suites register dozens of people from one address, so `e2e/run.sh` sets the limits to 100000 for every suite except `11-security`. |
+
+### 22.6 Not covered
+- `06`, `07`, `09` and `10a` were not re-run (see 22.4b).
+- Real multi-replica sharing of the counter (the unit tests use fakes and the real-stack run has one API replica; the Redis script and the restart survival are proven, a second replica is not).
+- A Redis outage during limiting (the fallback is unit tested, not exercised against a paused Redis).
+- HSTS on a real HTTPS terminator (only the `X-Forwarded-Proto` header path was tested).
+- Firefox, Safari and phones for the CSP; Chrome only.

@@ -435,8 +435,8 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
 | 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | Done |
-| 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | **Next up** |
-| 3 | **22** | Change password, profile, delete account, optional email verification | — | Planned |
+| 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Done |
+| 3 | **22** | Change password, profile, delete account, optional email verification | — | **Next up** |
 | 4 | **23** | Access and refresh tokens, real logout | 22 | Planned |
 | 5 | **24** | Chat rename, delete, search, paging | — | Planned |
 | 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | Planned |
@@ -653,7 +653,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 704 automated tests (344 .NET, 65 Python, 295 Angular) and 261 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 787 automated tests (424 .NET, 65 Python, 298 Angular) and 304 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -714,7 +714,7 @@ Nothing here is a hidden failure: every check in `./e2e/run.sh` passes. These ar
 | L-09 | **Not tried here:** more than three replicas, backlogs far beyond 3,000 events, sustained load or soak runs, a firewall that silently drops packets (a paused container was used instead), real SMTP, Firefox, Safari and real phones. | Unknown behaviour at larger scale or on other browsers. | Extend `e2e/` (a 5-replica run, a 30,000-event backlog, an hour-long soak with periodic failures, a Playwright run on Firefox and WebKit, a real SMTP test account). | `LIM-09` | Open |
 | L-10 | **The de-duplication keys in Redis live 24 h** and are keyed by outbox id. | After restoring the database to an older state (ids reused), repeated ids would be ignored for up to 24 h. Test environments only. | Include a database "epoch" in the key, or clear `dedupe:*` as part of a restore procedure (Phase 27). | `LIM-10` | Open |
 
-### Post-plan — Hardening and product gaps (Phases 21–28) — **planned, not started**
+### Post-plan — Hardening and product gaps (Phases 21–28) — **Phase 21 done, 22–28 planned**
 
 > Status: **planned.** This section comes from a gap analysis of the finished app (Phases 1–8 and the post-plan work). Every gap below was checked against the code; none of the fixes exist yet and all checkboxes are open. Each phase is built, tested and reviewed on its own. Migrations are generated but never applied to the host dev database without asking.
 
@@ -755,12 +755,13 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 
 **Ideas not planned yet** (no phase; each needs a decision and its own plan before work starts): file or image upload in chats, a per-chat system prompt or persona, background or push notifications beyond the in-app toast (Phase 12), browser end-to-end tests with Playwright (end-to-end checks are a manual checklist in `TESTING.md` for now), and real doctor-appointment booking (doctors, slots, bookings).
 
-#### Phase 21 — Security hardening *(backend + nginx)*
-- [ ] API rate limiting: per-IP on login, register and forgot-password; a per-user chat quota; `429` in the standard error shape
-- [ ] Forwarded-headers and trusted-proxy configuration so the real client IP is used; fix the HTTPS-redirect warning in containers
-- [ ] Account lockout after repeated failed logins (with a clear message and a timed unlock)
-- [ ] nginx security headers (CSP, `X-Content-Type-Options`, frame-ancestors, referrer policy, `server_tokens off`); HSTS in production
-- [ ] Tests with `WebApplicationFactory` (the setup exists since test phase T2: `TestSupport/ApiFactory.cs`)
+#### Phase 21 — Security hardening *(backend + nginx)* — **done**
+- [x] API rate limiting: per client IP on register, login, forgot-password and reset-password (10 a minute); a per-user chat quota (20 a minute) on sending a message and on retrying a reply; `429 rate_limited` in the standard error shape with `Retry-After` and `RateLimit-*` headers. Counted in Redis when it is configured (shared by every replica, survives a restart), in memory otherwise; a Redis outage falls back to memory instead of failing requests.
+- [x] Forwarded headers: `X-Forwarded-For`/`-Proto` are believed only from the configured networks (`ForwardedHeaders:KnownNetworks`, default loopback and the private ranges), taking the entry the proxy added (the rightmost), so a client cannot choose its own address; the HTTPS-redirect warning is gone (`Https:RedirectEnabled`, on only in Development).
+- [x] Account lockout: `Lockout:MaxFailedAttempts` (5) failures within `Lockout:LockoutMinutes` (15) lock the email with `423 account_locked` (message, `Retry-After`); the right password is refused while locked; a successful login or a password reset clears the count. Counted per email text (hashed in Redis), so an address with no account locks exactly like one that has one.
+- [x] nginx security headers (`frontend/nginx-security-headers.inc`): CSP (scripts only from this site, no framing, connections only to this host incl. the hub WebSocket), `nosniff`, `X-Frame-Options`, referrer and permissions policies, same-origin opener policy, `server_tokens off`, HSTS only behind HTTPS; the API sets its own `nosniff`/`DENY`/`no-referrer` and `Cache-Control: no-store` under `/api`.
+- [x] Tests with `WebApplicationFactory` (`SecurityPipelineTests`, `SecurityUnitTests`) and a real-stack suite (`e2e/suites/11-security.mjs`, 37 checks) plus a narrated demo (`e2e/demo-phase21.mjs`). Report: `TESTING.md` section 22.
+- [x] Extra: typing signals are throttled in the hub (one forwarded a second per connection); the production build no longer emits an inline `onload` handler (it would have been blocked by the new CSP and left the global stylesheet unapplied: `optimization.styles.inlineCritical` is off).
 
 #### Phase 22 — Account management *(backend + frontend)*
 - [ ] Change password (requires the current password), edit profile name, delete account with confirmation

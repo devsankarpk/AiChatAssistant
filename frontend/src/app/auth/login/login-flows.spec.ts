@@ -75,6 +75,35 @@ describe('LoginComponent flows', () => {
     expect(localStorage.getItem('aichat.auth.token')).toBeNull();
   });
 
+  it('a locked account (423): shows the lock message with the wait, stays on the page, stores nothing', () => {
+    create();
+    fill();
+    component.submit();
+
+    http.expectOne(URL).flush(
+      { error: { code: 'account_locked', message: 'Too many failed login attempts. Try again in 15 minutes, or reset your password.' } },
+      { status: 423, statusText: 'Locked' },
+    );
+    fixture.detectChanges();
+
+    expect(el('.form-error')?.textContent).toContain('Try again in 15 minutes');
+    expect(el('.form-error')?.textContent).toContain('reset your password');
+    expect(component.submitting()).toBeFalse();
+    expect(navigateByUrl).not.toHaveBeenCalled();
+    expect(localStorage.getItem('aichat.auth.token')).toBeNull();
+  });
+
+  it('too many requests (429): shows the server\'s "try again in N seconds" message inline', () => {
+    create();
+    fill();
+    component.submit();
+
+    http.expectOne(URL).flush({ error: { code: 'rate_limited', message: 'Too many requests. Try again in 42 seconds.' } }, { status: 429, statusText: 'Too Many Requests' });
+
+    expect(component.errorMessage()).toBe('Too many requests. Try again in 42 seconds.');
+    expect(component.submitting()).toBeFalse();
+  });
+
   it('server unreachable: says so in plain words', () => {
     create();
     fill();

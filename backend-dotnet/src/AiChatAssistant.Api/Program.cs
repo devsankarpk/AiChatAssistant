@@ -7,6 +7,8 @@ using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Hubs;
 using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Realtime;
+using AiChatAssistant.Api.Security;
+using Microsoft.AspNetCore.HttpOverrides;
 using AiChatAssistant.Api.Middleware;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Validators;
@@ -50,6 +52,8 @@ builder.Services.AddScoped<IValidator<SendDirectMessageRequest>, SendDirectMessa
 // Realtime direct chat (Phase 11): SignalR + presence. With Redis:ConnectionString set (Phase 16) both are
 // shared across API replicas through Redis; without it they stay in this process (one replica only).
 builder.Services.AddRealtime(builder.Configuration);
+// Rate limiting, login lockout and trusted-proxy handling (Phase 21). After AddRealtime: it shares Redis when that is configured.
+builder.Services.AddSecurityHardening(builder.Configuration);
 builder.Services.AddSingleton<IDirectNotifier, SignalRDirectNotifier>();
 builder.Services.AddScoped<PresenceAnnouncer>();
 builder.Services.AddScoped<IDirectDeliveryService, DirectDeliveryService>();
@@ -200,8 +204,17 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
 var app = builder.Build();
 
+// First: the real client address (from the proxy's X-Forwarded-For, trusted only from the configured networks) must be in place before
+// anything logs or counts it. Skipped when ForwardedHeaders:Enabled is false.
+if (builder.Configuration.GetValue("ForwardedHeaders:Enabled", true))
+{
+    app.UseForwardedHeaders();
+}
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseExceptionHandling();
 
 // Configure the HTTP request pipeline.
@@ -211,11 +224,17 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Behind a TLS-terminating proxy (the containers) there is no HTTPS port here to redirect to, and enabling this only logs
+// "Failed to determine the https port for redirect" on every request. On by default for local development only.
+if (builder.Configuration.GetValue("Https:RedirectEnabled", app.Environment.IsDevelopment()))
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseCors(FrontendCorsPolicy);
 
 app.UseAuthentication();
+app.UseMiddleware<RateLimitMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
