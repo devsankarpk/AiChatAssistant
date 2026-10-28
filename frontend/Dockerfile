@@ -10,6 +10,7 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx-security-headers.inc /etc/nginx/security-headers.inc
 COPY --from=build /app/dist/ai-chat-assistant-ui/browser /usr/share/nginx/html
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \

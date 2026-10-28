@@ -37,6 +37,7 @@ public static class RealtimeExtensions
         services.AddSingleton<IPresenceStore, RedisPresenceStore>();
         services.AddSingleton<IPresenceTracker, RedisPresenceTracker>();
         services.AddHostedService<PresenceHeartbeatService>();
+        services.AddHostedService<PresenceSweeper>();
         return services;
     }
 

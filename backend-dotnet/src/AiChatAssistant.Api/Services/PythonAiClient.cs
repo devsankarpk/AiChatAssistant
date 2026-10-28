@@ -32,11 +32,11 @@ public class PythonAiClient : IPythonAiClient
         {
             response = await _http.PostAsJsonAsync("generate", request, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is (HttpRequestException or TaskCanceledException) && !cancellationToken.IsCancellationRequested)
         {
             // TaskCanceledException here means our own client-side timeout (HttpClient.Timeout) fired,
-            // not that the caller cancelled - a genuine cancellationToken cancellation propagates
-            // as OperationCanceledException matching the token, which this filter doesn't catch.
+            // not that the caller cancelled - a genuine cancellation (the caller's token is cancelled, e.g. the
+            // browser went away) is let through as an OperationCanceledException, not reported as an AI outage.
             _logger.LogError(ex, "Could not reach the Python AI service");
             throw new PythonServiceUnavailableException("The AI service is unreachable.", ex);
         }

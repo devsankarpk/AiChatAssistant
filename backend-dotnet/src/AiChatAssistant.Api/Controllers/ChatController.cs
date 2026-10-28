@@ -3,6 +3,7 @@ using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Chat;
 using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
+using AiChatAssistant.Api.Security;
 using AiChatAssistant.Api.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
@@ -94,6 +95,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpPost("sessions/{id:guid}/messages")]
+    [RateLimit(RateLimitPolicy.Chat)]
     [ProducesResponseType<SendMessageResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<SendMessageAcceptedResponse>(StatusCodes.Status202Accepted)]
     public async Task<ActionResult<SendMessageResponse>> SendMessage(Guid id, SendMessageRequest request, CancellationToken cancellationToken)
@@ -240,6 +242,7 @@ public class ChatController : ControllerBase
     /// job that is already pending; 409 for one that is done. 404 for someone else's job.
     /// </summary>
     [HttpPost("jobs/{jobId:guid}/retry")]
+    [RateLimit(RateLimitPolicy.Chat)]
     public async Task<ActionResult<RetryReplyResponse>> RetryReply(Guid jobId, CancellationToken cancellationToken)
     {
         var job = await _db.AiReplyJobs.FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);

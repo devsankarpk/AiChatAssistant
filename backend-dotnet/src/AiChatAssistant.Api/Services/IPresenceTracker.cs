@@ -1,5 +1,8 @@
 namespace AiChatAssistant.Api.Services;
 
+/// <summary>A person whose every connection lapsed without a clean disconnect (their API replica died). <paramref name="LastSeenUtc"/> is their last heartbeat.</summary>
+public sealed record LapsedPresence(int UserId, DateTime LastSeenUtc);
+
 /// <summary>
 /// Who has at least one live realtime connection right now. A user can have several (one per
 /// browser tab, and with several API replicas on different replicas), so "online" means "one or more
@@ -24,4 +27,10 @@ public interface IPresenceTracker
     /// process dies the marks lapse and its users drop offline by themselves. Nothing to do in memory.
     /// </summary>
     Task RefreshAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// People who are now offline because their replica crashed: nobody ran their disconnect, so nobody announced it. Each person is
+    /// returned to exactly one caller, across all replicas. Empty when there is nothing to do (always, in memory).
+    /// </summary>
+    Task<IReadOnlyList<LapsedPresence>> SweepLapsedAsync(CancellationToken cancellationToken = default);
 }

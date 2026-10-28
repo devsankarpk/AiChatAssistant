@@ -434,9 +434,9 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 
 | Step | Phase | What it delivers | Needs first | Status |
 |---|---|---|---|---|
-| 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | **Next up** |
-| 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Planned |
-| 3 | **22** | Change password, profile, delete account, optional email verification | — | Planned |
+| 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | Done |
+| 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Done |
+| 3 | **22** | Change password, profile, delete account, optional email verification | — | **Next up** |
 | 4 | **23** | Access and refresh tokens, real logout | 22 | Planned |
 | 5 | **24** | Chat rename, delete, search, paging | — | Planned |
 | 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | Planned |
@@ -455,9 +455,9 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 | 19 | **18** | Async AI replies (revisit after streaming, Phase 25) | 11, 15 | **Done** (early, at the user's request) |
 | 20 | **19** | Direct-chat event fan-out | 11, 15 | **Done** (early, at the user's request) |
 | 21 | **20** | End-to-end check of the brokers (and the committed `e2e/` suites) | 16–19 | **Done** (early, at the user's request) |
-| 22 | **T3** | Python gap tests | — | Planned |
-| 23 | **T4** | Angular gap specs | — | Planned |
-| 24 | **T5** | Test close-out | T3, T4 | Planned |
+| 22 | **T3** | Python gap tests | — | Done (done early, at your request) |
+| 23 | **T4** | Angular gap specs | — | Done (done early, at your request) |
+| 24 | **T5** | Test close-out | T3, T4 | Done (done early, at your request) |
 | 25 | **T6** | Test follow-ups from the broker and realtime phases (committed browser suites, partition test, 3 replicas, migration check) | — | Planned (can be done any time) |
 
 **Carry-overs created by this order** (work in an earlier phase that a later phase must honour; each is also a checklist item in the later phase):
@@ -620,6 +620,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 #### Phase 16 — Redis: SignalR backplane and presence — **done**
 - [x] SignalR Redis backplane; `RedisPresenceTracker` (per-user connection set with a TTL and heartbeat); in-memory fallback when Redis is not configured
 - [x] Tests; two API replicas in Docker prove a push crosses instances
+- [x] Follow-up (backlog L-04, done 2026-10-25): a sweeper announces people whose replica crashed (last-seen saved, contacts told), exactly once, with a hold-off after any Redis failure. Report: `TESTING.md` section 21 (it also records an intermittent test failure traced to the test load balancer's 60 s connect wait, fixed; and the same default in the production `nginx.conf`, left open).
 
 > Done. **What it does:** with `Redis:ConnectionString` set, SignalR uses the Redis backplane (a push from one API replica reaches users connected to another; channels are prefixed `aichat`) and presence lives in Redis, so the API can run as several replicas (`docker compose --env-file docker.env up -d --scale api=2`, then `docker compose --env-file docker.env restart web` so nginx re-resolves the replicas). Without it (local development with no Docker) everything stays in memory exactly as before. **Presence design:** one sorted set per user, `presence:user:{id}`, members are connection ids, scores are the moment each connection's mark lapses. Come-online and go-offline decisions run as Lua scripts, so two replicas handling a user's first two tabs at the same instant announce "online" exactly once. Each replica refreshes the marks of its own connections every `Presence:HeartbeatSeconds` (15) and a mark lapses after `Presence:TtlSeconds` (45), so a replica that dies drops its users offline within that time. The tracker also keeps this process's own connections in memory: it is what the heartbeat refreshes, and what answers when Redis is unreachable (presence then reflects only this server; connections made during the outage are re-created in Redis by the next heartbeat). `IPresenceTracker` became async (`IsOnlineAsync`, `OnlineAmongAsync`, `UserConnectedAsync`, `UserDisconnectedAsync`, `RefreshAsync`); the conversation list asks for all peers in one round trip. **Frontend:** the SignalR client now connects with WebSockets only and `skipNegotiation: true`, because behind a round-robin proxy the negotiate request and the socket can land on different replicas (14 of 30 connections worked with negotiation, 30 of 30 without). **Failure behaviour:** Redis down means live pushes stop for everyone (the backplane carries them) while REST, saving and `/health` keep working; a request that touches Redis is slowed by at most the 2 s timeout; pushes resume by themselves when Redis returns. A crashed replica sends no "went offline" event and saves no last-seen time. **Tests:** 20 new .NET tests (161 .NET, 341 overall) and, against a real Redis and two replicas, 32 API/SignalR checks, 4 negative-control checks, 2 proxy checks, 16 browser checks and an 8-check regression, all passing; see `TESTING.md` section 14. Done ahead of the Roadmap's order at the user's request; the Roadmap's "next up" is still T2.
 
@@ -652,35 +653,38 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 439 automated tests (239 .NET, 12 Python, 188 Angular) and 261 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 787 automated tests (424 .NET, 65 Python, 298 Angular) and 304 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
 - [x] Links from this README and `CLAUDE.md`
 
 #### Phase T2 — .NET gap tests
-- [ ] `AdminControllerTests` (page-size cap of 100, date filter, `from` > `to` is `400`, joined fields)
-- [ ] `TokenServiceTests` (claims, expiry, signature)
-- [ ] `PythonAiClientTests` with a stubbed `HttpMessageHandler` (snake_case body, `X-Internal-Key`, timeout and non-success become `PythonServiceUnavailableException`)
-- [ ] `ValidatorTests` (register, login, reset-password, send-message edge cases)
-- [ ] `ExceptionHandlingMiddlewareTests` (`500` in the standard shape, no stack trace)
-- [ ] `ErrorShapeIntegrationTests` with `WebApplicationFactory` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`): `401`, `403`, `404`, `/health`
-- [ ] `SmtpEmailSender` fail-fast test; history-window test in `ChatControllerTests`
+- [x] `AdminControllerTests` (page-size cap of 100, date filter, `from` > `to` is `400`, joined fields) - 9 tests
+- [x] `TokenServiceTests` (claims, expiry, signature) - 8 tests
+- [x] `PythonAiClientTests` with a stubbed `HttpMessageHandler` (snake_case body, `X-Internal-Key`, timeout and non-success become `PythonServiceUnavailableException`) - 12 tests
+- [x] `ValidatorTests` (register, login, reset-password, send-message edge cases) - 28 tests
+- [x] `ExceptionHandlingMiddlewareTests` (`500` in the standard shape, no stack trace) - 4 tests
+- [x] Pipeline tests with `WebApplicationFactory` (adds the test-only package `Microsoft.AspNetCore.Mvc.Testing`; `PipelineTests`, 21): `401`, `403`, `404`, `500`, `/health`, hub token rules, direct-chat privacy, forgot-password sameness
+- [x] `AsyncReplyPipelineTests` (9): `202`, `503`, the jobs and retry endpoints
+- [x] `StartupConfigurationTests` (10): fail-fast configuration; `SmtpEmailSender` fail-fast tests already existed; history-window tests added to `ChatControllerTests` (4)
+- [x] Fixed on the way: a caller cancellation was reported as an AI outage (`PythonAiClient`). Report: `TESTING.md` section 18. 344 .NET tests, 544 automated overall.
 
 #### Phase T3 — Python gap tests
-- [ ] Malformed or missing body fields return `422`
-- [ ] `history` with an invalid role is rejected
+- [x] Malformed or missing body fields return `422` (18 tests; the LLM is never called)
+- [x] `history` with an invalid role is rejected (12 tests; only `user` and `assistant`)
+- [x] Extra: leniency and pass-through, response shape, auth details, config fail-fast (23 tests), plus a mutation spot-check. Report: `TESTING.md` section 19. 65 Python tests, 597 automated overall.
 
 #### Phase T4 — Angular gap specs
-- [ ] `authGuard` / `adminGuard`, `jwt.ts`, `extractErrorMessage`, `AppTitleStrategy`
-- [ ] `ChatService` and `AdminService` (URLs, params, bodies)
-- [ ] More `ChatComponent` flows (send success, `503` failed state, retry, title refresh) and `UsageComponent` (paging, filter, "Not tracked")
-- [ ] Login and register error mapping on the page
+- [x] `authGuard` / `adminGuard` (8), `jwt.ts` (15), `extractErrorMessage` (6), `AppTitleStrategy` (3)
+- [x] `AdminService` (6); `ChatService` already covered (7)
+- [x] More `ChatComponent` flows (26: send success, `503` failed state, retry, title refresh, errors, sidebar) and `UsageComponent` (22: paging, filter, "Not tracked")
+- [x] Login (11) and register (10) error mapping on the page. 107 new specs, 295 Angular in total.
 
 #### Phase T5 — Close-out
-- [ ] `TESTING.md` statuses changed from *Planned* to real test names; before/after counts recorded
-- [ ] Mutation spot-check: break one rule (for example the 100 page-size cap, or the `401` body), confirm the matching test fails, revert
-- [ ] Full run of all three suites
+- [x] `TESTING.md` statuses changed from *Planned* to real test names for T2, T3 and T4 (the rows left *Planned* are the unbuilt features of sections 6 and 7); before/after counts recorded (439 to 704)
+- [x] Mutation spot-check: nine rules broken one at a time across .NET, Python and Angular (page-size cap, `401` body, history window, admin guard, error message, pager, roles, prompt, auth); each made tests fail; all reverted
+- [x] Full run of all three suites plus the production build and the migration drift check. Report: `TESTING.md` section 20.
 
 #### Phase T6 — Test follow-ups from Phases 15–17 *(open, to be done later)*
 Gaps recorded in `TESTING.md` sections 13.6 and 14.8 that were not closed when Phases 15 to 17 were built. Not blocking anything; pick them up whenever convenient.
@@ -702,7 +706,7 @@ Nothing here is a hidden failure: every check in `./e2e/run.sh` passes. These ar
 | L-01 | **MySQL down:** requests answer `500 internal_error` (standard error shape, in about 100 ms). It recovers by itself and in-flight jobs finish once. | Clients cannot tell "the database is down" from a bug; the Angular error interceptor toasts it as unexpected. | Map database connection failures to `503 service_unavailable` in `ExceptionHandlingMiddleware`; show a "try again shortly" message in the page. | `LIM-01` | Open |
 | L-02 | **Password-reset email is lost if RabbitMQ is down** when it is requested (the token is saved, nothing is queued, no inline fallback). | That one person never gets the link (they can ask again). | Write the email job to the outbox table in the same transaction as the reset token and let the dispatcher publish it (exactly the Phase 19 pattern), so it survives a broker outage. | `LIM-02` | Open |
 | L-03 | **Outbox throughput is about 35 events/s across three replicas** (each event costs a claim save, a confirmed publish and a mark save). | A sustained rate above that builds a backlog (it drains when load drops; chat is not slowed). | Claim and mark a whole batch in one statement; publish the batch with one confirmation wait. | `LIM-03` | Open |
-| L-04 | **A crashed replica** (killed, not stopped) sends no "went offline" event and saves no last-seen time; its users drop offline after the 45 s mark lifetime. | Peers keep seeing "Online" in their open page for a while; last seen is missing for that session. | A sweeper that notices lapsed presence marks, saves last-seen and broadcasts the offline event. | `LIM-04` | Open |
+| L-04 | ~~**A crashed replica** sends no "went offline" event and saves no last-seen time~~ **Fixed (Phase 16 follow-up, 2026-10-25).** `PresenceSweeper` (every `Presence:SweepSeconds`, 10) asks Redis for people whose every mark lapsed more than `Presence:SweepGraceSeconds` (20) ago, saves their last-seen time (their last heartbeat) and announces them offline through `PresenceAnnouncer`, the same code a clean disconnect uses. An index (`presence:index`) finds them without scanning; one Lua script hands each person to exactly one replica. A replica pauses its sweeping for grace plus one heartbeat after it last failed to reach Redis, so a long Redis outage cannot make it declare live people gone. | Detection takes at most `TtlSeconds + SweepGraceSeconds + SweepSeconds` (75 s by default; 5.6 s with the end-to-end timings). | Done | `LIM-04` | Done |
 | L-05 | **Redis down:** live pushes stop for everyone (the backplane carries even same-replica pushes); REST keeps working; the chat page finds a reply by itself within about 15 s. | Direct chat and typing/presence updates are stale until Redis returns. | Alert on Redis availability (Phase 27); optionally deliver same-replica pushes locally when the backplane is unreachable. | `LIM-05` | Open |
 | L-06 | **Event order** is exact with one replica and best effort with several (two dispatchers can publish neighbouring rows in either order). | Only matters to a future subscriber that needs strict order. | Dispatch per conversation (claim a conversation, publish its rows in order) or let subscribers sort by outbox id. | `LIM-06` | Open |
 | L-07 | **One pending reply per chat:** the composer is locked while a reply is being produced. | A person cannot line up a second question. | Allow several pending jobs per chat and show them in order. | `LIM-07` | Open |
@@ -710,7 +714,7 @@ Nothing here is a hidden failure: every check in `./e2e/run.sh` passes. These ar
 | L-09 | **Not tried here:** more than three replicas, backlogs far beyond 3,000 events, sustained load or soak runs, a firewall that silently drops packets (a paused container was used instead), real SMTP, Firefox, Safari and real phones. | Unknown behaviour at larger scale or on other browsers. | Extend `e2e/` (a 5-replica run, a 30,000-event backlog, an hour-long soak with periodic failures, a Playwright run on Firefox and WebKit, a real SMTP test account). | `LIM-09` | Open |
 | L-10 | **The de-duplication keys in Redis live 24 h** and are keyed by outbox id. | After restoring the database to an older state (ids reused), repeated ids would be ignored for up to 24 h. Test environments only. | Include a database "epoch" in the key, or clear `dedupe:*` as part of a restore procedure (Phase 27). | `LIM-10` | Open |
 
-### Post-plan — Hardening and product gaps (Phases 21–28) — **planned, not started**
+### Post-plan — Hardening and product gaps (Phases 21–28) — **Phase 21 done, 22–28 planned**
 
 > Status: **planned.** This section comes from a gap analysis of the finished app (Phases 1–8 and the post-plan work). Every gap below was checked against the code; none of the fixes exist yet and all checkboxes are open. Each phase is built, tested and reviewed on its own. Migrations are generated but never applied to the host dev database without asking.
 
@@ -751,12 +755,13 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 
 **Ideas not planned yet** (no phase; each needs a decision and its own plan before work starts): file or image upload in chats, a per-chat system prompt or persona, background or push notifications beyond the in-app toast (Phase 12), browser end-to-end tests with Playwright (end-to-end checks are a manual checklist in `TESTING.md` for now), and real doctor-appointment booking (doctors, slots, bookings).
 
-#### Phase 21 — Security hardening *(backend + nginx)*
-- [ ] API rate limiting: per-IP on login, register and forgot-password; a per-user chat quota; `429` in the standard error shape
-- [ ] Forwarded-headers and trusted-proxy configuration so the real client IP is used; fix the HTTPS-redirect warning in containers
-- [ ] Account lockout after repeated failed logins (with a clear message and a timed unlock)
-- [ ] nginx security headers (CSP, `X-Content-Type-Options`, frame-ancestors, referrer policy, `server_tokens off`); HSTS in production
-- [ ] Tests with `WebApplicationFactory` (needs test phase T2)
+#### Phase 21 — Security hardening *(backend + nginx)* — **done**
+- [x] API rate limiting: per client IP on register, login, forgot-password and reset-password (10 a minute); a per-user chat quota (20 a minute) on sending a message and on retrying a reply; `429 rate_limited` in the standard error shape with `Retry-After` and `RateLimit-*` headers. Counted in Redis when it is configured (shared by every replica, survives a restart), in memory otherwise; a Redis outage falls back to memory instead of failing requests.
+- [x] Forwarded headers: `X-Forwarded-For`/`-Proto` are believed only from the configured networks (`ForwardedHeaders:KnownNetworks`, default loopback and the private ranges), taking the entry the proxy added (the rightmost), so a client cannot choose its own address; the HTTPS-redirect warning is gone (`Https:RedirectEnabled`, on only in Development).
+- [x] Account lockout: `Lockout:MaxFailedAttempts` (5) failures within `Lockout:LockoutMinutes` (15) lock the email with `423 account_locked` (message, `Retry-After`); the right password is refused while locked; a successful login or a password reset clears the count. Counted per email text (hashed in Redis), so an address with no account locks exactly like one that has one.
+- [x] nginx security headers (`frontend/nginx-security-headers.inc`): CSP (scripts only from this site, no framing, connections only to this host incl. the hub WebSocket), `nosniff`, `X-Frame-Options`, referrer and permissions policies, same-origin opener policy, `server_tokens off`, HSTS only behind HTTPS; the API sets its own `nosniff`/`DENY`/`no-referrer` and `Cache-Control: no-store` under `/api`.
+- [x] Tests with `WebApplicationFactory` (`SecurityPipelineTests`, `SecurityUnitTests`) and a real-stack suite (`e2e/suites/11-security.mjs`, 37 checks) plus a narrated demo (`e2e/demo-phase21.mjs`). Report: `TESTING.md` section 22.
+- [x] Extra: typing signals are throttled in the hub (one forwarded a second per connection); the production build no longer emits an inline `onload` handler (it would have been blocked by the new CSP and left the global stylesheet unapplied: `optimization.styles.inlineCritical` is off).
 
 #### Phase 22 — Account management *(backend + frontend)*
 - [ ] Change password (requires the current password), edit profile name, delete account with confirmation
@@ -810,7 +815,7 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 | Admin + polish | 7–8 | Week 3 |
 | User-to-user chat (done) | 9–14 | one phase at a time, after Phases 21–28 (see the Roadmap) |
 | Message brokers: Redis + RabbitMQ (done) | 15–20 | all six done early at the user's request |
-| Test plan and gap tests (T1 done, T2–T6 planned) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
+| Test plan and gap tests (T1–T5 done, T6 mostly done) | T1–T6 | T2 first; T3–T5 last; T6 any time (see the Roadmap) |
 | Hardening and product gaps (planned) | 21–28 | right after T2, before the chat phases |
 
 ---

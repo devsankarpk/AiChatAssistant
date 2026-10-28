@@ -103,6 +103,11 @@ services:
       Redis__ConnectionString: redis:6379,password=${REDIS_PASSWORD}
       # Phase 18: the send request answers 202 and a RabbitMQ worker produces the reply. Off by default.
       Chat__AsyncReplies: ${CHAT_ASYNC_REPLIES:-false}
+      # Phase 21: rate limits (per client IP for sign-up and password endpoints, per user for sending a chat message) and login lockout.
+      RateLimiting__AuthPerMinute: ${RATE_AUTH_PER_MINUTE:-10}
+      RateLimiting__ChatPerMinute: ${RATE_CHAT_PER_MINUTE:-20}
+      Lockout__MaxFailedAttempts: ${LOCKOUT_MAX_ATTEMPTS:-5}
+      Lockout__LockoutMinutes: ${LOCKOUT_MINUTES:-15}
     depends_on:
       migrate:
         condition: service_completed_successfully

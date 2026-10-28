@@ -19,6 +19,9 @@ mkdir -p e2e/results; rm -f e2e/results/*.json e2e/results/*.done
 
 STUB="docker compose --env-file docker.env -f docker-compose.yml -f e2e/compose.e2e.yml"
 REAL="docker compose --env-file docker.env"
+# The Phase 21 abuse limits would throttle the suites themselves (dozens of registrations from one address), so every suite
+# except 11-security runs with them effectively off; that suite sets real values itself and puts these back when it ends.
+export RATE_AUTH_PER_MINUTE=${RATE_AUTH_PER_MINUTE:-100000} RATE_CHAT_PER_MINUTE=${RATE_CHAT_PER_MINUTE:-100000} LOCKOUT_MAX_ATTEMPTS=${LOCKOUT_MAX_ATTEMPTS:-100000}
 selected() { local f; f=$(basename "$1"); [ ${#WANT[@]} -eq 0 ] && return 0; for w in "${WANT[@]}"; do [[ "$f" == "$w"* ]] && return 0; done; return 1; }
 wait_healthy() { for _ in $(seq 1 90); do n=$($1 ps --format '{{.Service}} {{.Health}}' | grep -cE "$2"); [ "$n" = "$3" ] && return 0; sleep 3; done; return 1; }
 
@@ -41,6 +44,8 @@ if [ $NEED_B = 1 ]; then
   $REAL up -d --build --remove-orphans --force-recreate || exit 1
   wait_healthy "$REAL" '^(api|web|ai-service|rabbitmq|redis|mysql) healthy' 6 || { echo "stack did not become healthy"; exit 1; }
   sleep 8
+  # 11 checks the real nginx headers, rate limits and lockout against the normal stack, so it goes first (unchanged configuration)
+  selected e2e/suites/11-security.mjs && run_suite suites/11-security.mjs real
   # 10a changes the provider key and the async flag itself, and says so; afterwards put the normal configuration back
   selected e2e/suites/10a-real-llm-failure.mjs && run_suite suites/10a-real-llm-failure.mjs real
   if selected e2e/suites/10b-regression-real-llm.mjs; then

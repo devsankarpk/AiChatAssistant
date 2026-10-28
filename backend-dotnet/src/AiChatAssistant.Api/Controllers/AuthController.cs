@@ -6,6 +6,7 @@ using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
 using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
+using AiChatAssistant.Api.Security;
 using AiChatAssistant.Api.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,7 @@ public class AuthController : ControllerBase
     private readonly IValidator<LoginRequest> _loginValidator;
     private readonly IValidator<ForgotPasswordRequest> _forgotPasswordValidator;
     private readonly IValidator<ResetPasswordRequest> _resetPasswordValidator;
+    private readonly ILoginLockout _lockout;
 
     public AuthController(
         AppDbContext db,
@@ -40,8 +42,10 @@ public class AuthController : ControllerBase
         IValidator<LoginRequest> loginValidator,
         IValidator<ForgotPasswordRequest> forgotPasswordValidator,
         IValidator<ResetPasswordRequest> resetPasswordValidator,
+        ILoginLockout lockout,
         ILogger<AuthController> logger)
     {
+        _lockout = lockout;
         _db = db;
         _tokenService = tokenService;
         _emailQueue = emailQueue;
@@ -55,6 +59,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("register")]
     [AllowAnonymous]
+    [RateLimit(RateLimitPolicy.Auth)]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
         var validation = await _registerValidator.ValidateAsync(request, cancellationToken);
@@ -88,6 +93,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [RateLimit(RateLimitPolicy.Auth)]
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
         var validation = await _loginValidator.ValidateAsync(request, cancellationToken);
@@ -97,15 +103,28 @@ public class AuthController : ControllerBase
         }
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+
+        // Checked before the password, so a locked email is refused even with the right password (otherwise lockout slows nothing down).
+        var lockState = await _lockout.CheckAsync(normalizedEmail);
+        if (lockState.Locked)
+        {
+            return AccountLocked(lockState);
+        }
+
         var user = await _db.Users
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
             .SingleOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
 
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
-            return Unauthorized(new ErrorResponse("invalid_credentials", "Email or password is incorrect."));
+            // Counted for unknown emails exactly as for known ones, so lockout reveals nothing about which emails are registered.
+            lockState = await _lockout.RecordFailureAsync(normalizedEmail);
+            return lockState.Locked
+                ? AccountLocked(lockState)
+                : Unauthorized(new ErrorResponse("invalid_credentials", "Email or password is incorrect."));
         }
 
+        await _lockout.ClearAsync(normalizedEmail);
         var roles = user.UserRoles.Select(ur => ur.Role.Name).ToArray();
         return Ok(BuildAuthResponse(user, roles));
     }
@@ -127,6 +146,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("forgot-password")]
     [AllowAnonymous]
+    [RateLimit(RateLimitPolicy.Auth)]
     public async Task<ActionResult<AuthMessageResponse>> ForgotPassword(ForgotPasswordRequest request, CancellationToken cancellationToken)
     {
         var validation = await _forgotPasswordValidator.ValidateAsync(request, cancellationToken);
@@ -181,6 +201,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("reset-password")]
     [AllowAnonymous]
+    [RateLimit(RateLimitPolicy.Auth)]
     public async Task<ActionResult<AuthMessageResponse>> ResetPassword(ResetPasswordRequest request, CancellationToken cancellationToken)
     {
         var validation = await _resetPasswordValidator.ValidateAsync(request, cancellationToken);
@@ -203,7 +224,19 @@ public class AuthController : ControllerBase
         resetToken.UsedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Someone who just proved they own the mailbox must not stay locked out of the account they have just recovered.
+        await _lockout.ClearAsync(resetToken.User.Email);
+
         return Ok(new AuthMessageResponse("Your password has been reset. You can now log in."));
+    }
+
+    private ObjectResult AccountLocked(LockoutState state)
+    {
+        var minutes = Math.Max(1, (int)Math.Ceiling(state.RetryAfter.TotalMinutes));
+        Response.Headers["Retry-After"] = Math.Max(1, (int)Math.Ceiling(state.RetryAfter.TotalSeconds)).ToString();
+        return StatusCode(
+            StatusCodes.Status423Locked,
+            new ErrorResponse("account_locked", $"Too many failed login attempts. Try again in {minutes} minute{(minutes == 1 ? "" : "s")}, or reset your password."));
     }
 
     private static string GenerateRawToken() =>

@@ -12,7 +12,7 @@ cleanDb(); purgeAll();
 await stub.control({ reset: true, delay_ms: 0, fail_next: 0, fail_always: false });
 
 const browser = await launch();
-const open = async () => { const ctx = await browser.createBrowserContext(); const p = await ctx.newPage(); p.errs = []; p.on('pageerror', e => p.errs.push(String(e))); await p.setViewport({ width: 1280, height: 800 }); return p; };
+const open = async () => { const ctx = await browser.createBrowserContext(); const p = await ctx.newPage(); await p.setBypassCSP(true); /* the axe-core check below injects an inline script, which the app's CSP (checked by 11-security) forbids */ p.errs = []; p.on('pageerror', e => p.errs.push(String(e))); await p.setViewport({ width: 1280, height: 800 }); return p; };
 const n = (p, sel) => p.$$eval(sel, e => e.length);
 const txt = (p, sel) => p.$$eval(sel, els => els.map(e => e.innerText.trim()));
 const body = p => p.evaluate(() => document.body.innerText);

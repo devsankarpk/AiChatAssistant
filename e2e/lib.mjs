@@ -156,9 +156,14 @@ export async function launch() {
   const { default: puppeteer } = await import('puppeteer-core');
   return puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
 }
-export async function openPage(browser, { width = 1280, height = 800 } = {}) {
+/**
+ * `bypassCsp` is on by default: the app now sends a Content-Security-Policy that forbids inline scripts, and several suites inject the
+ * axe-core accessibility library into the page as one. The policy itself is checked by 11-security and the demo, which pass `bypassCsp: false`.
+ */
+export async function openPage(browser, { width = 1280, height = 800, bypassCsp = true } = {}) {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
+  if (bypassCsp) await page.setBypassCSP(true);
   page.errs = [];
   page.on('pageerror', e => page.errs.push(String(e)));
   await page.setViewport({ width, height });
