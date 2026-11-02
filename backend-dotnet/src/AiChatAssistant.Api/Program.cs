@@ -2,6 +2,7 @@ using System.Text;
 using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
+using AiChatAssistant.Api.Dtos.Account;
 using AiChatAssistant.Api.Dtos.Chat;
 using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Hubs;
@@ -35,6 +36,13 @@ builder.Services.AddScoped<IValidator<RegisterRequest>, RegisterRequestValidator
 builder.Services.AddScoped<IValidator<LoginRequest>, LoginRequestValidator>();
 builder.Services.AddScoped<IValidator<ForgotPasswordRequest>, ForgotPasswordRequestValidator>();
 builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordRequestValidator>();
+builder.Services.AddScoped<IValidator<VerifyEmailRequest>, VerifyEmailRequestValidator>();
+builder.Services.AddScoped<IValidator<ResendVerificationRequest>, ResendVerificationRequestValidator>();
+// Account management (Phase 22)
+builder.Services.Configure<AccountOptions>(builder.Configuration.GetSection(AccountOptions.SectionName));
+builder.Services.AddScoped<IValidator<UpdateProfileRequest>, UpdateProfileRequestValidator>();
+builder.Services.AddScoped<IValidator<ChangePasswordRequest>, ChangePasswordRequestValidator>();
+builder.Services.AddScoped<IValidator<DeleteAccountRequest>, DeleteAccountRequestValidator>();
 // Password-reset email delivery. Email:Provider picks the sender (smtp = real mail via MailKit, see
 // SmtpEmailSender for the Smtp:Username/Password secrets; console = log the link, dev only). With
 // RabbitMq:Host set the email is queued and a background worker sends, retries and dead-letters it;
@@ -114,6 +122,16 @@ builder.Services.AddAuthentication(options =>
                     context.Token = accessToken;
                 }
                 return Task.CompletedTask;
+            },
+            // A valid signature is not enough: the account must still exist and the password must not have changed since the token was issued.
+            OnTokenValidated = async context =>
+            {
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var reason = await AccountTokenValidator.ValidateAsync(db, context.Principal!, context.HttpContext.RequestAborted);
+                if (reason is not null)
+                {
+                    context.Fail(reason);
+                }
             },
             OnAuthenticationFailed = context =>
             {

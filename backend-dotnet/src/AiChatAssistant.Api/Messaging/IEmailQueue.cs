@@ -10,6 +10,9 @@ namespace AiChatAssistant.Api.Messaging;
 public interface IEmailQueue
 {
     Task EnqueuePasswordResetAsync(string toEmail, string toName, string resetLink, CancellationToken cancellationToken);
+
+    /// <summary>The "confirm your email" mail: same delivery path, retries and dead-lettering as a reset.</summary>
+    Task EnqueueEmailVerificationAsync(string toEmail, string toName, string verifyLink, CancellationToken cancellationToken);
 }
 
 /// <summary>The no-broker path: send immediately through <see cref="IEmailSender"/>.</summary>
@@ -24,4 +27,7 @@ public sealed class InlineEmailQueue : IEmailQueue
 
     public Task EnqueuePasswordResetAsync(string toEmail, string toName, string resetLink, CancellationToken cancellationToken)
         => _sender.SendPasswordResetEmailAsync(toEmail, toName, resetLink, cancellationToken);
+
+    public Task EnqueueEmailVerificationAsync(string toEmail, string toName, string verifyLink, CancellationToken cancellationToken)
+        => _sender.SendEmailVerificationAsync(toEmail, toName, verifyLink, cancellationToken);
 }

@@ -27,6 +27,9 @@ export class LoginComponent {
 
   readonly submitting = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  /** True when the server said the password was right but the email is not confirmed yet: the page then offers a new link. */
+  readonly needsConfirmation = signal(false);
+  readonly resendMessage = signal<string | null>(null);
 
   submit(): void {
     if (this.form.invalid || this.submitting()) {
@@ -36,6 +39,8 @@ export class LoginComponent {
 
     this.submitting.set(true);
     this.errorMessage.set(null);
+    this.needsConfirmation.set(false);
+    this.resendMessage.set(null);
 
     this.auth.login(this.form.getRawValue()).subscribe({
       next: () => {
@@ -44,8 +49,18 @@ export class LoginComponent {
       },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
+        this.needsConfirmation.set(err.status === 403 && err.error?.error?.code === 'email_not_verified');
         this.errorMessage.set(extractErrorMessage(err));
       },
+    });
+  }
+
+  /** Asks for another confirmation link for the typed address. The answer is the same whatever the address. */
+  resendConfirmation(): void {
+    this.resendMessage.set(null);
+    this.auth.resendVerification({ email: this.form.getRawValue().email.trim() }).subscribe({
+      next: (res) => this.resendMessage.set(res.message),
+      error: (err: HttpErrorResponse) => this.errorMessage.set(extractErrorMessage(err)),
     });
   }
 }

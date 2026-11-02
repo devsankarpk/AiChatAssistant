@@ -23,7 +23,23 @@ public class SmtpEmailSender : IEmailSender
         _logger = logger;
     }
 
-    public async Task SendPasswordResetEmailAsync(string toEmail, string toName, string resetLink, CancellationToken cancellationToken)
+    public Task SendPasswordResetEmailAsync(string toEmail, string toName, string resetLink, CancellationToken cancellationToken) =>
+        SendAsync(toEmail, toName, "Reset your AI Chat Assistant password",
+            $"Hi {toName},\n\n" +
+            "We received a request to reset your AI Chat Assistant password. This link is valid for 1 hour:\n\n" +
+            $"{resetLink}\n\n" +
+            "If you didn't request this, you can safely ignore this email.",
+            "Password reset", cancellationToken);
+
+    public Task SendEmailVerificationAsync(string toEmail, string toName, string verifyLink, CancellationToken cancellationToken) =>
+        SendAsync(toEmail, toName, "Confirm your AI Chat Assistant email address",
+            $"Hi {toName},\n\n" +
+            "Welcome to AI Chat Assistant. Please confirm your email address with this link, valid for 24 hours:\n\n" +
+            $"{verifyLink}\n\n" +
+            "If you didn't create an account, you can safely ignore this email.",
+            "Email verification", cancellationToken);
+
+    private async Task SendAsync(string toEmail, string toName, string subject, string text, string what, CancellationToken cancellationToken)
     {
         var host = _configuration["Smtp:Host"] ?? "smtp.gmail.com";
         var port = _configuration.GetValue("Smtp:Port", 587);
@@ -37,14 +53,8 @@ public class SmtpEmailSender : IEmailSender
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(fromName, fromEmail));
         message.To.Add(new MailboxAddress(toName, toEmail));
-        message.Subject = "Reset your AI Chat Assistant password";
-        message.Body = new TextPart("plain")
-        {
-            Text = $"Hi {toName},\n\n" +
-                   "We received a request to reset your AI Chat Assistant password. This link is valid for 1 hour:\n\n" +
-                   $"{resetLink}\n\n" +
-                   "If you didn't request this, you can safely ignore this email.",
-        };
+        message.Subject = subject;
+        message.Body = new TextPart("plain") { Text = text };
 
         using var client = new SmtpClient();
         // Revocation checking (OCSP/CRL) can fail to complete on some networks even though the
@@ -57,7 +67,7 @@ public class SmtpEmailSender : IEmailSender
         await client.SendAsync(message, cancellationToken);
         await client.DisconnectAsync(true, cancellationToken);
 
-        _logger.LogInformation("Password reset email sent to {ToEmail}", toEmail);
+        _logger.LogInformation("{What} email sent to {ToEmail}", what, toEmail);
     }
 
     private string RequiredSetting(string key, string environmentVariable)

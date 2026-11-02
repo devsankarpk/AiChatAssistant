@@ -13,6 +13,8 @@ public class ResetPasswordRequestValidator : AbstractValidator<ResetPasswordRequ
         RuleFor(r => r.NewPassword)
             .NotEmpty()
             .MinimumLength(8)
-            .WithMessage("Password must be at least 8 characters long.");
+            .WithMessage("Password must be at least 8 characters long.")
+            .MaximumLength(128)
+            .WithMessage("Password must be at most 128 characters long.");
     }
 }

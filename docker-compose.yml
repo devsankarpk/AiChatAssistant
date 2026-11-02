@@ -108,6 +108,9 @@ services:
       RateLimiting__ChatPerMinute: ${RATE_CHAT_PER_MINUTE:-20}
       Lockout__MaxFailedAttempts: ${LOCKOUT_MAX_ATTEMPTS:-5}
       Lockout__LockoutMinutes: ${LOCKOUT_MINUTES:-15}
+      # Phase 22: require people to confirm their email before they can log in (off by default; people who register while it is off count as confirmed).
+      Account__RequireEmailVerification: ${ACCOUNT_REQUIRE_EMAIL_VERIFICATION:-false}
+      Email__Provider: ${EMAIL_PROVIDER:-smtp}
     depends_on:
       migrate:
         condition: service_completed_successfully

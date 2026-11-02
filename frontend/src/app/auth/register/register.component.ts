@@ -3,6 +3,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
+import { isRegistrationPending } from '../../core/models/auth.models';
 import { AuthService } from '../../core/services/auth.service';
 import { extractErrorMessage } from '../../core/utils/http-error';
 import { PasswordVisibilityDirective } from '../../core/directives/password-visibility.directive';
@@ -29,6 +30,9 @@ export class RegisterComponent {
 
   readonly submitting = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  /** Set when the server wants the email confirmed first: the page then says "check your email" instead of signing in. */
+  readonly pendingEmail = signal<string | null>(null);
+  readonly resendMessage = signal<string | null>(null);
 
   submit(): void {
     if (this.form.invalid || this.submitting()) {
@@ -40,11 +44,31 @@ export class RegisterComponent {
     this.errorMessage.set(null);
 
     this.auth.register(this.form.getRawValue()).subscribe({
-      next: () => this.router.navigateByUrl('/'),
+      next: (response) => {
+        if (isRegistrationPending(response)) {
+          this.submitting.set(false);
+          this.pendingEmail.set(this.form.getRawValue().email.trim());
+        } else {
+          this.router.navigateByUrl('/');
+        }
+      },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
         this.errorMessage.set(extractErrorMessage(err));
       },
+    });
+  }
+
+  /** Asks for another confirmation link. The server answers the same whatever the address, so this always shows the same note. */
+  resend(): void {
+    const email = this.pendingEmail();
+    if (!email) {
+      return;
+    }
+    this.resendMessage.set(null);
+    this.auth.resendVerification({ email }).subscribe({
+      next: (res) => this.resendMessage.set(res.message),
+      error: (err: HttpErrorResponse) => this.errorMessage.set(extractErrorMessage(err)),
     });
   }
 }

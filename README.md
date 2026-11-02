@@ -436,7 +436,7 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 |---|---|---|---|---|
 | 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | Done |
 | 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Done |
-| 3 | **22** | Change password, profile, delete account, optional email verification | — | **Next up** |
+| 3 | **22** | Change password, profile, delete account, optional email verification | — | Built; real-stack check pending (Docker was unavailable) |
 | 4 | **23** | Access and refresh tokens, real logout | 22 | Planned |
 | 5 | **24** | Chat rename, delete, search, paging | — | Planned |
 | 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | Planned |
@@ -653,7 +653,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 787 automated tests (424 .NET, 65 Python, 298 Angular) and 304 end-to-end checks in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 922 automated tests (511 .NET, 65 Python, 346 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -763,11 +763,14 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 - [x] Tests with `WebApplicationFactory` (`SecurityPipelineTests`, `SecurityUnitTests`) and a real-stack suite (`e2e/suites/11-security.mjs`, 37 checks) plus a narrated demo (`e2e/demo-phase21.mjs`). Report: `TESTING.md` section 22.
 - [x] Extra: typing signals are throttled in the hub (one forwarded a second per connection); the production build no longer emits an inline `onload` handler (it would have been blocked by the new CSP and left the global stylesheet unapplied: `optimization.styles.inlineCritical` is off).
 
-#### Phase 22 — Account management *(backend + frontend)*
-- [ ] Change password (requires the current password), edit profile name, delete account with confirmation
-- [ ] Email verification (optional, behind a setting); decide the registration-enumeration behaviour
-- [ ] Angular profile page; privacy note
-- [ ] Tests: wrong current password, delete removes the user's data, enumeration behaviour as decided
+#### Phase 22 — Account management *(backend + frontend)* — **built; the real-Docker suite `12-account` is written but has not been run yet (Docker was unavailable)**
+- [x] **Change password** (`POST /api/account/change-password`, needs the current password; `invalid_current_password` `400`, `password_unchanged` `400`; wrong attempts are counted per user and lock the action with `423`). **A password change (or a reset) now signs out every older session**: `Users.PasswordChangedAt` plus an `iat` claim in the token, checked on every authenticated request (`AccountTokenValidator`, in `JwtBearerEvents.OnTokenValidated`); the response carries a new token so the current session continues. The same check makes a **deleted account's token stop working at once**. This delivers part of Phase 23's "tokens invalid after a password change".
+- [x] **Edit profile name** (`PUT /api/account/profile`, `GET /api/account`).
+- [x] **Delete account** (`POST /api/account/delete`, needs the password again; `204`). Removes the user and, through the database's foreign-key cascades, their chats, messages, usage logs, tokens and their direct conversations with the other person's side of them. The only Admin cannot delete themselves (`409 last_admin`). Rate limited like the other password endpoints.
+- [x] **Email verification, optional** (`Account:RequireEmailVerification`, default off; compose `ACCOUNT_REQUIRE_EMAIL_VERIFICATION`): registering sends a confirmation link (24 h, single use, only a hash stored, same RabbitMQ queue and retries as a password reset through a new message `Kind`); login answers `403 email_not_verified` (only after the password is right); `POST /api/auth/verify-email` and `POST /api/auth/resend-verification`. A password reset also confirms the address. People who registered before the setting existed (migration backfill) or while it is off count as confirmed, so turning it on locks nobody out.
+- [x] **Registration enumeration, decided:** with verification **off**, a taken address is still `409 email_taken` (the sign-up endpoint is rate limited to 10 a minute per address by Phase 21); with verification **on**, registering answers the same `202` for a new address, an unconfirmed one and a confirmed one, so it reveals nothing.
+- [x] **Angular:** `/profile` ("Account" tab in the top bar): details, rename, change password (with confirmation), the privacy note (what is kept, who can see it, how long) and a two-step delete (password and the typed word `DELETE`); `/verify-email`; the register page shows "Check your email" and the login page offers "Send a new confirmation link".
+- [x] Tests: 87 new .NET, 48 new Angular, six-rule mutation check; **real-stack suite `e2e/suites/12-account.mjs` (39 checks: the cascade on real MySQL, password change across two real browsers, the profile page, the confirmation flow end to end) written, not yet run.** Report: `TESTING.md` section 23. A migration (`AddAccountManagement`) was generated and is applied only to the Docker stack's database (by its `migrate` step); not to the host dev MySQL.
 
 #### Phase 23 — Sessions and tokens *(backend + frontend)*
 - [ ] Short-lived access token (about 15 minutes) and a rotating refresh token (`RefreshTokens` table, only a hash stored)

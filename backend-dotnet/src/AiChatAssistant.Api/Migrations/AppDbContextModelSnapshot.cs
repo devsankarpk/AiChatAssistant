@@ -176,6 +176,43 @@ namespace AiChatAssistant.Api.Migrations
                     b.ToTable("DirectMessages", (string)null);
                 });
 
+            modelBuilder.Entity("AiChatAssistant.Api.Models.EmailVerificationToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("EmailVerificationTokens", (string)null);
+                });
+
             modelBuilder.Entity("AiChatAssistant.Api.Models.Message", b =>
                 {
                     b.Property<int>("Id")
@@ -375,6 +412,9 @@ namespace AiChatAssistant.Api.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("varchar(256)");
 
+                    b.Property<DateTime?>("EmailVerifiedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<DateTime?>("LastSeenAt")
                         .HasColumnType("datetime(6)");
 
@@ -382,6 +422,9 @@ namespace AiChatAssistant.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("varchar(120)");
+
+                    b.Property<DateTime?>("PasswordChangedAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -494,6 +537,17 @@ namespace AiChatAssistant.Api.Migrations
                     b.Navigation("Sender");
                 });
 
+            modelBuilder.Entity("AiChatAssistant.Api.Models.EmailVerificationToken", b =>
+                {
+                    b.HasOne("AiChatAssistant.Api.Models.User", "User")
+                        .WithMany("EmailVerificationTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AiChatAssistant.Api.Models.Message", b =>
                 {
                     b.HasOne("AiChatAssistant.Api.Models.ChatSession", "Session")
@@ -574,6 +628,8 @@ namespace AiChatAssistant.Api.Migrations
             modelBuilder.Entity("AiChatAssistant.Api.Models.User", b =>
                 {
                     b.Navigation("ChatSessions");
+
+                    b.Navigation("EmailVerificationTokens");
 
                     b.Navigation("PasswordResetTokens");
 

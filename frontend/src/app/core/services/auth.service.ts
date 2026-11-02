@@ -7,6 +7,10 @@ import {
   AuthMessageResponse,
   AuthResponse,
   ForgotPasswordRequest,
+  RegistrationPendingResponse,
+  ResendVerificationRequest,
+  VerifyEmailRequest,
+  isRegistrationPending,
   LoginRequest,
   RegisterRequest,
   ResetPasswordRequest,
@@ -47,10 +51,43 @@ export class AuthService {
     }
   }
 
-  register(request: RegisterRequest): Observable<AuthResponse> {
-    return this.http
-      .post<AuthResponse>(`${environment.apiBaseUrl}/auth/register`, request)
-      .pipe(tap((response) => this.storeSession(response)));
+  /** Signs the person in, unless the server requires email confirmation first (then it answers "pending" and no session is stored). */
+  register(request: RegisterRequest): Observable<AuthResponse | RegistrationPendingResponse> {
+    return this.http.post<AuthResponse | RegistrationPendingResponse>(`${environment.apiBaseUrl}/auth/register`, request).pipe(
+      tap((response) => {
+        if (!isRegistrationPending(response)) {
+          this.storeSession(response);
+        }
+      }),
+    );
+  }
+
+  verifyEmail(request: VerifyEmailRequest): Observable<AuthMessageResponse> {
+    return this.http.post<AuthMessageResponse>(`${environment.apiBaseUrl}/auth/verify-email`, request);
+  }
+
+  /** Always answers the same, whether or not the address needs a new link. */
+  resendVerification(request: ResendVerificationRequest): Observable<AuthMessageResponse> {
+    return this.http.post<AuthMessageResponse>(`${environment.apiBaseUrl}/auth/resend-verification`, request);
+  }
+
+  /** Takes over a session the server just issued (for example the new token returned by a password change). */
+  acceptSession(response: AuthResponse): void {
+    this.storeSession(response);
+  }
+
+  /** Keeps the remembered name in step after the person renames themselves. */
+  updateStoredName(name: string): void {
+    const user = this.userSignal();
+    if (user) {
+      const updated = { ...user, name };
+      try {
+        localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      } catch {
+        // storage blocked: the name still updates for this page view
+      }
+      this.userSignal.set(updated);
+    }
   }
 
   login(request: LoginRequest): Observable<AuthResponse> {

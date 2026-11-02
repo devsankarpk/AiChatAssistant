@@ -11,6 +11,11 @@ export const routes: Routes = [
     loadComponent: () => import('./auth/register/register.component').then((m) => m.RegisterComponent),
   },
   {
+    path: 'verify-email',
+    title: 'Confirm your email',
+    loadComponent: () => import('./auth/verify-email/verify-email.component').then((m) => m.VerifyEmailComponent),
+  },
+  {
     path: 'forgot-password',
     title: 'Reset your password',
     loadComponent: () =>
@@ -50,6 +55,12 @@ export const routes: Routes = [
     title: 'Book appointment',
     canActivate: [authGuard],
     loadComponent: () => import('./appointments/appointments.component').then((m) => m.AppointmentsComponent),
+  },
+  {
+    path: 'profile',
+    title: 'Your account',
+    canActivate: [authGuard],
+    loadComponent: () => import('./account/profile/profile.component').then((m) => m.ProfileComponent),
   },
   {
     path: 'admin/usage',

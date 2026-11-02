@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 787 automated tests (424 .NET, 65 Python, 298 Angular), all passing, plus 304 end-to-end checks in 13 committed suites under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 922 automated tests (511 .NET, 65 Python, 346 Angular), all passing, plus 304 end-to-end checks in 13 committed suites (and a 14th, `12-account`, written but not yet run) under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -505,11 +505,11 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | SEC-03 | Repeated failed logins for one account | Account locked for the configured time; correct password still refused while locked | .NET | Done: `LockoutPipelineTests` (8), `LoginLockoutTests` (7); real stack `S21-26`..`S21-34` |
 | SEC-04 | Per-user chat quota exceeded | `429`, user message not sent to the LLM | .NET | Done: `ChatRateLimitTests` (5); real stack `S21-22`..`S21-25` |
 | SEC-05 | Response headers from nginx | CSP, `X-Content-Type-Options`, frame-ancestors and referrer policy present; no server version | .NET + e2e | Done: Automated against the real nginx: suite `11-security`, `S21-01`..`S21-12` (headers, CSP in a real browser, blocked injected script, no framing) |
-| ACC-01 | Change password with the wrong current password | `400`, nothing changes | .NET | Planned (Phase 22) |
-| ACC-02 | Change password successfully | Old password stops working; other sessions' tokens are rejected | .NET | Planned (Phase 22) |
-| ACC-03 | Delete account | User and their chats, messages and tokens removed; cannot log in afterwards | .NET | Planned (Phase 22) |
-| ACC-04 | Register with an existing email | Behaviour as decided in Phase 22 (generic response or `409`), covered by a test either way | .NET | Planned (Phase 22) |
-| ACC-05 | Profile page | Name edit, change-password form validation and confirm-delete dialog | Angular | Planned (Phase 22) |
+| ACC-01 | Change password with the wrong current password | `400`, nothing changes | .NET | Done: `AccountControllerTests` (wrong current password `400`, nothing changes, no new token), `AccountPipelineTests.AWrongCurrentPassword_...`; Angular `profile.component.spec` |
+| ACC-02 | Change password successfully | Old password stops working; other sessions' tokens are rejected | .NET | Done: `AccountPipelineTests.ChangingThePassword_KillsEveryOlderSession_...`, `AnOlderSession_CannotOpenTheRealtimeHubEither`, `ResettingAForgottenPassword_AlsoSignsOutOlderSessions`, `AccountTokenValidatorTests` (8) |
+| ACC-03 | Delete account | User and their chats, messages and tokens removed; cannot log in afterwards | .NET | Done: `AccountControllerTests.DeleteAccount_*` (6), `AccountPipelineTests.DeletingTheAccount_...` (token stops at once, login fails, address free again); the row-by-row cascade is checked on real MySQL by `12-account` `A22-03`..`A22-09` (written, not yet run) |
+| ACC-04 | Register with an existing email | Behaviour as decided in Phase 22 (generic response or `409`), covered by a test either way | .NET | Done: `EmailVerificationTests.WhenOn_ANewAndAnExistingAddress_GetExactlyTheSameAnswer_...`, `WhenOff_ARegisteredEmailIsStillA409`, `VerificationPipelineTests.RegisteringIs202_...` |
+| ACC-05 | Profile page | Name edit, change-password form validation and confirm-delete dialog | Angular | Done: `profile.component.spec` (23 specs: details, rename, password, the two-step delete incl. the disabled button until the exact word is typed), `verify-email.component.spec` (5), register (3) and login (2) additions, `auth-verification.spec` (7), `account.service.spec` (7) |
 | TOK-01 | Access token expires | The interceptor refreshes once and retries the request; a second `401` logs out | Angular | Planned (Phase 23) |
 | TOK-02 | Refresh token rotation | Each refresh returns a new token; reusing an old one is rejected and revokes the family | .NET | Planned (Phase 23) |
 | TOK-03 | Logout and password change | Refresh token revoked; old access token refused | .NET | Planned (Phase 23) |
@@ -527,7 +527,7 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | COST-02 | Usage aggregates | Totals per user and per day are computed server-side, not from the current page | .NET | Planned (Phase 26) |
 | COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403` | .NET | Planned (Phase 26) |
 | COST-05 | A disabled user opens the SignalR hub | Connection refused | .NET | Planned (Phase 11, because Phase 26 is built first) |
-| ACC-06 | Delete account for a user who has direct conversations | Their conversations and messages are removed or anonymised | .NET | Planned (Phase 22). The foreign keys already cascade (verified on real MySQL in Phase 10); this row covers the delete-account feature itself |
+| ACC-06 | Delete account for a user who has direct conversations | Their conversations and messages are removed or anonymised | .NET | Built: the foreign keys cascade and the code relies on them; proved on real MySQL by `12-account` `A22-03`..`A22-07` (written, **not yet run**: Docker was unavailable) |
 | SEC-06 | The CSP allows the `/hubs/` WebSocket | The hub connects in the browser with no CSP violation | Manual | Planned (Phase 11, because Phase 21 is built first) |
 | COST-04 | Usage page cost | Shows a currency value instead of "Not tracked" once cost exists | Angular | Planned (Phase 26) |
 | OPS-06 | `/health/ready` | `200` when the database is reachable, `503` when it is not | .NET | Planned (Phase 27) |
@@ -2101,3 +2101,68 @@ Not re-run: `06`, `07`, `09`, `10a` (outbox, black-hole and scale, chaos, invali
 - A Redis outage during limiting (the fallback is unit tested, not exercised against a paused Redis).
 - HSTS on a real HTTPS terminator (only the `X-Forwarded-Proto` header path was tested).
 - Firefox, Safari and phones for the CSP; Chrome only.
+
+## 23. Phase 22: account management (2026-11-02)
+
+**Status: code and automated tests done and passing; the real-Docker suite `12-account` is written but has NOT been run** (Docker Desktop would not start on this machine). The one thing that suite proves and nothing else does is that deleting an account removes every row on **real MySQL**; the in-memory tests cannot, because the in-memory database does not enforce foreign-key cascades.
+
+**Decisions made (flag if you disagree).** (1) Registration enumeration: keep `409 email_taken` while verification is off (Phase 21's limit slows probing); answer an identical `202` for every address while it is on. (2) Verification is off by default, and people who registered before it existed or while it is off count as confirmed. (3) A password change signs out all older sessions, using a per-request check of the token's issue time against `PasswordChangedAt`; it also rejects the token of a deleted account. (4) Deleting needs the password again, plus the typed word `DELETE` in the page.
+
+### 23.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET (`dotnet test`) | **511 passed, 0 failed** (424 before + 87 new) |
+| Python | 65 passed (unchanged) |
+| Angular (`ng test`) | **346 passed, 0 failed** (298 before + 48 new) |
+| Angular production build | succeeds; initial 327.98 kB (+0.7 kB); profile and verify-email are lazy chunks (14 kB and 1.9 kB); 0 inline event handlers |
+| Migration drift | none (`AddAccountManagement` generated; applied only to the Docker stack's database, never to the host dev MySQL) |
+| **Total automated** | **922 passed, 0 failed** |
+
+### 23.2 The 87 new .NET tests
+
+| Class | Tests | What it checks |
+|---|---|---|
+| `AccountControllerTests` | 21 | profile read and rename (trimmed, blank rejected, 120 limit, only the caller's row); change password: right current password changes it, stamps the time and returns a fresh token, wrong current password `400` and nothing changes, same password `400`, too short / empty / too long `400`, repeated wrong attempts lock the action even for the right password, one person's failures never lock another; delete: `204` and the user is gone, wrong password `400`, no password `400`, the only Admin `409`, an Admin may delete themselves when another exists, repeated wrong passwords lock, and these counts are separate from login failures; a token for a vanished account gets the standard `401` |
+| `AccountTokenValidatorTests` | 8 | no stamp accepts any token; a deleted account is refused; a token with no user is refused; a token issued before the password change is refused, at or after is accepted (whole seconds); after a change a token with a missing or unreadable issue time is refused; the real `TokenService` puts `iat` in the token |
+| `EmailVerificationTests` | 20 | off: registering signs in at once and counts as confirmed, a taken address is `409`; on: a new address gets `202`, no token, an unconfirmed account and a mail with a link whose token is stored only as a hash; **new, unconfirmed and confirmed addresses get exactly the same body**; a confirmed address gets no mail; registering again before confirming sends a fresh link and invalidates the old one; an un-queueable mail does not change the answer; invalid input is `400`; login while unconfirmed is `403 email_not_verified` only with the right password (wrong password `401`); a confirmed person logs in; with verification off an unconfirmed account can still log in; a link works once, bad and expired links are `400`; resend answers identically for unknown, confirmed and unconfirmed addresses and sends only to the unconfirmed; resend does nothing when verification is off; a password reset confirms the address and stamps the change |
+| `EmailKindTests` | 10 | a verification message is sent as a verification mail, a reset as a reset; both retried then dead-lettered the same way; **a message already in the queue from before this change (no `Kind`) is still a reset**; the kind survives the wire; the inline queue delivers it; the SMTP sender fails fast for a verification mail without a username; defaults |
+| `AccountValidatorTests` | 8 | name, change-password, 128-character password limit on every path that sets one, delete, verify and resend |
+| `AccountPipelineTests` | 13 | through the real `Program.cs`: every account endpoint needs a token (standard `401`); rename is visible at once; **a password change kills every older session (also on the realtime hub), keeps the current one through the returned token, and the new password works**; a wrong current password changes nothing; a reset also signs out older sessions; **deleting makes the token stop at once, the email cannot log in and is free to register again**, others unaffected; wrong password deletes nothing; the only Admin cannot delete themselves; a deleted person is not findable by the peer |
+| `AccountRateLimitTests` | 2 | change-password and delete share the address's auth limit (`429`) |
+| `VerificationPipelineTests` | 5 | register `202` with an identical body for new and existing addresses and no token; `403` until the link is used, then login works; a link works once and a fresh request kills the old one; resend answers identically for unknown and registered addresses; no JWT anywhere in a pending registration |
+
+New Angular specs (48): `profile.component.spec` 23, `account.service.spec` 7, `auth-verification.spec` 7, `verify-email.component.spec` 5, register +3, login +2, top-nav +1 (the Account tab).
+
+### 23.3 Mutation spot-check (six Phase 22 rules, each broken once, all restored)
+
+| Temporary change | Result |
+|---|---|
+| password-change stamp ignored (old sessions survive) | 4 tests failed |
+| a deleted account's token still accepted | 2 failed |
+| the only Admin may delete themselves | 2 failed |
+| delete without checking the password | 3 failed |
+| verification mode answers `409` for an existing address | 2 failed |
+| unconfirmed people may log in | 2 failed |
+
+### 23.4 Real Docker stack: suite `12-account` (39 checks): **written and syntax-checked, NOT RUN**
+
+It would check, on the normal stack with real MySQL, nginx, CSP, Chrome and the real AI service: the migration's columns and the cascading foreign key (`A22-01`, `-02`); a user with a chat, usage log, two direct conversations' worth of messages and a reset token has **every row removed on delete, and the other person's data untouched** (`A22-03`..`A22-11`); a password change on one of two real browser windows signs the other out and refuses the old token on REST and on a fresh WebSocket (`A22-12`..`A22-17`); the profile page: rename, persistence, the privacy note, the two-step delete with its disabled button and wrong-password message (`A22-18`..`A22-25`); and the confirmation flow end to end with the mail read from the API log (`A22-26`..`A22-38`). To run it: start Docker, then `./e2e/run.sh 12` (screenshots go to `e2e/shots/phase22/`).
+
+### 23.5 Findings
+
+| ID | Status | Finding |
+|---|---|---|
+| A22-F1 | **Fixed (real defect found by the new specs)** | On the profile page "Save name" could never be enabled in the browser: I had made `nameChanged` a `computed` over a form control's value, which is not a signal, so it was evaluated once (before the profile loaded) and never again. It is now a method. |
+| A22-F2 | Info (limit) | Tokens carry their issue time in whole seconds, so a session created in the **same second** as a password change is not told apart from one created after it and survives; tests wait a second to make "older" unambiguous. |
+| A22-F3 | Info (limit) | An already-open realtime connection keeps running after a password change or a deletion until it reconnects (a reconnect is refused). The REST calls fail at once. |
+| A22-F4 | Info (limit) | Deleting an account does not push a live "conversation removed" event: the other person's Messages list loses the conversation on its next refresh, and sending into it gives `404`. |
+| A22-F5 | Info (limit) | Every authenticated request now does one primary-key lookup (the account check). No cache, so a deletion or password change takes effect at once. |
+| A22-F6 | Info | The account guard (wrong-current-password counting) uses the shared login lockout counter under its own key, so it is shared across replicas through Redis and lost on restart in memory mode, like the login lockout. |
+| A22-F7 | Open | The real-stack suite has not been run (see 23.4). Until it is, the cascade on real MySQL is believed (the foreign keys were verified in Phase 10 and the migration is checked by the suite's first two checks) but not re-proven for the new tables. |
+
+### 23.6 Not covered
+- Everything in 23.4.
+- Switching verification on for a deployment that already has unconfirmed people (there are none by construction).
+- Real mail delivery (the console provider is used in the suite; SMTP is covered by its fail-fast tests only).
+- A second replica for the per-request account check (it reads the shared database, so it needs none).

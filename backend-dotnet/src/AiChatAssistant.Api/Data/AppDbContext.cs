@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<UsageLog> UsageLogs => Set<UsageLog>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
     public DbSet<AiReplyJob> AiReplyJobs => Set<AiReplyJob>();
@@ -163,6 +164,19 @@ public class AppDbContext : DbContext
             entity.Property(t => t.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.HasOne(t => t.User)
                 .WithMany(u => u.PasswordResetTokens)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(t => t.UserId);
+        });
+
+        modelBuilder.Entity<EmailVerificationToken>(entity =>
+        {
+            entity.ToTable("EmailVerificationTokens");
+            entity.Property(t => t.TokenHash).HasMaxLength(64).IsRequired(); // SHA-256 hex = 64 chars
+            entity.HasIndex(t => t.TokenHash).IsUnique();
+            entity.Property(t => t.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.HasOne(t => t.User)
+                .WithMany(u => u.EmailVerificationTokens)
                 .HasForeignKey(t => t.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(t => t.UserId);

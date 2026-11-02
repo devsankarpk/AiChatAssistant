@@ -99,6 +99,45 @@ describe('RegisterComponent flows', () => {
     http.expectOne(URL).flush({}, { status: 500, statusText: 'x' });
   });
 
+  describe('when the server wants the email confirmed first', () => {
+    const pending = { message: 'Check your email to confirm your address, then log in.', verificationRequired: true };
+
+    it('a 202 shows "Check your email" with the address, signs nobody in and goes nowhere', () => {
+      fill('New Person', 'new@example.com', 'long-enough');
+      component.submit();
+
+      http.expectOne(URL).flush(pending, { status: 202, statusText: 'Accepted' });
+      fixture.detectChanges();
+
+      expect(el('h1')?.textContent).toContain('Check your email');
+      expect(el('.auth-card')?.textContent).toContain('new@example.com');
+      expect(localStorage.getItem('aichat.auth.token')).toBeNull();
+      expect(navigateByUrl).not.toHaveBeenCalled();
+      expect(el('input[type=email]')).toBeNull(); // the form is gone
+    });
+
+    it('"Send the link again" asks the server for a new link and shows its answer', () => {
+      fill('New Person', 'new@example.com', 'long-enough');
+      component.submit();
+      http.expectOne(URL).flush(pending, { status: 202, statusText: 'Accepted' });
+      fixture.detectChanges();
+
+      component.resend();
+      const req = http.expectOne(`${environment.apiBaseUrl}/auth/resend-verification`);
+      expect(req.request.body).toEqual({ email: 'new@example.com' });
+      req.flush({ message: 'If that address needs confirming, a new link has been sent.' });
+      fixture.detectChanges();
+
+      expect(el('.auth-card')?.textContent).toContain('a new link has been sent');
+    });
+
+    it('resend does nothing before a registration is pending', () => {
+      component.resend();
+
+      http.expectNone(`${environment.apiBaseUrl}/auth/resend-verification`);
+    });
+  });
+
   describe('local checks, before any request', () => {
     it('refuses an empty form', () => {
       component.submit();

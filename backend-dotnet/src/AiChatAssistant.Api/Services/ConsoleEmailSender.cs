@@ -23,4 +23,13 @@ public class ConsoleEmailSender : IEmailSender
             toName, toEmail, resetLink);
         return Task.CompletedTask;
     }
+
+    public Task SendEmailVerificationAsync(string toEmail, string toName, string verifyLink, CancellationToken cancellationToken)
+    {
+        _logger.LogWarning(
+            "[DEV EMAIL - not actually sent] To: {ToName} <{ToEmail}> | Subject: Confirm your AI Chat Assistant email address | Link: {VerifyLink} | " +
+            "This is a dev-only stub - see ConsoleEmailSender for how to swap in a real provider.",
+            toName, toEmail, verifyLink);
+        return Task.CompletedTask;
+    }
 }

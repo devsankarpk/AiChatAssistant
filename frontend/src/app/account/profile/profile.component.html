@@ -1,0 +1,126 @@
+<app-top-nav>
+  <button type="button" class="btn btn-quiet" [attr.aria-pressed]="theme.theme() === 'dark'" (click)="theme.toggle()">
+    {{ theme.theme() === 'dark' ? 'Light theme' : 'Dark theme' }}
+  </button>
+  <button type="button" class="btn btn-quiet" (click)="logout()">Log out</button>
+</app-top-nav>
+
+<main class="profile-page">
+  <h1>Your account</h1>
+
+  @if (loadError()) {
+    <p class="form-error" role="alert">{{ loadError() }}</p>
+  }
+
+  @if (profile(); as p) {
+    <section class="card" aria-labelledby="summary-title">
+      <h2 id="summary-title">Details</h2>
+      <dl class="details">
+        <dt>Email</dt>
+        <dd>{{ p.email }}</dd>
+        <dt>Member since</dt>
+        <dd>{{ p.createdAt | date: 'longDate' }}</dd>
+        <dt>Email address</dt>
+        <dd>{{ p.emailVerified ? 'Confirmed' : 'Not confirmed yet' }}</dd>
+      </dl>
+    </section>
+
+    <section class="card" aria-labelledby="name-title">
+      <h2 id="name-title">Name</h2>
+      <form [formGroup]="nameForm" (ngSubmit)="saveName()" novalidate>
+        <label class="field">
+          Your name
+          <input type="text" formControlName="name" autocomplete="name" />
+        </label>
+        @if (nameForm.controls.name.invalid && nameForm.controls.name.touched) {
+          <p class="field-error">Enter your name (up to 120 characters).</p>
+        }
+        @if (nameError()) {
+          <p class="form-error" role="alert">{{ nameError() }}</p>
+        }
+        @if (nameMessage()) {
+          <p class="ok" role="status">{{ nameMessage() }}</p>
+        }
+        <button type="submit" class="btn btn-primary" [disabled]="savingName() || !nameChanged()">{{ savingName() ? 'Saving…' : 'Save name' }}</button>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="password-title">
+      <h2 id="password-title">Password</h2>
+      <p class="muted">Changing it signs you out everywhere else.</p>
+      <form [formGroup]="passwordForm" (ngSubmit)="savePassword()" novalidate>
+        <div class="field">
+          <label for="current-password">Current password</label>
+          <div class="input-reveal">
+            <input id="current-password" appPasswordVisibility #cur="appPasswordVisibility" type="password" formControlName="currentPassword" autocomplete="current-password" />
+            <button type="button" class="reveal" aria-controls="current-password" (click)="cur.toggle()">{{ cur.visible() ? 'Hide' : 'Show' }}</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="new-password">New password</label>
+          <div class="input-reveal">
+            <input id="new-password" appPasswordVisibility #nw="appPasswordVisibility" type="password" formControlName="newPassword" autocomplete="new-password" aria-describedby="new-password-hint" />
+            <button type="button" class="reveal" aria-controls="new-password" (click)="nw.toggle()">{{ nw.visible() ? 'Hide' : 'Show' }}</button>
+          </div>
+          <span id="new-password-hint" class="field-hint" [class.is-error]="passwordForm.controls.newPassword.invalid && passwordForm.controls.newPassword.touched">Use 8 to 128 characters.</span>
+        </div>
+        <div class="field">
+          <label for="confirm-password">Confirm new password</label>
+          <div class="input-reveal">
+            <input id="confirm-password" appPasswordVisibility #cf="appPasswordVisibility" type="password" formControlName="confirmPassword" autocomplete="new-password" />
+            <button type="button" class="reveal" aria-controls="confirm-password" (click)="cf.toggle()">{{ cf.visible() ? 'Hide' : 'Show' }}</button>
+          </div>
+        </div>
+        @if (passwordForm.errors?.['passwordMismatch'] && passwordForm.controls.confirmPassword.touched) {
+          <p class="field-error">The two passwords don't match.</p>
+        }
+        @if (passwordError()) {
+          <p class="form-error" role="alert">{{ passwordError() }}</p>
+        }
+        @if (passwordMessage()) {
+          <p class="ok" role="status">{{ passwordMessage() }}</p>
+        }
+        <button type="submit" class="btn btn-primary" [disabled]="savingPassword()">{{ savingPassword() ? 'Saving…' : 'Change password' }}</button>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="privacy-title">
+      <h2 id="privacy-title">What we keep</h2>
+      <ul class="privacy">
+        <li><strong>Stored:</strong> your name and email, your password as a one-way hash (nobody can read it), your AI chats (your questions and the replies), a usage record for each reply (when, which chat, how many tokens), your direct messages, and when you were last online.</li>
+        <li><strong>Who can see it:</strong> the text of an AI chat is sent to the AI provider to write the reply, and administrators can open AI chats and the usage log. A direct message is visible only to the two people in the conversation.</li>
+        <li><strong>How long:</strong> until you delete your account. Deleting removes all of the above, including your direct conversations, which disappear for the other person too.</li>
+      </ul>
+    </section>
+
+    <section class="card danger-zone" aria-labelledby="delete-title">
+      <h2 id="delete-title">Delete account</h2>
+      @if (deleteStep() === 'closed') {
+        <p class="muted">Permanently removes your account, your chats and your direct messages. This cannot be undone.</p>
+        <button type="button" class="btn btn-quiet btn-danger" (click)="askToDelete()">Delete my account…</button>
+      } @else {
+        <form [formGroup]="deleteForm" (ngSubmit)="confirmDelete()" novalidate>
+          <p><strong>This cannot be undone.</strong> To confirm, enter your password and type <code>{{ deletePhrase }}</code>.</p>
+          <div class="field">
+            <label for="delete-password">Password</label>
+            <div class="input-reveal">
+              <input id="delete-password" appPasswordVisibility #dp="appPasswordVisibility" type="password" formControlName="password" autocomplete="current-password" />
+              <button type="button" class="reveal" aria-controls="delete-password" (click)="dp.toggle()">{{ dp.visible() ? 'Hide' : 'Show' }}</button>
+            </div>
+          </div>
+          <label class="field">
+            Type {{ deletePhrase }} to confirm
+            <input type="text" formControlName="phrase" autocomplete="off" autocapitalize="characters" />
+          </label>
+          @if (deleteError()) {
+            <p class="form-error" role="alert">{{ deleteError() }}</p>
+          }
+          <div class="actions">
+            <button type="submit" class="btn btn-danger-solid" [disabled]="!deleteUnlocked() || deleting()">{{ deleting() ? 'Deleting…' : 'Delete account permanently' }}</button>
+            <button type="button" class="btn btn-quiet" (click)="cancelDelete()" [disabled]="deleting()">Cancel</button>
+          </div>
+        </form>
+      }
+    </section>
+  }
+</main>

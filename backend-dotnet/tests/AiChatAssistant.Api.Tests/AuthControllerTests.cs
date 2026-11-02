@@ -32,7 +32,7 @@ public class AuthControllerTests : IDisposable
 
     public void Dispose() => _db.Dispose();
 
-    private AuthController CreateController() =>
+    private AuthController CreateController(AccountOptions? account = null) =>
         new(
             _db,
             _tokenService.Object,
@@ -43,6 +43,9 @@ public class AuthControllerTests : IDisposable
             new ForgotPasswordRequestValidator(),
             new ResetPasswordRequestValidator(),
             new LoginLockout(new InMemoryRateLimitCounter(TimeProvider.System), Options.Create(new LockoutOptions())),
+            new VerifyEmailRequestValidator(),
+            new ResendVerificationRequestValidator(),
+            Options.Create(account ?? new AccountOptions()),
             NullLogger<AuthController>.Instance);
 
     [Fact]

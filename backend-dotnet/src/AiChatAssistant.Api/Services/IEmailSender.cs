@@ -8,4 +8,7 @@ namespace AiChatAssistant.Api.Services;
 public interface IEmailSender
 {
     Task SendPasswordResetEmailAsync(string toEmail, string toName, string resetLink, CancellationToken cancellationToken);
+
+    /// <summary>The "confirm your email address" mail sent after registering when verification is required.</summary>
+    Task SendEmailVerificationAsync(string toEmail, string toName, string verifyLink, CancellationToken cancellationToken);
 }

@@ -39,6 +39,7 @@ import { DirectStateService } from '../../core/services/direct-state.service';
             <span class="badge">{{ badge() }}<span class="visually-hidden"> unread</span></span>
           }
         </a>
+        <a routerLink="/profile" routerLinkActive="active" #profile="routerLinkActive" [attr.aria-current]="profile.isActive ? 'page' : null">Account</a>
       </nav>
 
       <div class="nav-end"><ng-content /></div>

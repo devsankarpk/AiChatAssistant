@@ -104,6 +104,42 @@ describe('LoginComponent flows', () => {
     expect(component.submitting()).toBeFalse();
   });
 
+  it('an unconfirmed email (403): says so and offers a new link, which asks the server for one', () => {
+    create();
+    fill();
+    component.submit();
+
+    http.expectOne(URL).flush(
+      { error: { code: 'email_not_verified', message: 'Confirm your email address first. Check your inbox, or request a new link.' } },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    fixture.detectChanges();
+
+    expect(el('.form-error')?.textContent).toContain('Confirm your email address first');
+    const resend = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).find((b) => b.textContent?.includes('new confirmation link'));
+    expect(resend).toBeDefined();
+
+    resend!.click();
+    const req = http.expectOne(`${environment.apiBaseUrl}/auth/resend-verification`);
+    expect(req.request.body).toEqual({ email: 'ada@example.com' });
+    req.flush({ message: 'If that address needs confirming, a new link has been sent.' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('a new link has been sent');
+  });
+
+  it('other errors (a plain wrong password) do not offer a confirmation link', () => {
+    create();
+    fill();
+    component.submit();
+
+    http.expectOne(URL).flush({ error: { code: 'invalid_credentials', message: 'Email or password is incorrect.' } }, { status: 401, statusText: 'Unauthorized' });
+    fixture.detectChanges();
+
+    expect(component.needsConfirmation()).toBeFalse();
+    expect(fixture.nativeElement.textContent).not.toContain('new confirmation link');
+  });
+
   it('server unreachable: says so in plain words', () => {
     create();
     fill();
