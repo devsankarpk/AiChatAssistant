@@ -30,6 +30,7 @@ describe('TopNavComponent', () => {
           { path: '', component: BlankComponent },
           { path: 'appointments', component: BlankComponent },
           { path: 'messages', component: BlankComponent },
+          { path: 'profile', component: BlankComponent },
         ]),
         { provide: DirectStateService, useValue: { unreadTotal: unread } },
       ],
@@ -47,11 +48,18 @@ describe('TopNavComponent', () => {
     fixture.detectChanges();
   }
 
-  it('offers Chatbot and Messages tabs pointing at the right routes (Book appointment lives in the chat sidebar)', async () => {
+  it('offers Chatbot, Messages and Account tabs pointing at the right routes (Book appointment lives in the chat sidebar)', async () => {
     await goTo('/');
 
-    expect(links().map((a) => a.textContent?.trim())).toEqual(['Chatbot', 'Messages']);
-    expect(links().map((a) => a.getAttribute('href'))).toEqual(['/', '/messages']);
+    expect(links().map((a) => a.textContent?.trim())).toEqual(['Chatbot', 'Messages', 'Account']);
+    expect(links().map((a) => a.getAttribute('href'))).toEqual(['/', '/messages', '/profile']);
+  });
+
+  it('marks Account as the current page on the profile route', async () => {
+    await goTo('/profile');
+
+    expect(links()[2].getAttribute('aria-current')).toBe('page');
+    expect(links()[0].getAttribute('aria-current')).toBeNull();
   });
 
   it('marks Chatbot as the current page on the home route', async () => {

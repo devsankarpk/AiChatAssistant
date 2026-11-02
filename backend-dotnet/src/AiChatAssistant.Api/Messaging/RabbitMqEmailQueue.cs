@@ -25,10 +25,16 @@ public sealed class RabbitMqEmailQueue : IEmailQueue
         _time = time;
     }
 
-    public async Task EnqueuePasswordResetAsync(string toEmail, string toName, string resetLink, CancellationToken cancellationToken)
+    public Task EnqueuePasswordResetAsync(string toEmail, string toName, string resetLink, CancellationToken cancellationToken) =>
+        PublishAsync(new PasswordResetEmail(toEmail, toName, resetLink, PasswordResetEmail.ResetKind), cancellationToken);
+
+    public Task EnqueueEmailVerificationAsync(string toEmail, string toName, string verifyLink, CancellationToken cancellationToken) =>
+        PublishAsync(new PasswordResetEmail(toEmail, toName, verifyLink, PasswordResetEmail.VerifyKind), cancellationToken);
+
+    private async Task PublishAsync(PasswordResetEmail email, CancellationToken cancellationToken)
     {
         var ttl = TimeSpan.FromMinutes(_options.MessageTtlMinutes);
-        var body = JsonSerializer.SerializeToUtf8Bytes(new PasswordResetEmail(toEmail, toName, resetLink));
+        var body = JsonSerializer.SerializeToUtf8Bytes(email);
         var properties = new BasicProperties
         {
             ContentType = "application/json",

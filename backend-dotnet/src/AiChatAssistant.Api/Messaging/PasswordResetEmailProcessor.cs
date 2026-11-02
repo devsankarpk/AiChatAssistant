@@ -55,7 +55,14 @@ public sealed class PasswordResetEmailProcessor
 
         try
         {
-            await _sender.SendPasswordResetEmailAsync(message.ToEmail, message.ToName, message.ResetLink, cancellationToken);
+            if (message.Kind == PasswordResetEmail.VerifyKind)
+            {
+                await _sender.SendEmailVerificationAsync(message.ToEmail, message.ToName, message.ResetLink, cancellationToken);
+            }
+            else
+            {
+                await _sender.SendPasswordResetEmailAsync(message.ToEmail, message.ToName, message.ResetLink, cancellationToken);
+            }
             return new EmailResult(EmailOutcome.Sent);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

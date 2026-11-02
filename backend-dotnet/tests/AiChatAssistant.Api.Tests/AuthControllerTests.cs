@@ -2,6 +2,7 @@ using AiChatAssistant.Api.Controllers;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
 using AiChatAssistant.Api.Messaging;
+using AiChatAssistant.Api.Security;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Tests.TestSupport;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace AiChatAssistant.Api.Tests;
@@ -30,7 +32,7 @@ public class AuthControllerTests : IDisposable
 
     public void Dispose() => _db.Dispose();
 
-    private AuthController CreateController() =>
+    private AuthController CreateController(AccountOptions? account = null) =>
         new(
             _db,
             _tokenService.Object,
@@ -40,6 +42,10 @@ public class AuthControllerTests : IDisposable
             new LoginRequestValidator(),
             new ForgotPasswordRequestValidator(),
             new ResetPasswordRequestValidator(),
+            new LoginLockout(new InMemoryRateLimitCounter(TimeProvider.System), Options.Create(new LockoutOptions())),
+            new VerifyEmailRequestValidator(),
+            new ResendVerificationRequestValidator(),
+            Options.Create(account ?? new AccountOptions()),
             NullLogger<AuthController>.Instance);
 
     [Fact]

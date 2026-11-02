@@ -172,12 +172,13 @@ public class DirectHubTests : IDisposable
 
     public void Dispose() => _db.Dispose();
 
-    private DirectHub CreateHub(string connectionId, ClaimsPrincipal? user)
+    private DirectHub CreateHub(string connectionId, ClaimsPrincipal? user, TimeProvider? time = null)
     {
         var context = new Mock<HubCallerContext>();
+        context.SetupGet(c => c.Items).Returns(new Dictionary<object, object?>());
         context.SetupGet(c => c.ConnectionId).Returns(connectionId);
         context.SetupGet(c => c.User).Returns(user);
-        return new DirectHub(_presence, _delivery.Object, _notifier.Object, _db, NullLogger<DirectHub>.Instance) { Context = context.Object, Groups = _groups.Object };
+        return new DirectHub(_presence, _delivery.Object, _notifier.Object, new PresenceAnnouncer(_db, _notifier.Object), _db, NullLogger<DirectHub>.Instance, time) { Context = context.Object, Groups = _groups.Object };
     }
 
     [Fact]
@@ -221,7 +222,7 @@ public class DirectHubTests : IDisposable
         context.SetupGet(c => c.ConnectionId).Returns("anon");
         context.SetupGet(c => c.User).Returns(new ClaimsPrincipal(new ClaimsIdentity()));
         context.Setup(c => c.Abort()).Callback(() => abort = true);
-        var hub = new DirectHub(_presence, _delivery.Object, _notifier.Object, _db, NullLogger<DirectHub>.Instance) { Context = context.Object, Groups = _groups.Object };
+        var hub = new DirectHub(_presence, _delivery.Object, _notifier.Object, new PresenceAnnouncer(_db, _notifier.Object), _db, NullLogger<DirectHub>.Instance) { Context = context.Object, Groups = _groups.Object };
 
         await hub.OnConnectedAsync();
 

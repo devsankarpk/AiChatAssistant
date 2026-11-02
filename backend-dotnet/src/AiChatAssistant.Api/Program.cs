@@ -2,11 +2,14 @@ using System.Text;
 using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Auth;
+using AiChatAssistant.Api.Dtos.Account;
 using AiChatAssistant.Api.Dtos.Chat;
 using AiChatAssistant.Api.Dtos.Direct;
 using AiChatAssistant.Api.Hubs;
 using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Realtime;
+using AiChatAssistant.Api.Security;
+using Microsoft.AspNetCore.HttpOverrides;
 using AiChatAssistant.Api.Middleware;
 using AiChatAssistant.Api.Services;
 using AiChatAssistant.Api.Validators;
@@ -33,6 +36,13 @@ builder.Services.AddScoped<IValidator<RegisterRequest>, RegisterRequestValidator
 builder.Services.AddScoped<IValidator<LoginRequest>, LoginRequestValidator>();
 builder.Services.AddScoped<IValidator<ForgotPasswordRequest>, ForgotPasswordRequestValidator>();
 builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordRequestValidator>();
+builder.Services.AddScoped<IValidator<VerifyEmailRequest>, VerifyEmailRequestValidator>();
+builder.Services.AddScoped<IValidator<ResendVerificationRequest>, ResendVerificationRequestValidator>();
+// Account management (Phase 22)
+builder.Services.Configure<AccountOptions>(builder.Configuration.GetSection(AccountOptions.SectionName));
+builder.Services.AddScoped<IValidator<UpdateProfileRequest>, UpdateProfileRequestValidator>();
+builder.Services.AddScoped<IValidator<ChangePasswordRequest>, ChangePasswordRequestValidator>();
+builder.Services.AddScoped<IValidator<DeleteAccountRequest>, DeleteAccountRequestValidator>();
 // Password-reset email delivery. Email:Provider picks the sender (smtp = real mail via MailKit, see
 // SmtpEmailSender for the Smtp:Username/Password secrets; console = log the link, dev only). With
 // RabbitMq:Host set the email is queued and a background worker sends, retries and dead-letters it;
@@ -50,7 +60,10 @@ builder.Services.AddScoped<IValidator<SendDirectMessageRequest>, SendDirectMessa
 // Realtime direct chat (Phase 11): SignalR + presence. With Redis:ConnectionString set (Phase 16) both are
 // shared across API replicas through Redis; without it they stay in this process (one replica only).
 builder.Services.AddRealtime(builder.Configuration);
+// Rate limiting, login lockout and trusted-proxy handling (Phase 21). After AddRealtime: it shares Redis when that is configured.
+builder.Services.AddSecurityHardening(builder.Configuration);
 builder.Services.AddSingleton<IDirectNotifier, SignalRDirectNotifier>();
+builder.Services.AddScoped<PresenceAnnouncer>();
 builder.Services.AddScoped<IDirectDeliveryService, DirectDeliveryService>();
 
 // Python AI service client. InternalApiKey is the shared secret from CLAUDE.md's X-Internal-Key
@@ -109,6 +122,16 @@ builder.Services.AddAuthentication(options =>
                     context.Token = accessToken;
                 }
                 return Task.CompletedTask;
+            },
+            // A valid signature is not enough: the account must still exist and the password must not have changed since the token was issued.
+            OnTokenValidated = async context =>
+            {
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var reason = await AccountTokenValidator.ValidateAsync(db, context.Principal!, context.HttpContext.RequestAborted);
+                if (reason is not null)
+                {
+                    context.Fail(reason);
+                }
             },
             OnAuthenticationFailed = context =>
             {
@@ -199,8 +222,17 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
 var app = builder.Build();
 
+// First: the real client address (from the proxy's X-Forwarded-For, trusted only from the configured networks) must be in place before
+// anything logs or counts it. Skipped when ForwardedHeaders:Enabled is false.
+if (builder.Configuration.GetValue("ForwardedHeaders:Enabled", true))
+{
+    app.UseForwardedHeaders();
+}
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseExceptionHandling();
 
 // Configure the HTTP request pipeline.
@@ -210,11 +242,17 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Behind a TLS-terminating proxy (the containers) there is no HTTPS port here to redirect to, and enabling this only logs
+// "Failed to determine the https port for redirect" on every request. On by default for local development only.
+if (builder.Configuration.GetValue("Https:RedirectEnabled", app.Environment.IsDevelopment()))
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseCors(FrontendCorsPolicy);
 
 app.UseAuthentication();
+app.UseMiddleware<RateLimitMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
@@ -229,3 +267,6 @@ app.MapFallback(context =>
         .WriteAsync(context, StatusCodes.Status404NotFound));
 
 app.Run();
+
+// Lets the pipeline tests (WebApplicationFactory<Program>) see the entry point of this top-level-statements file.
+public partial class Program;

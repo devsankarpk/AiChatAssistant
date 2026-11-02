@@ -41,6 +41,27 @@ export interface ResetPasswordRequest {
   newPassword: string;
 }
 
+/**
+ * What registering answers while the server requires email confirmation: the same for a new and an existing address (so it cannot be used
+ * to find out who is registered), and no token - the person confirms through the emailed link first, then logs in.
+ */
+export interface RegistrationPendingResponse {
+  message: string;
+  verificationRequired: true;
+}
+
+export function isRegistrationPending(response: AuthResponse | RegistrationPendingResponse): response is RegistrationPendingResponse {
+  return 'verificationRequired' in response;
+}
+
+export interface VerifyEmailRequest {
+  token: string;
+}
+
+export interface ResendVerificationRequest {
+  email: string;
+}
+
 /** Generic success body for forgot/reset-password - no token, no user summary. */
 export interface AuthMessageResponse {
   message: string;

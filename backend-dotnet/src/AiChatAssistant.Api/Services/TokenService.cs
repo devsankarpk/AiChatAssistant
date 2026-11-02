@@ -28,6 +28,8 @@ public class TokenService : ITokenService
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            // Issue time in whole seconds: AccountTokenValidator refuses a token issued before the last password change.
+            new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
         };
         // Plain "role" (not ClaimTypes.Role) so the encoded JWT payload literally carries sub/email/role,
         // per the cross-service contract in CLAUDE.md. ASP.NET Core's default inbound claim map still

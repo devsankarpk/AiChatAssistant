@@ -15,6 +15,13 @@ public interface IPresenceStore
 
     Task<IReadOnlySet<int>> OnlineAmongAsync(IReadOnlyCollection<int> userIds, DateTimeOffset now);
 
+    /// <summary>
+    /// People none of whose connection marks have been refreshed for <paramref name="grace"/> past their lapse: their replica died. Each
+    /// is removed here and returned once, with the moment of their last heartbeat; <paramref name="skip"/> protects people this
+    /// process still holds live connections for.
+    /// </summary>
+    Task<IReadOnlyList<(int UserId, DateTimeOffset LastBeat)>> ExpireLapsedAsync(DateTimeOffset now, TimeSpan grace, TimeSpan ttl, Func<int, bool> skip, int max);
+
     /// <summary>Extend the lifetime of these connections (and recreate them if the store lost them).</summary>
     Task RefreshAsync(IReadOnlyList<(int UserId, string ConnectionId)> connections, DateTimeOffset now, TimeSpan ttl);
 }

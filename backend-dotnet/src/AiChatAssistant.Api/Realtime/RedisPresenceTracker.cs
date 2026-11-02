@@ -15,6 +15,9 @@ public sealed class RedisPresenceTracker : IPresenceTracker
     private readonly InMemoryPresenceTracker _local = new();
     private readonly TimeProvider _time;
     private readonly TimeSpan _ttl;
+    private readonly TimeSpan _grace;
+    private readonly TimeSpan _holdOff;
+    private DateTimeOffset? _lastStoreFailure;
     private readonly ILogger<RedisPresenceTracker> _logger;
 
     public RedisPresenceTracker(IPresenceStore store, IOptions<PresenceOptions> options, TimeProvider time, ILogger<RedisPresenceTracker> logger)
@@ -22,6 +25,10 @@ public sealed class RedisPresenceTracker : IPresenceTracker
         _store = store;
         _time = time;
         _ttl = TimeSpan.FromSeconds(options.Value.TtlSeconds);
+        _grace = TimeSpan.FromSeconds(options.Value.SweepGraceSeconds);
+        // After Redis was unreachable, every mark may have lapsed through no fault of its owner. Give the owners one full grace period
+        // plus a heartbeat after the last failure to re-create their marks before anyone is declared gone.
+        _holdOff = _grace + TimeSpan.FromSeconds(options.Value.HeartbeatSeconds);
         _logger = logger;
     }
 
@@ -36,6 +43,7 @@ public sealed class RedisPresenceTracker : IPresenceTracker
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            StoreFailed();
             _logger.LogWarning(ex, "Shared presence is unavailable; using this server's own view");
             return userIds.Where(_local.IsOnline).ToHashSet();
         }
@@ -50,6 +58,7 @@ public sealed class RedisPresenceTracker : IPresenceTracker
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            StoreFailed();
             _logger.LogWarning(ex, "Shared presence is unavailable; treating user {UserId} as online based on this server only", userId);
             return firstHere;
         }
@@ -64,8 +73,30 @@ public sealed class RedisPresenceTracker : IPresenceTracker
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            StoreFailed();
             _logger.LogWarning(ex, "Shared presence is unavailable; treating user {UserId} as offline based on this server only", userId);
             return lastHere;
+        }
+    }
+
+    public async Task<IReadOnlyList<LapsedPresence>> SweepLapsedAsync(CancellationToken cancellationToken = default)
+    {
+        if (_lastStoreFailure is { } failedAt && _time.GetUtcNow() - failedAt < _holdOff)
+        {
+            return Array.Empty<LapsedPresence>(); // Redis was just unreachable: marks may be stale for that reason, not because a server died
+        }
+
+        try
+        {
+            var gone = await _store.ExpireLapsedAsync(_time.GetUtcNow(), _grace, _ttl, _local.IsOnline, max: 100);
+            return gone.Select(g => new LapsedPresence(g.UserId, g.LastBeat.UtcDateTime)).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Nothing is lost: the people stay in the index and are picked up by the next sweep, here or on another replica.
+            StoreFailed();
+            _logger.LogWarning(ex, "Could not sweep lapsed presence; will try again");
+            return Array.Empty<LapsedPresence>();
         }
     }
 
@@ -83,7 +114,10 @@ public sealed class RedisPresenceTracker : IPresenceTracker
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            StoreFailed();
             _logger.LogWarning(ex, "Could not refresh presence for {Count} connection(s); will try again", mine.Count);
         }
     }
+
+    private void StoreFailed() => _lastStoreFailure = _time.GetUtcNow();
 }

@@ -248,4 +248,82 @@ public class ChatControllerTests : IDisposable
         var messages = Assert.IsAssignableFrom<IReadOnlyList<MessageResponse>>(ok.Value);
         Assert.Single(messages);
     }
+
+    private void SeedHistory(ChatSession session, int count)
+    {
+        for (var i = 1; i <= count; i++)
+        {
+            _db.Messages.Add(new Message
+            {
+                SessionId = session.Id,
+                Role = i % 2 == 1 ? MessageRole.User : MessageRole.Assistant,
+                Content = $"m{i}",
+            });
+        }
+        _db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task SendMessage_SendsPythonOnlyTheLast20PriorMessages_OldestFirst()
+    {
+        var session = SeedSession(_owner);
+        SeedHistory(session, 30);
+        IReadOnlyList<PythonHistoryMessage>? sent = null;
+        _pythonClient
+            .Setup(c => c.GenerateAsync(session.Id, It.IsAny<IReadOnlyList<PythonHistoryMessage>>(), "next", It.IsAny<CancellationToken>()))
+            .Callback<Guid, IReadOnlyList<PythonHistoryMessage>, string, CancellationToken>((_, h, _, _) => sent = h)
+            .ReturnsAsync(new PythonGenerateResult("ok", 1));
+
+        await CreateController(_owner.Id, "User").SendMessage(session.Id, new SendMessageRequest { Content = "next" }, CancellationToken.None);
+
+        Assert.NotNull(sent);
+        Assert.Equal(20, sent!.Count);
+        Assert.Equal("m11", sent[0].Content);   // messages 1-10 are dropped
+        Assert.Equal("m30", sent[^1].Content);
+        Assert.DoesNotContain(sent, h => h.Content == "next"); // the new question is the prompt, not history
+    }
+
+    [Fact]
+    public async Task SendMessage_WithShortHistory_SendsAllOfIt_WithLowerCaseRoles()
+    {
+        var session = SeedSession(_owner);
+        SeedHistory(session, 3);
+        IReadOnlyList<PythonHistoryMessage>? sent = null;
+        _pythonClient
+            .Setup(c => c.GenerateAsync(session.Id, It.IsAny<IReadOnlyList<PythonHistoryMessage>>(), "next", It.IsAny<CancellationToken>()))
+            .Callback<Guid, IReadOnlyList<PythonHistoryMessage>, string, CancellationToken>((_, h, _, _) => sent = h)
+            .ReturnsAsync(new PythonGenerateResult("ok", 1));
+
+        await CreateController(_owner.Id, "User").SendMessage(session.Id, new SendMessageRequest { Content = "next" }, CancellationToken.None);
+
+        Assert.Equal(new[] { "user", "assistant", "user" }, sent!.Select(h => h.Role));
+    }
+
+    [Fact]
+    public async Task SendMessage_HistoryIgnoresOtherSessions()
+    {
+        var mine = SeedSession(_owner);
+        var other = SeedSession(_owner, "Other chat");
+        SeedHistory(other, 5);
+        IReadOnlyList<PythonHistoryMessage>? sent = null;
+        _pythonClient
+            .Setup(c => c.GenerateAsync(mine.Id, It.IsAny<IReadOnlyList<PythonHistoryMessage>>(), "hi", It.IsAny<CancellationToken>()))
+            .Callback<Guid, IReadOnlyList<PythonHistoryMessage>, string, CancellationToken>((_, h, _, _) => sent = h)
+            .ReturnsAsync(new PythonGenerateResult("ok", 1));
+
+        await CreateController(_owner.Id, "User").SendMessage(mine.Id, new SendMessageRequest { Content = "hi" }, CancellationToken.None);
+
+        Assert.Empty(sent!);
+    }
+
+    [Fact]
+    public async Task SendMessage_Returns400_ForWhitespaceOnlyContent_AndSavesNothing()
+    {
+        var session = SeedSession(_owner);
+
+        var result = await CreateController(_owner.Id, "User").SendMessage(session.Id, new SendMessageRequest { Content = "   " }, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Empty(_db.Messages);
+    }
 }

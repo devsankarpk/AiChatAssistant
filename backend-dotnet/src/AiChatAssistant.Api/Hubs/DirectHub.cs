@@ -19,11 +19,19 @@ public class DirectHub : Hub
     private readonly IPresenceTracker _presence;
     private readonly IDirectDeliveryService _delivery;
     private readonly IDirectNotifier _notifier;
+    private readonly PresenceAnnouncer _announcer;
     private readonly AppDbContext _db;
     private readonly ILogger<DirectHub> _logger;
+    private readonly TimeProvider _time;
 
-    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, AppDbContext db, ILogger<DirectHub> logger)
+    /// <summary>The most often one connection's typing signals are forwarded. The browser sends one every 3 s; anything faster is a script, not a person.</summary>
+    public static readonly TimeSpan TypingMinInterval = TimeSpan.FromMilliseconds(1000);
+    private const string LastTypingKey = "last-typing";
+
+    public DirectHub(IPresenceTracker presence, IDirectDeliveryService delivery, IDirectNotifier notifier, PresenceAnnouncer announcer, AppDbContext db, ILogger<DirectHub> logger, TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
+        _announcer = announcer;
         _logger = logger;
         _presence = presence;
         _delivery = delivery;
@@ -52,7 +60,7 @@ public class DirectHub : Hub
         await _delivery.MarkPendingDeliveredAsync(userId);
         if (cameOnline)
         {
-            await BroadcastPresenceAsync(userId, online: true, lastSeenAt: null); // a second tab changes nothing
+            await _announcer.AnnounceOnlineAsync(userId); // a second tab changes nothing
         }
 
         await base.OnConnectedAsync();
@@ -66,14 +74,7 @@ public class DirectHub : Hub
         if (wentOffline)
         {
             // Only when the last tab closes: that moment is the user's "last seen".
-            var lastSeen = DateTime.UtcNow;
-            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
-            if (user is not null)
-            {
-                user.LastSeenAt = lastSeen;
-                await _db.SaveChangesAsync();
-            }
-            await BroadcastPresenceAsync(userId, online: false, lastSeenAt: lastSeen);
+            await _announcer.AnnounceOfflineAsync(userId, DateTime.UtcNow);
         }
 
         await base.OnDisconnectedAsync(exception);
@@ -93,6 +94,14 @@ public class DirectHub : Hub
             return;
         }
 
+        // Cheapest check first, before any database work: a flood of signals from one connection costs nothing.
+        var now = _time.GetUtcNow();
+        if (Context.Items.TryGetValue(LastTypingKey, out var last) && last is DateTimeOffset lastAt && now - lastAt < TypingMinInterval)
+        {
+            return;
+        }
+        Context.Items[LastTypingKey] = now;
+
         var conversation = await _db.DirectConversations.AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == conversationId && (c.UserLowId == userId || c.UserHighId == userId));
         if (conversation is null)
@@ -102,15 +111,5 @@ public class DirectHub : Hub
 
         var recipientId = conversation.UserLowId == userId ? conversation.UserHighId : conversation.UserLowId;
         await _notifier.PeerTypingAsync(recipientId, conversationId, userId);
-    }
-
-    /// <summary>Tell everyone who shares a conversation with this user that they came online or went offline.</summary>
-    private async Task BroadcastPresenceAsync(int userId, bool online, DateTime? lastSeenAt)
-    {
-        var peerIds = await _db.DirectConversations.AsNoTracking()
-            .Where(c => c.UserLowId == userId || c.UserHighId == userId)
-            .Select(c => c.UserLowId == userId ? c.UserHighId : c.UserLowId)
-            .ToListAsync();
-        await _notifier.PeerPresenceChangedAsync(peerIds, userId, online, lastSeenAt);
     }
 }
