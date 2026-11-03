@@ -48,6 +48,7 @@ if [ $NEED_B = 1 ]; then
   selected e2e/suites/11-security.mjs && run_suite suites/11-security.mjs real
   # 12 deletes accounts and checks real MySQL cascades, password changes across two browsers and the optional email confirmation
   selected e2e/suites/12-account.mjs && run_suite suites/12-account.mjs real
+  selected e2e/suites/13-sessions.mjs && run_suite suites/13-sessions.mjs real
   # 10a changes the provider key and the async flag itself, and says so; afterwards put the normal configuration back
   selected e2e/suites/10a-real-llm-failure.mjs && run_suite suites/10a-real-llm-failure.mjs real
   if selected e2e/suites/10b-regression-real-llm.mjs; then

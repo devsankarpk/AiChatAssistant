@@ -84,6 +84,15 @@
       </form>
     </section>
 
+    <section class="card" aria-labelledby="sessions-title">
+      <h2 id="sessions-title">Sessions</h2>
+      <p class="muted">Signed in on a phone or a computer you no longer use? This ends every login, including this one, and you will need to sign in again.</p>
+      @if (signOutAllError(); as message) {
+        <p class="form-error" role="alert">{{ message }}</p>
+      }
+      <button type="button" class="btn btn-quiet" [disabled]="signingOutAll()" (click)="signOutEverywhere()">{{ signingOutAll() ? 'Signing out…' : 'Sign out everywhere' }}</button>
+    </section>
+
     <section class="card" aria-labelledby="privacy-title">
       <h2 id="privacy-title">What we keep</h2>
       <ul class="privacy">

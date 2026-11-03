@@ -303,6 +303,35 @@ describe('ProfileComponent', () => {
     });
   });
 
+  describe('sign out everywhere', () => {
+    it('ends every login on the server, then clears this session and goes to the login page', async () => {
+      await create();
+
+      component.signOutEverywhere();
+      http.expectOne(`${environment.apiBaseUrl}/auth/logout-all`).flush(null, { status: 204, statusText: 'No Content' });
+
+      expect(auth.isAuthenticated()).toBeFalse();
+      expect(navigateByUrl).toHaveBeenCalledWith('/login');
+    });
+
+    it('shows the error and stays signed in when the server refuses', async () => {
+      await create();
+
+      component.signOutEverywhere();
+      http.expectOne(`${environment.apiBaseUrl}/auth/logout-all`).flush({ error: { code: 'internal_error', message: 'Something went wrong.' } }, { status: 500, statusText: 'x' });
+
+      expect(component.signOutAllError()).toContain('Something went wrong');
+      expect(component.signingOutAll()).toBeFalse();
+      expect(auth.isAuthenticated()).toBeTrue();
+    });
+
+    it('has a button for it on the page', async () => {
+      await create();
+
+      expect(button('Sign out everywhere')).toBeTruthy();
+    });
+  });
+
   describe('log out', () => {
     it('signs out and goes to the login page', async () => {
       await create();

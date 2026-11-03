@@ -91,6 +91,8 @@ services:
     environment:
       <<: *db-connection
       Jwt__Key: ${JWT_KEY:?set in docker.env}
+      Jwt__ExpiryMinutes: ${JWT_EXPIRY_MINUTES:-15}
+      Sessions__RefreshTokenDays: ${REFRESH_TOKEN_DAYS:-14}
       PythonService__BaseUrl: http://ai-service:8000
       PythonService__InternalApiKey: ${INTERNAL_API_KEY:?set in docker.env}
       Frontend__BaseUrl: ${PUBLIC_URL:-http://localhost:8080}

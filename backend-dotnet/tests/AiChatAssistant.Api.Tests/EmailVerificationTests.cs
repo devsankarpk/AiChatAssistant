@@ -43,6 +43,7 @@ public class EmailVerificationTests : IDisposable
         new LoginLockout(new InMemoryRateLimitCounter(TimeProvider.System), Options.Create(new LockoutOptions())),
         new VerifyEmailRequestValidator(), new ResendVerificationRequestValidator(),
         Options.Create(new AccountOptions { RequireEmailVerification = required }),
+        Refresh.Service(_db),
         NullLogger<AuthController>.Instance);
 
     private static RegisterRequest Reg(string email = "new@example.com") => new() { Name = "New Person", Email = email, Password = "long-enough-1" };

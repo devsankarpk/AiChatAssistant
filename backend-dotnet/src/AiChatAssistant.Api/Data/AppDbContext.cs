@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<UsageLog> UsageLogs => Set<UsageLog>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
     public DbSet<AiReplyJob> AiReplyJobs => Set<AiReplyJob>();
@@ -177,6 +178,22 @@ public class AppDbContext : DbContext
             entity.Property(t => t.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.HasOne(t => t.User)
                 .WithMany(u => u.EmailVerificationTokens)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(t => t.UserId);
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.ToTable("RefreshTokens");
+            entity.Property(t => t.TokenHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(t => t.TokenHash).IsUnique();
+            entity.Property(t => t.FamilyId).HasMaxLength(32).IsRequired();
+            entity.HasIndex(t => t.FamilyId);
+            entity.Property(t => t.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.Property(t => t.UsedAt).IsConcurrencyToken(); // two simultaneous refreshes: only one update matches "UsedAt IS NULL"
+            entity.HasOne(t => t.User)
+                .WithMany(u => u.RefreshTokens)
                 .HasForeignKey(t => t.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(t => t.UserId);

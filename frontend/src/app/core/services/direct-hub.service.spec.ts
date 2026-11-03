@@ -68,11 +68,11 @@ describe('DirectHubService', () => {
     token = 'jwt-1';
     TestBed.configureTestingModule({
       providers: [
-        { provide: AuthService, useValue: { getToken: () => token } },
+        { provide: AuthService, useValue: { freshToken: async () => token ?? '' } },
         {
           provide: DIRECT_HUB_FACTORY,
-          useValue: async (url: string, tokenFactory: () => string) => {
-            factoryCalls.push({ url, token: tokenFactory() });
+          useValue: async (url: string, tokenFactory: () => string | Promise<string>) => {
+            factoryCalls.push({ url, token: await tokenFactory() });
             return hub;
           },
         },
@@ -98,8 +98,8 @@ describe('DirectHubService', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
-        { provide: AuthService, useValue: { getToken: () => token } },
-        { provide: DIRECT_HUB_FACTORY, useValue: async (_u: string, f: () => string) => { seen = f(); token = 'jwt-2'; seen += '|' + f(); return hub; } },
+        { provide: AuthService, useValue: { freshToken: async () => token ?? '' } },
+        { provide: DIRECT_HUB_FACTORY, useValue: async (_u: string, f: () => string | Promise<string>) => { seen = await f(); token = 'jwt-2'; seen += '|' + (await f()); return hub; } },
       ],
     });
     await TestBed.inject(DirectHubService).start();
