@@ -6,6 +6,11 @@ public class AuthResponse
 
     public DateTime ExpiresAt { get; set; }
 
+    /// <summary>Single-use; exchange it at POST /api/auth/refresh for a new pair.</summary>
+    public string RefreshToken { get; set; } = string.Empty;
+
+    public DateTime RefreshExpiresAt { get; set; }
+
     public UserSummary User { get; set; } = null!;
 }
 

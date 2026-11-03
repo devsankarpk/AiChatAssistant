@@ -437,7 +437,7 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 | 1 | **T2** | .NET gap tests, including the `WebApplicationFactory` test setup | — | Done |
 | 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Done |
 | 3 | **22** | Change password, profile, delete account, optional email verification | — | Built; real-stack check pending (Docker was unavailable) |
-| 4 | **23** | Access and refresh tokens, real logout | 22 | Planned |
+| 4 | **23** | Access and refresh tokens, real logout | 22 | Built; real-stack suite `13-sessions` run (see TESTING.md section 24) |
 | 5 | **24** | Chat rename, delete, search, paging | — | Planned |
 | 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | Planned |
 | 7 | **26** | Cost tracking, admin user management | — | Planned |
@@ -653,7 +653,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 922 automated tests (511 .NET, 65 Python, 346 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 979 automated tests (543 .NET, 65 Python, 371 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet, and 33 in `13-sessions`) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -727,7 +727,7 @@ Nothing here is a hidden failure: every check in `./e2e/run.sh` passes. These ar
 | Security headers | None in `nginx.conf` (no CSP, `nosniff`, frame-ancestors, referrer policy); no HSTS; nginx version shown | Standard browser hardening is absent | 21 |
 | Account management | No change password, edit profile, delete account or email verification | Users can't fix or remove their own account; anyone can register someone else's address | 22 |
 | Registration enumeration | `POST /api/auth/register` returns `409 email_taken`, while forgot-password is deliberately generic | Inconsistent: registered emails can be discovered | 22 |
-| Tokens | One 60-minute JWT in `localStorage`; no refresh token; no real logout; a stolen or old token stays valid until it expires | Hard to revoke; hourly forced re-login; readable by any XSS | 23 |
+| Tokens | *(fixed in Phase 23)* 15-minute access token + rotating refresh token, real logout; both still in `localStorage` | Readable by any XSS (but a stolen refresh token dies at first reuse) | 23 |
 | Chat management | No rename, delete or search; the API has no PUT, PATCH or DELETE endpoints | Chats pile up forever | 24 |
 | Unbounded lists | List-sessions and get-messages return every row (no `Take` / `Skip`) | Slow with long chats or many chats | 24 |
 | Streaming | Replies appear only when complete ("Thinking…" until then); no Stop or Regenerate | Slow-feeling UX | 25 |
@@ -772,11 +772,13 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 - [x] **Angular:** `/profile` ("Account" tab in the top bar): details, rename, change password (with confirmation), the privacy note (what is kept, who can see it, how long) and a two-step delete (password and the typed word `DELETE`); `/verify-email`; the register page shows "Check your email" and the login page offers "Send a new confirmation link".
 - [x] Tests: 87 new .NET, 48 new Angular, six-rule mutation check; **real-stack suite `e2e/suites/12-account.mjs` (39 checks: the cascade on real MySQL, password change across two real browsers, the profile page, the confirmation flow end to end) written, not yet run.** Report: `TESTING.md` section 23. A migration (`AddAccountManagement`) was generated and is applied only to the Docker stack's database (by its `migrate` step); not to the host dev MySQL.
 
-#### Phase 23 — Sessions and tokens *(backend + frontend)*
-- [ ] Short-lived access token (about 15 minutes) and a rotating refresh token (`RefreshTokens` table, only a hash stored)
-- [ ] Real logout endpoint that revokes the refresh token; tokens invalid after a password change
-- [ ] Token storage decision applied; the Angular interceptor refreshes once and retries on `401`
-- [ ] Tests: rotation, reuse of an old refresh token is rejected, revoke on logout and password change
+#### Phase 23 — Sessions and tokens *(backend + frontend)* — built
+- [x] Short-lived access token (15 minutes, `Jwt:ExpiryMinutes`) and a rotating refresh token (`RefreshTokens` table, only a SHA-256 hash stored, 14 days, `Sessions:RefreshTokenDays`). Login and register return `refreshToken` + `refreshExpiresAt` next to the access token. `POST /api/auth/refresh` exchanges it for a new pair; every use rotates it inside a "family" (one login = one family)
+- [x] Reuse detection: an already-used token is refused with `401 invalid_refresh_token`; inside `Sessions:ReuseGraceSeconds` (10) that is treated as two tabs racing and the login is kept, after it as theft and the **whole family is revoked**
+- [x] Real logout: `POST /api/auth/logout` (revokes the login's refresh token, idempotent, works with an expired access token) and `POST /api/auth/logout-all` (every device, plus every live access token); a password change or reset revokes every refresh token (change-password then hands the caller a new pair); deleting the account cascades
+- [x] **Decision applied: both tokens stay in `localStorage`** (no httpOnly cookie). Trade-off: any XSS can read the refresh token as it could already read the old 60-minute token, but a stolen copy now stops working at its first reuse and is revoked by logout or a password change. An httpOnly cookie remains a later hardening option (it needs `SameSite`, CSRF thinking and `withCredentials` on every call)
+- [x] Angular: the auth interceptor renews once on `401 unauthorized` and repeats the request once (never for `/auth/*`, never in a loop); one shared in-flight refresh; a tab that loses the race adopts the tab that won; the `storage` event keeps tabs in step; `isAuthenticated` is true while a refresh token exists; the SignalR hub's `accessTokenFactory` now calls `AuthService.freshToken()`, so a (re)connect always uses a live token (TOK-04); "Sign out everywhere" card on the Account page
+- [x] Tests: rotation, reuse inside and after the grace window, expiry, family revocation, revoke on logout / logout-all / password change / reset / delete, hash-only storage (12 service + 20 pipeline .NET tests; 25 Angular specs); real-stack suite `e2e/suites/13-sessions.mjs` (33 checks, includes an access token that really expires in a real browser). Report: `TESTING.md` section 24
 
 #### Phase 24 — Chat management and pagination *(backend + frontend)*
 - [ ] `PATCH` rename and `DELETE` (soft delete via `DeletedAt`) for sessions; `GET` search by title

@@ -49,7 +49,7 @@ public class AccountControllerTests : IDisposable
     private AccountController For(User user, LockoutOptions? lockout = null)
     {
         var controller = new AccountController(
-            _db, _tokens.Object,
+            _db, _tokens.Object, Refresh.Service(_db),
             new LoginLockout(_counter, Options.Create(lockout ?? new LockoutOptions())),
             new UpdateProfileRequestValidator(), new ChangePasswordRequestValidator(), new DeleteAccountRequestValidator(),
             NullLogger<AccountController>.Instance);

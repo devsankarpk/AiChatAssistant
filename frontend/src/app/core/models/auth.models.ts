@@ -23,6 +23,9 @@ export interface UserSummary {
 export interface AuthResponse {
   token: string;
   expiresAt: string;
+  /** Single-use: exchanged at POST /auth/refresh for a new pair. Optional only so older fixtures keep compiling. */
+  refreshToken?: string;
+  refreshExpiresAt?: string;
   user: UserSummary;
 }
 

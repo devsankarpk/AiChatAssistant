@@ -72,6 +72,8 @@ export class ProfileComponent {
     password: ['', [Validators.required]],
     phrase: ['', [Validators.required]],
   });
+  readonly signingOutAll = signal(false);
+  readonly signOutAllError = signal<string | null>(null);
   readonly deleting = signal(false);
   readonly deleteError = signal<string | null>(null);
 
@@ -158,6 +160,21 @@ export class ProfileComponent {
       error: (err: HttpErrorResponse) => {
         this.deleting.set(false);
         this.deleteError.set(extractErrorMessage(err));
+      },
+    });
+  }
+
+  signOutEverywhere(): void {
+    if (this.signingOutAll()) {
+      return;
+    }
+    this.signingOutAll.set(true);
+    this.signOutAllError.set(null);
+    this.auth.logoutAll().subscribe({
+      next: () => void this.router.navigateByUrl('/login'),
+      error: (err: HttpErrorResponse) => {
+        this.signingOutAll.set(false);
+        this.signOutAllError.set(extractErrorMessage(err));
       },
     });
   }

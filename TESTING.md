@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 922 automated tests (511 .NET, 65 Python, 346 Angular), all passing, plus 304 end-to-end checks in 13 committed suites (and a 14th, `12-account`, written but not yet run) under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 979 automated tests (543 .NET, 65 Python, 371 Angular), all passing, plus 304 end-to-end checks in 13 committed suites (and a 14th, `12-account`, written but not yet run) under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -510,10 +510,10 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | ACC-03 | Delete account | User and their chats, messages and tokens removed; cannot log in afterwards | .NET | Done: `AccountControllerTests.DeleteAccount_*` (6), `AccountPipelineTests.DeletingTheAccount_...` (token stops at once, login fails, address free again); the row-by-row cascade is checked on real MySQL by `12-account` `A22-03`..`A22-09` (written, not yet run) |
 | ACC-04 | Register with an existing email | Behaviour as decided in Phase 22 (generic response or `409`), covered by a test either way | .NET | Done: `EmailVerificationTests.WhenOn_ANewAndAnExistingAddress_GetExactlyTheSameAnswer_...`, `WhenOff_ARegisteredEmailIsStillA409`, `VerificationPipelineTests.RegisteringIs202_...` |
 | ACC-05 | Profile page | Name edit, change-password form validation and confirm-delete dialog | Angular | Done: `profile.component.spec` (23 specs: details, rename, password, the two-step delete incl. the disabled button until the exact word is typed), `verify-email.component.spec` (5), register (3) and login (2) additions, `auth-verification.spec` (7), `account.service.spec` (7) |
-| TOK-01 | Access token expires | The interceptor refreshes once and retries the request; a second `401` logs out | Angular | Planned (Phase 23) |
-| TOK-02 | Refresh token rotation | Each refresh returns a new token; reusing an old one is rejected and revokes the family | .NET | Planned (Phase 23) |
-| TOK-03 | Logout and password change | Refresh token revoked; old access token refused | .NET | Planned (Phase 23) |
-| TOK-04 | Open SignalR connection across a token refresh | Connection stays usable and uses the refreshed token | Angular + .NET | Planned (Phase 11, because Phase 23 is built first) |
+| TOK-01 | Access token expires | The interceptor refreshes once and retries the request; a second `401` logs out | Angular + e2e | Built: `session renewal › interceptors` (7 specs), `13-sessions` A23-20 to A23-24 |
+| TOK-02 | Refresh token rotation | Each refresh returns a new token; reusing an old one is rejected and revokes the family | .NET + e2e | Built: `RefreshTokenServiceTests`, `RefreshPipelineTests`, `13-sessions` A23-05 to A23-10 |
+| TOK-03 | Logout and password change | Refresh token revoked; old access token refused | .NET + e2e | Built: `RefreshPipelineTests`, `13-sessions` A23-11 to A23-16, A23-27 to A23-31 |
+| TOK-04 | SignalR connect uses a live token | The hub's token factory renews a lapsing token before connecting | Angular | Built: `DirectHubService asks for the token again each time`, `freshToken()` specs. (A connection that is already open keeps running until it drops; the next connect uses a fresh token.) |
 | CHM-01 | Rename a chat | Title changes; another user's chat gives `404` | .NET | Planned (Phase 24) |
 | CHM-02 | Delete a chat | Hidden from lists; messages not returned; `UsageLogs` rows kept | .NET | Planned (Phase 24) |
 | CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET | Planned (Phase 24) |
@@ -2166,3 +2166,31 @@ It would check, on the normal stack with real MySQL, nginx, CSP, Chrome and the 
 - Switching verification on for a deployment that already has unconfirmed people (there are none by construction).
 - Real mail delivery (the console provider is used in the suite; SMTP is covered by its fail-fast tests only).
 - A second replica for the per-request account check (it reads the shared database, so it needs none).
+
+
+## 24. Phase 23: sessions and tokens (2026-11-02)
+
+**Decision applied:** access token (15 min) and refresh token (14 days, single use, rotated) both stay in `localStorage`; an httpOnly cookie is a possible later step (see README, Phase 23).
+
+### 24.1 Automated suites
+
+| Suite | Result |
+|---|---|
+| .NET | **543 passed, 0 failed** (511 before + 32 new: `RefreshTokenServiceTests` 12, `RefreshPipelineTests` 20) |
+| Python | 65 passed (unchanged) |
+| Angular | **371 passed, 0 failed** (346 before + 25 new: `session-renewal.spec` 22, profile +3); the hub spec's fakes now provide `freshToken` |
+| Production build | succeeds, initial 330.7 kB |
+| Migration drift | none (`AddRefreshTokens` generated; applied to the Docker database only) |
+| **Total automated** | **979 passed, 0 failed** |
+
+### 24.2 Real Docker stack: suite `13-sessions` (33 checks, real MySQL, nginx + CSP, Chrome)
+First run (2026-11-02): **31 of 33 passed**. The two failures were mistakes in the checks, not in the code: A23-08 queried the wrong token family in SQL, and A23-13 slept before it created the tokens. Both checks were corrected afterwards. **The corrected suite has not been re-run to completion, so 33/33 is unconfirmed.** A real access-token lapse (A23-20 to A23-24) needs `JWT_EXPIRY_MINUTES=1`. Suite `12-account` has also never been run. The demo script `e2e/demo-phase23.mjs` was run against the normal 15-minute stack with the lapse simulated.
+
+### 24.3 Findings
+| ID | Status | Finding |
+|---|---|---|
+| A23-F1 | Fixed (test defects, first real run 31/33) | A23-08 looked at the wrong token family and A23-13 slept before, not after, creating its tokens, so the sign-out stamp and the tokens shared one second. Both were mistakes in the checks, not the code. |
+| A23-F2 | Info (limit) | Same whole-second rule as Phase 22: an access token issued in the same second as "sign out everywhere" or a password change survives until it expires (15 minutes at most); its refresh token is revoked at once. |
+| A23-F3 | Info (limit) | An already-open realtime connection is not closed by logout; it ends when it drops, and the next connect needs a live token. |
+| A23-F4 | Info (limit) | Refresh tokens live 14 days from the last use (sliding); there is no absolute cap on a login's age. |
+| A23-F5 | Info (trade-off) | Tokens are in `localStorage` (readable by XSS), as before. |

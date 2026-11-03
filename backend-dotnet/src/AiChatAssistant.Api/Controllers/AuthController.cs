@@ -36,6 +36,7 @@ public class AuthController : ControllerBase
     private readonly IValidator<VerifyEmailRequest> _verifyEmailValidator;
     private readonly IValidator<ResendVerificationRequest> _resendVerificationValidator;
     private readonly AccountOptions _account;
+    private readonly IRefreshTokenService _refreshTokens;
 
     public AuthController(
         AppDbContext db,
@@ -50,8 +51,10 @@ public class AuthController : ControllerBase
         IValidator<VerifyEmailRequest> verifyEmailValidator,
         IValidator<ResendVerificationRequest> resendVerificationValidator,
         IOptions<AccountOptions> account,
+        IRefreshTokenService refreshTokens,
         ILogger<AuthController> logger)
     {
+        _refreshTokens = refreshTokens;
         _lockout = lockout;
         _verifyEmailValidator = verifyEmailValidator;
         _resendVerificationValidator = resendVerificationValidator;
@@ -106,7 +109,7 @@ public class AuthController : ControllerBase
         _db.Users.Add(user);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return StatusCode(StatusCodes.Status201Created, BuildAuthResponse(user, new[] { userRole.Name }));
+        return StatusCode(StatusCodes.Status201Created, await BuildAuthResponseAsync(user, new[] { userRole.Name }, cancellationToken));
     }
 
     [HttpPost("login")]
@@ -153,7 +156,70 @@ public class AuthController : ControllerBase
         }
 
         var roles = user.UserRoles.Select(ur => ur.Role.Name).ToArray();
-        return Ok(BuildAuthResponse(user, roles));
+        return Ok(await BuildAuthResponseAsync(user, roles, cancellationToken));
+    }
+
+    /// <summary>
+    /// Exchanges a refresh token for a new access token and a new refresh token (the old one stops working). Unknown, expired, revoked and
+    /// reused tokens all answer the same <c>401 invalid_refresh_token</c>; a reused one also ends that whole login.
+    /// </summary>
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [RateLimit(RateLimitPolicy.Auth)]
+    public async Task<ActionResult<AuthResponse>> Refresh(RefreshRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken) || request.RefreshToken.Length > 200)
+        {
+            return Unauthorized(new ErrorResponse("invalid_refresh_token", "Your session has ended. Please log in again."));
+        }
+
+        var result = await _refreshTokens.RotateAsync(request.RefreshToken, cancellationToken);
+        if (result.Outcome != RefreshOutcome.Rotated || result.User is null)
+        {
+            return Unauthorized(new ErrorResponse("invalid_refresh_token", "Your session has ended. Please log in again."));
+        }
+
+        // The account may have changed since the last visit: re-check what login checks.
+        if (_account.RequireEmailVerification && result.User.EmailVerifiedAt is null)
+        {
+            await _refreshTokens.RevokeAsync(result.NewToken!, cancellationToken);
+            return Unauthorized(new ErrorResponse("invalid_refresh_token", "Your session has ended. Please log in again."));
+        }
+
+        var roles = result.User.UserRoles.Select(ur => ur.Role.Name).ToArray();
+        return Ok(BuildAuthResponse(result.User, roles, result.NewToken!, result.NewExpiresAt!.Value));
+    }
+
+    /// <summary>Ends this login: its refresh token (and the whole rotation chain) stops working. Idempotent, and open to an expired access token.</summary>
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    [RateLimit(RateLimitPolicy.Auth)]
+    public async Task<IActionResult> Logout(LogoutRequest request, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(request.RefreshToken) && request.RefreshToken.Length <= 200)
+        {
+            await _refreshTokens.RevokeAsync(request.RefreshToken, cancellationToken);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>Signs the caller out of every device: all refresh tokens are revoked, and every access token issued so far is refused.</summary>
+    [HttpPost("logout-all")]
+    [Authorize]
+    public async Task<IActionResult> LogoutAll(CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId();
+        var user = await _db.Users.SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user is null)
+        {
+            return Unauthorized(new ErrorResponse("unauthorized", "Authentication is required."));
+        }
+
+        user.PasswordChangedAt = DateTime.UtcNow; // reuses the "older tokens are refused" check for the access tokens still alive
+        await _db.SaveChangesAsync(cancellationToken);
+        await _refreshTokens.RevokeAllAsync(userId, cancellationToken);
+        return NoContent();
     }
 
     [HttpGet("me")]
@@ -253,6 +319,7 @@ public class AuthController : ControllerBase
         resetToken.User.PasswordChangedAt = resetToken.UsedAt;
         resetToken.User.EmailVerifiedAt ??= resetToken.UsedAt;
         await _db.SaveChangesAsync(cancellationToken);
+        await _refreshTokens.RevokeAllAsync(resetToken.User.Id, cancellationToken);
 
         // Someone who just proved they own the mailbox must not stay locked out of the account they have just recovered.
         await _lockout.ClearAsync(resetToken.User.Email);
@@ -388,13 +455,21 @@ public class AuthController : ControllerBase
     private static string HashToken(string rawToken) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
 
-    private AuthResponse BuildAuthResponse(User user, IReadOnlyCollection<string> roles)
+    private async Task<AuthResponse> BuildAuthResponseAsync(User user, IReadOnlyCollection<string> roles, CancellationToken cancellationToken)
+    {
+        var (refreshToken, refreshExpiresAt) = await _refreshTokens.IssueAsync(user.Id, cancellationToken);
+        return BuildAuthResponse(user, roles, refreshToken, refreshExpiresAt);
+    }
+
+    private AuthResponse BuildAuthResponse(User user, IReadOnlyCollection<string> roles, string refreshToken, DateTime refreshExpiresAt)
     {
         var (token, expiresAt) = _tokenService.CreateToken(user, roles);
         return new AuthResponse
         {
             Token = token,
             ExpiresAt = expiresAt,
+            RefreshToken = refreshToken,
+            RefreshExpiresAt = refreshExpiresAt,
             User = new UserSummary
             {
                 Id = user.Id,

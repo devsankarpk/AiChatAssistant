@@ -46,6 +46,7 @@ public class AuthControllerTests : IDisposable
             new VerifyEmailRequestValidator(),
             new ResendVerificationRequestValidator(),
             Options.Create(account ?? new AccountOptions()),
+            Refresh.Service(_db),
             NullLogger<AuthController>.Instance);
 
     [Fact]

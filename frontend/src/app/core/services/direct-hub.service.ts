@@ -24,7 +24,7 @@ export interface HubLike {
   invoke(method: string, ...args: unknown[]): Promise<unknown>;
 }
 
-export type HubFactory = (url: string, accessTokenFactory: () => string) => Promise<HubLike>;
+export type HubFactory = (url: string, accessTokenFactory: () => string | Promise<string>) => Promise<HubLike>;
 
 /**
  * The real factory. The SignalR client is imported on demand, so it becomes its own chunk that is only
@@ -119,7 +119,7 @@ export class DirectHubService {
     }
     this.connecting = true;
     try {
-      const hub = await this.factory(hubUrlFromApiBase(environment.apiBaseUrl), () => this.auth.getToken() ?? '');
+      const hub = await this.factory(hubUrlFromApiBase(environment.apiBaseUrl), () => this.auth.freshToken());
       hub.on('MessageReceived', (message: DirectMessageResponse) => this.messageReceived$.next(message));
       hub.on('MessageStatusChanged', (event: StatusChangedEvent) => this.statusChanged$.next(event));
       hub.on('MessagesRead', (event: MessagesReadEvent) => this.messagesRead$.next(event));

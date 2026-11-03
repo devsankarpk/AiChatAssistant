@@ -323,6 +323,54 @@ namespace AiChatAssistant.Api.Migrations
                     b.ToTable("PasswordResetTokens", (string)null);
                 });
 
+            modelBuilder.Entity("AiChatAssistant.Api.Models.RefreshToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("FamilyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FamilyId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens", (string)null);
+                });
+
             modelBuilder.Entity("AiChatAssistant.Api.Models.Role", b =>
                 {
                     b.Property<int>("Id")
@@ -570,6 +618,17 @@ namespace AiChatAssistant.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("AiChatAssistant.Api.Models.RefreshToken", b =>
+                {
+                    b.HasOne("AiChatAssistant.Api.Models.User", "User")
+                        .WithMany("RefreshTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AiChatAssistant.Api.Models.UsageLog", b =>
                 {
                     b.HasOne("AiChatAssistant.Api.Models.ChatSession", "Session")
@@ -632,6 +691,8 @@ namespace AiChatAssistant.Api.Migrations
                     b.Navigation("EmailVerificationTokens");
 
                     b.Navigation("PasswordResetTokens");
+
+                    b.Navigation("RefreshTokens");
 
                     b.Navigation("UsageLogs");
 

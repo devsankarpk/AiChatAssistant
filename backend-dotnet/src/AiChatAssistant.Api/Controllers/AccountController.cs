@@ -20,6 +20,7 @@ public class AccountController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly ITokenService _tokenService;
+    private readonly IRefreshTokenService _refreshTokens;
     private readonly ILoginLockout _lockout;
     private readonly IValidator<UpdateProfileRequest> _profileValidator;
     private readonly IValidator<ChangePasswordRequest> _changePasswordValidator;
@@ -29,6 +30,7 @@ public class AccountController : ControllerBase
     public AccountController(
         AppDbContext db,
         ITokenService tokenService,
+        IRefreshTokenService refreshTokens,
         ILoginLockout lockout,
         IValidator<UpdateProfileRequest> profileValidator,
         IValidator<ChangePasswordRequest> changePasswordValidator,
@@ -37,6 +39,7 @@ public class AccountController : ControllerBase
     {
         _db = db;
         _tokenService = tokenService;
+        _refreshTokens = refreshTokens;
         _lockout = lockout;
         _profileValidator = profileValidator;
         _changePasswordValidator = changePasswordValidator;
@@ -120,11 +123,16 @@ public class AccountController : ControllerBase
 
         _logger.LogInformation("User {UserId} changed their password; older sessions are now refused", user.Id);
         var roles = user.UserRoles.Select(ur => ur.Role.Name).ToArray();
+        // Every other login is over: their refresh tokens go, and this one gets a fresh pair so the person stays signed in here.
+        await _refreshTokens.RevokeAllAsync(user.Id, cancellationToken);
+        var (refreshToken, refreshExpiresAt) = await _refreshTokens.IssueAsync(user.Id, cancellationToken);
         var (token, expiresAt) = _tokenService.CreateToken(user, roles);
         return Ok(new AuthResponse
         {
             Token = token,
             ExpiresAt = expiresAt,
+            RefreshToken = refreshToken,
+            RefreshExpiresAt = refreshExpiresAt,
             User = new UserSummary { Id = user.Id, Name = user.Name, Email = user.Email, Roles = roles },
         });
     }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Text;
 using AiChatAssistant.Api.Common;
 using AiChatAssistant.Api.Data;
@@ -38,6 +39,11 @@ builder.Services.AddScoped<IValidator<ForgotPasswordRequest>, ForgotPasswordRequ
 builder.Services.AddScoped<IValidator<ResetPasswordRequest>, ResetPasswordRequestValidator>();
 builder.Services.AddScoped<IValidator<VerifyEmailRequest>, VerifyEmailRequestValidator>();
 builder.Services.AddScoped<IValidator<ResendVerificationRequest>, ResendVerificationRequestValidator>();
+// Sessions and tokens (Phase 23)
+builder.Services.Configure<RefreshTokenOptions>(builder.Configuration.GetSection(RefreshTokenOptions.SectionName));
+builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+
 // Account management (Phase 22)
 builder.Services.Configure<AccountOptions>(builder.Configuration.GetSection(AccountOptions.SectionName));
 builder.Services.AddScoped<IValidator<UpdateProfileRequest>, UpdateProfileRequestValidator>();
