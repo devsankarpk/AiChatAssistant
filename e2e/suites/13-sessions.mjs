@@ -26,6 +26,8 @@ const uiLogin = async (page, email, password) => { await page.goto(WEB + '/login
 const clickButton = (page, label) => page.evaluate((l) => { const b = Array.from(document.querySelectorAll('button')).find(x => x.textContent.trim() === l); if (!b) return false; b.click(); return true; }, label);
 const ls = (page, key) => page.evaluate((k) => localStorage.getItem(k), key);
 const exp = (jwt) => JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url')).exp;
+/** waitForSelector right after a reload can lose its frame ("detached Frame") when the page navigates under it; ask again. */
+const waitSel = async (page, selector, timeout = 25000) => { for (let i = 0; ; i++) { try { return await page.waitForSelector(selector, { timeout }); } catch (e) { if (i >= 3 || !/detached/i.test(String(e))) throw e; await sleep(500); } } };
 const snap = (p, n) => p.screenshot({ path: path.join(shots, n) });
 
 cleanDb(); redisCli('flushall');
@@ -110,7 +112,7 @@ const tabB = await page.browserContext().newPage();
 await tabB.goto(WEB + '/profile'); await tabB.waitForSelector('#name-title', { timeout: 20000 });
 await sleep(95000);
 await Promise.all([page.reload(), tabB.reload()]);
-await Promise.all([page.waitForSelector('#name-title', { timeout: 25000 }), tabB.waitForSelector('#name-title', { timeout: 25000 })]);
+await Promise.all([waitSel(page, '#name-title'), waitSel(tabB, '#name-title')]);
 await sleep(1500);
 check('A23-25', 'both tabs are still signed in on /profile (the tab that lost the race adopted the winner\'s tokens instead of signing out)', page.url().includes('/profile') && tabB.url().includes('/profile'), `${page.url()} | ${tabB.url()}`);
 check('A23-26', 'the stored refresh token is still valid for the next renewal', (await refresh(await ls(page, 'aichat.auth.refresh'))).status === 200);
