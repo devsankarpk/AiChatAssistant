@@ -47,6 +47,7 @@ public class ChatControllerTests : IDisposable
             _pythonClient.Object,
             new CreateSessionRequestValidator(),
             new SendMessageRequestValidator(),
+            new RenameSessionRequestValidator(),
             NullLogger<ChatController>.Instance,
             Options.Create(options),
             queue);
@@ -83,7 +84,7 @@ public class ChatControllerTests : IDisposable
         SeedSession(_otherUser, "Not mine");
         var controller = CreateController(_owner.Id, "User");
 
-        var result = await controller.ListSessions(CancellationToken.None);
+        var result = await controller.ListSessions(cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var sessions = Assert.IsAssignableFrom<IReadOnlyList<SessionResponse>>(ok.Value);
@@ -229,7 +230,7 @@ public class ChatControllerTests : IDisposable
     {
         var controller = CreateController(_owner.Id, "User");
 
-        var result = await controller.GetMessages(Guid.NewGuid(), CancellationToken.None);
+        var result = await controller.GetMessages(Guid.NewGuid(), cancellationToken: CancellationToken.None);
 
         Assert.IsType<NotFoundObjectResult>(result.Result);
     }
@@ -242,7 +243,7 @@ public class ChatControllerTests : IDisposable
         _db.SaveChanges();
         var adminController = CreateController(_otherUser.Id, "Admin");
 
-        var result = await adminController.GetMessages(session.Id, CancellationToken.None);
+        var result = await adminController.GetMessages(session.Id, cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var messages = Assert.IsAssignableFrom<IReadOnlyList<MessageResponse>>(ok.Value);

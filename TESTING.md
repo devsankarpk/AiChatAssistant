@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 979 automated tests (543 .NET, 65 Python, 371 Angular), all passing, plus 304 end-to-end checks in 13 committed suites (and a 14th, `12-account`, written but not yet run) under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 1049 automated tests (576 .NET, 65 Python, 408 Angular), all passing, plus real-stack suites under `e2e/` that all passed on their latest runs (including `12-account` 39/39, `13-sessions` 33/33 and `14-chat-management` 42/42) that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -507,18 +507,18 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | SEC-05 | Response headers from nginx | CSP, `X-Content-Type-Options`, frame-ancestors and referrer policy present; no server version | .NET + e2e | Done: Automated against the real nginx: suite `11-security`, `S21-01`..`S21-12` (headers, CSP in a real browser, blocked injected script, no framing) |
 | ACC-01 | Change password with the wrong current password | `400`, nothing changes | .NET | Done: `AccountControllerTests` (wrong current password `400`, nothing changes, no new token), `AccountPipelineTests.AWrongCurrentPassword_...`; Angular `profile.component.spec` |
 | ACC-02 | Change password successfully | Old password stops working; other sessions' tokens are rejected | .NET | Done: `AccountPipelineTests.ChangingThePassword_KillsEveryOlderSession_...`, `AnOlderSession_CannotOpenTheRealtimeHubEither`, `ResettingAForgottenPassword_AlsoSignsOutOlderSessions`, `AccountTokenValidatorTests` (8) |
-| ACC-03 | Delete account | User and their chats, messages and tokens removed; cannot log in afterwards | .NET | Done: `AccountControllerTests.DeleteAccount_*` (6), `AccountPipelineTests.DeletingTheAccount_...` (token stops at once, login fails, address free again); the row-by-row cascade is checked on real MySQL by `12-account` `A22-03`..`A22-09` (written, not yet run) |
+| ACC-03 | Delete account | User and their chats, messages and tokens removed; cannot log in afterwards | .NET | Done: `AccountControllerTests.DeleteAccount_*` (6), `AccountPipelineTests.DeletingTheAccount_...` (token stops at once, login fails, address free again); the row-by-row cascade is checked on real MySQL by `12-account` `A22-03`..`A22-09` (39/39 on real MySQL, 2026-11-03) |
 | ACC-04 | Register with an existing email | Behaviour as decided in Phase 22 (generic response or `409`), covered by a test either way | .NET | Done: `EmailVerificationTests.WhenOn_ANewAndAnExistingAddress_GetExactlyTheSameAnswer_...`, `WhenOff_ARegisteredEmailIsStillA409`, `VerificationPipelineTests.RegisteringIs202_...` |
 | ACC-05 | Profile page | Name edit, change-password form validation and confirm-delete dialog | Angular | Done: `profile.component.spec` (23 specs: details, rename, password, the two-step delete incl. the disabled button until the exact word is typed), `verify-email.component.spec` (5), register (3) and login (2) additions, `auth-verification.spec` (7), `account.service.spec` (7) |
 | TOK-01 | Access token expires | The interceptor refreshes once and retries the request; a second `401` logs out | Angular + e2e | Built: `session renewal › interceptors` (7 specs), `13-sessions` A23-20 to A23-24 |
 | TOK-02 | Refresh token rotation | Each refresh returns a new token; reusing an old one is rejected and revokes the family | .NET + e2e | Built: `RefreshTokenServiceTests`, `RefreshPipelineTests`, `13-sessions` A23-05 to A23-10 |
 | TOK-03 | Logout and password change | Refresh token revoked; old access token refused | .NET + e2e | Built: `RefreshPipelineTests`, `13-sessions` A23-11 to A23-16, A23-27 to A23-31 |
 | TOK-04 | SignalR connect uses a live token | The hub's token factory renews a lapsing token before connecting | Angular | Built: `DirectHubService asks for the token again each time`, `freshToken()` specs. (A connection that is already open keeps running until it drops; the next connect uses a fresh token.) |
-| CHM-01 | Rename a chat | Title changes; another user's chat gives `404` | .NET | Planned (Phase 24) |
-| CHM-02 | Delete a chat | Hidden from lists; messages not returned; `UsageLogs` rows kept | .NET | Planned (Phase 24) |
-| CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET | Planned (Phase 24) |
-| CHM-04 | Paged sessions and messages | Page size capped; `before` cursor returns older messages without gaps or duplicates | .NET | Planned (Phase 24) |
-| CHM-05 | Infinite scroll and confirm-delete | Older messages load on scroll; delete needs confirmation | Angular | Planned (Phase 24) |
+| CHM-01 | Rename a chat | Title changes; another user's chat gives `404` | .NET | Done: `ChatManagementTests.Rename_*` (trim, empty, 200/201 characters, someone else's chat, unknown chat, no token, a custom name survives the first message); `14-chat-management` C24-05..07 |
+| CHM-02 | Delete a chat | Hidden from lists; messages not returned; `UsageLogs` rows kept | .NET + e2e | Done: `ChatManagementTests.Delete_*`, `ADeletedChat_AnswersTheSame404OnEveryEndpoint_AndTheAiIsNeverAsked`, `TheAdminUsageList_StillShowsTheTitleOfADeletedChat`; real MySQL `C24-01..04`, `C24-08/09` (the account delete still cascades) |
+| CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET + e2e | Done: `ChatManagementTests.Search_*` (case, spaces, empty, deleted and foreign chats, wildcards, 5000-character term); real MySQL `B24-01..06` (the `%`, `_`, quote and injection cases only mean something there) |
+| CHM-04 | Paged sessions and messages | Page size capped; `before` cursor returns older messages without gaps or duplicates | .NET + e2e | Done: `ChatManagementTests.Sessions_*`, `Messages_*`, `TheAiContext_StillUsesTheLatest20_NotThePageSize`; real MySQL `D24-01..08` (121 chats and 130 messages walked page by page) |
+| CHM-05 | Infinite scroll and confirm-delete | Older messages load on scroll; delete needs confirmation | Angular + e2e | Done: `chat-management.spec` (37 specs: list paging, search, rename, delete dialog, thread paging) and `14-chat-management` E24-01..16 in real Chrome |
 | STR-01 | Stream a reply | Chunks arrive in order; the final message is saved once | Python + .NET | Planned (Phase 25) |
 | STR-02 | Stop mid-stream | Generation stops; behaviour for the partial text as decided in Phase 25 | .NET + Angular | Planned (Phase 25) |
 | STR-03 | Upstream error mid-stream | Error event delivered; the user message stays saved | Python + .NET | Planned (Phase 25) |
@@ -2145,7 +2145,9 @@ New Angular specs (48): `profile.component.spec` 23, `account.service.spec` 7, `
 | verification mode answers `409` for an existing address | 2 failed |
 | unconfirmed people may log in | 2 failed |
 
-### 23.4 Real Docker stack: suite `12-account` (39 checks): **written and syntax-checked, NOT RUN**
+### 23.4 Real Docker stack: suite `12-account` (39 checks): **39/39 passed (2026-11-03)**
+
+_Result:_ first run 38/39 (`A22-11`, see A22-F8), after the logging fix 39/39. The description below was written before the run.
 
 It would check, on the normal stack with real MySQL, nginx, CSP, Chrome and the real AI service: the migration's columns and the cascading foreign key (`A22-01`, `-02`); a user with a chat, usage log, two direct conversations' worth of messages and a reset token has **every row removed on delete, and the other person's data untouched** (`A22-03`..`A22-11`); a password change on one of two real browser windows signs the other out and refuses the old token on REST and on a fresh WebSocket (`A22-12`..`A22-17`); the profile page: rename, persistence, the privacy note, the two-step delete with its disabled button and wrong-password message (`A22-18`..`A22-25`); and the confirmation flow end to end with the mail read from the API log (`A22-26`..`A22-38`). To run it: start Docker, then `./e2e/run.sh 12` (screenshots go to `e2e/shots/phase22/`).
 
@@ -2159,7 +2161,8 @@ It would check, on the normal stack with real MySQL, nginx, CSP, Chrome and the 
 | A22-F4 | Info (limit) | Deleting an account does not push a live "conversation removed" event: the other person's Messages list loses the conversation on its next refresh, and sending into it gives `404`. |
 | A22-F5 | Info (limit) | Every authenticated request now does one primary-key lookup (the account check). No cache, so a deletion or password change takes effect at once. |
 | A22-F6 | Info | The account guard (wrong-current-password counting) uses the shared login lockout counter under its own key, so it is shared across replicas through Redis and lost on restart in memory mode, like the login lockout. |
-| A22-F7 | Open | The real-stack suite has not been run (see 23.4). Until it is, the cascade on real MySQL is believed (the foreign keys were verified in Phase 10 and the migration is checked by the suite's first two checks) but not re-proven for the new tables. |
+| A22-F7 | Closed (2026-11-03) | The real-stack suite was run for the first time and passed 39/39 on real MySQL, so the cascade is proven. It found one gap: see A22-F8. |
+| A22-F8 | Fixed (2026-11-03) | `A22-11` failed: production logs only warnings and above, so the "User N deleted their account" audit line was never written. `appsettings.Production.json` now sets `AccountController` to Information (ids only, never an email address). |
 
 ### 23.6 Not covered
 - Everything in 23.4.
@@ -2184,7 +2187,7 @@ It would check, on the normal stack with real MySQL, nginx, CSP, Chrome and the 
 | **Total automated** | **979 passed, 0 failed** |
 
 ### 24.2 Real Docker stack: suite `13-sessions` (33 checks, real MySQL, nginx + CSP, Chrome)
-First run (2026-11-02): **31 of 33 passed**. The two failures were mistakes in the checks, not in the code: A23-08 queried the wrong token family in SQL, and A23-13 slept before it created the tokens. Both checks were corrected afterwards. **The corrected suite has not been re-run to completion, so 33/33 is unconfirmed.** A real access-token lapse (A23-20 to A23-24) needs `JWT_EXPIRY_MINUTES=1`. Suite `12-account` has also never been run. The demo script `e2e/demo-phase23.mjs` was run against the normal 15-minute stack with the lapse simulated.
+**33 of 33 passed** on 2026-11-03, including the real access-token lapse (A23-18 to A23-24, run with a 1-minute token, so the 15-minute lifetime was shortened only for that run). History: the first run (2026-11-02) was 31/33 (two mistakes in the checks, A23-F1); a rerun crashed after A23-24 with a Puppeteer "detached Frame" error when `waitForSelector` raced a reload (A23-F6, test defect; a hand-made reproduction showed both tabs ending signed in, so the app was correct); with a retrying `waitSel` helper the suite ran to the end.
 
 ### 24.3 Findings
 | ID | Status | Finding |
@@ -2194,3 +2197,30 @@ First run (2026-11-02): **31 of 33 passed**. The two failures were mistakes in t
 | A23-F3 | Info (limit) | An already-open realtime connection is not closed by logout; it ends when it drops, and the next connect needs a live token. |
 | A23-F4 | Info (limit) | Refresh tokens live 14 days from the last use (sliding); there is no absolute cap on a login's age. |
 | A23-F5 | Info (trade-off) | Tokens are in `localStorage` (readable by XSS), as before. |
+| A23-F6 | Fixed (test defect) | `waitForSelector` right after a simultaneous reload of two tabs lost its frame ("detached Frame"); the suite now retries. The two-tabs behaviour itself was verified: the tab that loses the refresh race adopts the winner's tokens and both stay signed in. |
+
+## 25. Phase 24: chat management and pagination (2026-11-03)
+
+### 25.1 Automated suites
+| Layer | Before | Now | New |
+|---|---|---|---|
+| .NET | 543 | 576 | 33 (`ChatManagementTests`; the other chat test classes only gained the new constructor argument and named arguments) |
+| Python | 65 | 65 | 0 (Python is unchanged) |
+| Angular | 371 | 408 | 37 (`chat-management.spec`) |
+| **Total automated** | **979 passed, 0 failed** | **1049 passed, 0 failed** | **70** |
+
+Mutation spot-check (a rule broken on purpose, the suites must fail): deleted chats reachable (1 failed), deleted chats listed (2), no page cap (2), message cursor off by one (1), hard delete instead of soft (2). All five were caught.
+
+### 25.2 Real Docker stack: suite `14-chat-management` (42 checks, real MySQL, nginx + CSP, Chrome, no LLM)
+**42 of 42 passed** (`./e2e/run.sh 14`). Parts: A schema (the column and the index), B title search on real MySQL, C soft delete and the account-delete cascade, D paging 121 chats and 130 messages, E the real UI (scroll for more chats, search, rename, delete with confirmation, scroll up in a thread). Chats and messages are written straight into the Docker database (the LLM is never called) and removed at the end (`Z24-01`).
+
+### 25.3 Findings
+| ID | Status | Finding |
+|---|---|---|
+| A24-F1 | Fixed (real bug, found by the browser run) | The rename box opened without focus and without the old title selected: `select()` ran before `ngModel` had written the value. Now focus and select happen a tick later; `chat-management.spec` pins it. |
+| A24-F2 | Fixed (test defects) | The first suite run was 39/42: E24-09 measured the reading position after scrolling instead of before, and E24-11/12 pressed Ctrl+A, which on macOS moves the cursor instead of selecting. |
+| A24-F3 | Info (limit) | The in-memory test database treats `%` and `_` as plain text, so the wildcard unit tests would pass even if the code were wrong; the real-MySQL checks B24-02/03 are the proof. |
+| A24-F4 | Info (limit) | A pending async AI reply for a chat deleted meanwhile is still saved and pushed; nothing shows it. |
+| A24-F5 | Info (limit) | `chat.component.scss` is 8.4 kB, over the 7 kB warning budget (the error limit is 10 kB); the build passes with a warning. Moving the sidebar into its own component would fix it. |
+| A24-F6 | Info (limit) | Search covers titles only, not message text. Delete has no trash or undo. |
+

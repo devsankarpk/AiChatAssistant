@@ -60,6 +60,7 @@ builder.Services.AddBrokerFeatures(builder.Configuration);
 // Chat
 builder.Services.AddScoped<IValidator<CreateSessionRequest>, CreateSessionRequestValidator>();
 builder.Services.AddScoped<IValidator<SendMessageRequest>, SendMessageRequestValidator>();
+builder.Services.AddScoped<IValidator<RenameSessionRequest>, RenameSessionRequestValidator>();
 builder.Services.AddScoped<IValidator<StartConversationRequest>, StartConversationRequestValidator>();
 builder.Services.AddScoped<IValidator<SendDirectMessageRequest>, SendDirectMessageRequestValidator>();
 

@@ -5,6 +5,11 @@ public class CreateSessionRequest
     public string? Title { get; set; }
 }
 
+public class RenameSessionRequest
+{
+    public string Title { get; set; } = string.Empty;
+}
+
 public class SessionResponse
 {
     public Guid Id { get; set; }

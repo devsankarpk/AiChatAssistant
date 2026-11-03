@@ -121,6 +121,7 @@ public class AppDbContext : DbContext
                 .HasForeignKey(s => s.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(s => s.UserId);
+            entity.HasIndex(s => new { s.UserId, s.DeletedAt, s.CreatedAt });
         });
 
         modelBuilder.Entity<Message>(entity =>

@@ -16,28 +16,74 @@
       </button>
     </div>
 
+    <div class="search">
+      <label class="visually-hidden" for="chat-search">Search chats</label>
+      <input
+        id="chat-search"
+        type="search"
+        placeholder="Search chats"
+        autocomplete="off"
+        maxlength="100"
+        [ngModel]="searchText()"
+        (ngModelChange)="onSearchInput($event)"
+      />
+    </div>
+
     @if (sessionsError()) {
       <p class="form-error" role="alert">{{ sessionsError() }}</p>
     }
 
-    <nav class="session-list" aria-label="Your chats">
+    <nav class="session-list" aria-label="Your chats" (scroll)="onSessionListScroll($event)">
       @for (group of sessionGroups(); track group.label) {
         <h2 class="group-label">{{ group.label }}</h2>
         @for (session of group.sessions; track session.id) {
-          <button
-            type="button"
-            class="session-item"
-            [class.active]="session.id === selectedSessionId()"
-            [attr.aria-current]="session.id === selectedSessionId() ? 'page' : null"
-            (click)="selectSession(session.id)"
-          >
-            {{ session.title }}
-          </button>
+          <div class="session-row" [class.active]="session.id === selectedSessionId()">
+            @if (renamingId() === session.id) {
+              <input
+                #renameInput
+                class="rename-input"
+                type="text"
+                maxlength="200"
+                [attr.aria-label]="'New name for ' + session.title"
+                [ngModel]="renameDraft()"
+                (ngModelChange)="renameDraft.set($event)"
+                (keydown)="onRenameKeydown($event, session)"
+                (blur)="cancelRename()"
+              />
+            } @else {
+              <button
+                type="button"
+                class="session-item"
+                [class.active]="session.id === selectedSessionId()"
+                [attr.aria-current]="session.id === selectedSessionId() ? 'page' : null"
+                (click)="selectSession(session.id)"
+              >
+                {{ session.title }}
+              </button>
+              <span class="row-actions">
+                <button type="button" class="row-action rename" [attr.aria-label]="'Rename chat ' + session.title" title="Rename" (click)="startRename(session)">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 13l.6-2.8L11 2.8a1.4 1.4 0 012 2L5.8 12.4 3 13z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none" /></svg>
+                </button>
+                <button type="button" class="row-action delete" [attr.aria-label]="'Delete chat ' + session.title" title="Delete" (click)="askDelete(session)">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
+                </button>
+              </span>
+            }
+          </div>
         }
       } @empty {
         @if (!sessionsLoading()) {
-          <p class="empty-hint">Your chats will be listed here.</p>
+          @if (activeSearch()) {
+            <p class="empty-hint">No chats match “{{ activeSearch() }}”. <button type="button" class="link-button" (click)="clearSearch()">Clear search</button></p>
+          } @else {
+            <p class="empty-hint">Your chats will be listed here.</p>
+          }
         }
+      }
+      @if (loadingMoreSessions()) {
+        <p class="empty-hint" role="status">Loading more…</p>
+      } @else if (hasMoreSessions()) {
+        <button type="button" class="link-button more" (click)="loadMoreSessions()">Show more chats</button>
       }
     </nav>
 
@@ -81,7 +127,13 @@
       <span class="mobile-title">{{ selectedTitle() }}</span>
     </header>
 
-    <div class="message-list" aria-live="polite">
+    <div #messageList class="message-list" aria-live="polite" (scroll)="onMessageListScroll($event)">
+      @if (loadingOlder()) {
+        <p class="older" role="status">Loading earlier messages…</p>
+      } @else if (hasMoreMessages()) {
+        <button type="button" class="btn btn-quiet older" (click)="loadOlderMessages()">Show earlier messages</button>
+      }
+
       @if (!selectedSessionId() && messages().length === 0) {
         <div class="empty-state">
           <h1>What are you working on?</h1>
@@ -163,3 +215,26 @@
     </div>
   </main>
 </div>
+
+@if (deleteTarget(); as target) {
+  <div class="dialog-backdrop" (click)="cancelDelete()">
+    <div
+      class="dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-title"
+      aria-describedby="delete-text"
+      (click)="$event.stopPropagation()"
+      (keydown.escape)="cancelDelete()"
+    >
+      <h2 id="delete-title">Delete this chat?</h2>
+      <p id="delete-text">“{{ target.title }}” and its messages will disappear from your list. This cannot be undone from here.</p>
+      <div class="dialog-actions">
+        <button #cancelDeleteButton type="button" class="btn btn-quiet" [disabled]="deleting()" (click)="cancelDelete()">Cancel</button>
+        <button type="button" class="btn btn-danger-solid" [disabled]="deleting()" (click)="confirmDelete()">
+          {{ deleting() ? 'Deleting…' : 'Delete chat' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
