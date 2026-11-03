@@ -45,7 +45,7 @@ public class AsyncReplyControllerTests : IDisposable
     private ChatController Create(User caller, bool asyncReplies = true, IAiReplyQueue? queue = null, params string[] roles)
     {
         var controller = new ChatController(
-            _db, _python.Object, new CreateSessionRequestValidator(), new SendMessageRequestValidator(),
+            _db, _python.Object, new CreateSessionRequestValidator(), new SendMessageRequestValidator(), new RenameSessionRequestValidator(),
             NullLogger<ChatController>.Instance, Options.Create(new ChatOptions { AsyncReplies = asyncReplies }),
             queue ?? _queue.Object);
         controller.SetUser(ClaimsPrincipalFactory.Create(caller.Id, caller.Email, roles));

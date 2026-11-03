@@ -11,6 +11,9 @@ public class ChatSession
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Set when the owner deletes the chat. The row stays (usage logs keep pointing at it) but the chat is hidden everywhere and answers 404.</summary>
+    public DateTime? DeletedAt { get; set; }
+
     public User User { get; set; } = null!;
 
     public ICollection<Message> Messages { get; set; } = new List<Message>();

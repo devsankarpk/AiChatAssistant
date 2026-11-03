@@ -93,6 +93,9 @@ namespace AiChatAssistant.Api.Migrations
                         .HasColumnType("datetime(6)")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime(6)");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -104,6 +107,8 @@ namespace AiChatAssistant.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "DeletedAt", "CreatedAt");
 
                     b.ToTable("ChatSessions", (string)null);
                 });

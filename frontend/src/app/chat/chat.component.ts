@@ -1,9 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { AfterViewChecked, Component, DestroyRef, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { AfterViewChecked, Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { distinctUntilChanged, firstValueFrom, forkJoin, map } from 'rxjs';
+import { Subject, debounceTime, distinctUntilChanged, firstValueFrom, forkJoin, map, switchMap } from 'rxjs';
 
 import { AuthService } from '../core/services/auth.service';
 import { ChatService } from '../core/services/chat.service';
@@ -35,6 +35,10 @@ export class ChatComponent implements AfterViewChecked {
   private readonly route = inject(ActivatedRoute);
   private readonly scrollAnchor = viewChild<ElementRef<HTMLElement>>('scrollAnchor');
   private readonly composerInput = viewChild<ElementRef<HTMLTextAreaElement>>('composerInput');
+  private readonly messageList = viewChild<ElementRef<HTMLElement>>('messageList');
+  private readonly renameInput = viewChild<ElementRef<HTMLInputElement>>('renameInput');
+  private readonly cancelDeleteButton = viewChild<ElementRef<HTMLButtonElement>>('cancelDeleteButton');
+  private readonly injector = inject(Injector);
 
   readonly auth = inject(AuthService);
   readonly theme = inject(ThemeService);
@@ -52,12 +56,36 @@ export class ChatComponent implements AfterViewChecked {
     { initialValue: null },
   );
 
+  /** How many items the server sends per page when no `limit` is asked for (it caps a page at 100). A full page means there may be more. */
+  static readonly PAGE_SIZE = 50;
+  private static readonly SEARCH_DEBOUNCE_MS = 250;
+  /** How close to the bottom of the chat list (or the top of the thread) counts as "reached the end", in pixels. */
+  private static readonly SCROLL_EDGE_PX = 80;
+
   readonly sessions = signal<SessionResponse[]>([]);
   readonly sessionsLoading = signal(true);
   readonly sessionsError = signal<string | null>(null);
+  readonly hasMoreSessions = signal(false);
+  readonly loadingMoreSessions = signal(false);
+
+  /** What the person has typed in the search box, and the text the list on screen was actually searched with. */
+  readonly searchText = signal('');
+  readonly activeSearch = signal('');
+  private readonly searchTerms = new Subject<string>();
+
+  /** Inline rename of one chat in the sidebar. */
+  readonly renamingId = signal<string | null>(null);
+  readonly renameDraft = signal('');
+  readonly renameSaving = signal(false);
+
+  /** The chat the delete confirmation is open for. */
+  readonly deleteTarget = signal<SessionResponse | null>(null);
+  readonly deleting = signal(false);
 
   readonly messages = signal<DisplayMessage[]>([]);
   readonly messagesLoading = signal(false);
+  readonly hasMoreMessages = signal(false);
+  readonly loadingOlder = signal(false);
 
   /**
    * Replies being produced in the background (the server's async mode), by job id. The page shows "Thinking…" while
@@ -119,6 +147,7 @@ export class ChatComponent implements AfterViewChecked {
     this.chat.getSessions().subscribe({
       next: (list) => {
         this.sessions.set(list);
+        this.hasMoreSessions.set(list.length >= ChatComponent.PAGE_SIZE);
         this.sessionsLoading.set(false);
       },
       error: (err: HttpErrorResponse) => {
@@ -126,6 +155,39 @@ export class ChatComponent implements AfterViewChecked {
         this.sessionsError.set(extractErrorMessage(err));
       },
     });
+
+    // Searching asks the server (titles of every chat, not just the ones loaded so far). switchMap drops a slow answer to an older term.
+    this.searchTerms
+      .pipe(
+        map((term) => term.trim()),
+        debounceTime(ChatComponent.SEARCH_DEBOUNCE_MS),
+        distinctUntilChanged(),
+        switchMap((term) => {
+          this.activeSearch.set(term);
+          this.sessionsError.set(null);
+          return this.chat.getSessions({ search: term });
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe({
+        next: (list) => {
+          this.sessions.set(list);
+          this.hasMoreSessions.set(list.length >= ChatComponent.PAGE_SIZE);
+        },
+        error: (err: HttpErrorResponse) => this.sessionsError.set(extractErrorMessage(err)),
+      });
+
+    effect(() => {
+      const input = this.renameInput()?.nativeElement;
+      if (input) {
+        // ngModel writes the value a tick after the input exists; focusing and selecting sooner would select nothing.
+        setTimeout(() => {
+          input.focus();
+          input.select();
+        });
+      }
+    });
+    effect(() => this.cancelDeleteButton()?.nativeElement.focus());
 
     inject(DestroyRef).onDestroy(() => clearInterval(this.replyPoll));
 
@@ -168,6 +230,7 @@ export class ChatComponent implements AfterViewChecked {
       const id = this.selectedSessionId();
       if (!id) {
         this.messages.set([]);
+        this.hasMoreMessages.set(false);
       } else if (id === this.skipNextLoadFor) {
         // Caller (newChat()/send()) already cleared `messages` synchronously, before ever
         // navigating - deliberately NOT touched here. Angular's effect scheduling gives no
@@ -199,6 +262,174 @@ export class ChatComponent implements AfterViewChecked {
         this.selectSession(session.id);
       },
       error: (err: HttpErrorResponse) => this.sessionsError.set(extractErrorMessage(err)),
+    });
+  }
+
+  onSearchInput(text: string): void {
+    this.searchText.set(text);
+    this.searchTerms.next(text);
+  }
+
+  clearSearch(): void {
+    this.onSearchInput('');
+  }
+
+  onSessionListScroll(event: Event): void {
+    const el = event.target as HTMLElement;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < ChatComponent.SCROLL_EDGE_PX) {
+      this.loadMoreSessions();
+    }
+  }
+
+  /** The next page of chats after the last one shown, for the current search. */
+  loadMoreSessions(): void {
+    const last = this.sessions().at(-1);
+    if (!last || !this.hasMoreSessions() || this.loadingMoreSessions()) {
+      return;
+    }
+    const search = this.activeSearch();
+    this.loadingMoreSessions.set(true);
+    this.chat.getSessions({ search, before: last.createdAt }).subscribe({
+      next: (page) => {
+        this.loadingMoreSessions.set(false);
+        if (search !== this.activeSearch()) {
+          return; // the search changed while this was loading
+        }
+        this.sessions.update((list) => [...list, ...page.filter((p) => !list.some((s) => s.id === p.id))]);
+        this.hasMoreSessions.set(page.length >= ChatComponent.PAGE_SIZE);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.loadingMoreSessions.set(false);
+        this.sessionsError.set(extractErrorMessage(err));
+      },
+    });
+  }
+
+  startRename(session: SessionResponse): void {
+    this.renameDraft.set(session.title);
+    this.renamingId.set(session.id);
+  }
+
+  cancelRename(): void {
+    this.renamingId.set(null);
+  }
+
+  onRenameKeydown(event: KeyboardEvent, session: SessionResponse): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.commitRename(session);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.cancelRename();
+    }
+  }
+
+  commitRename(session: SessionResponse): void {
+    const title = this.renameDraft().trim();
+    if (this.renameSaving()) {
+      return;
+    }
+    if (!title || title === session.title) {
+      this.cancelRename();
+      return;
+    }
+    this.renameSaving.set(true);
+    this.sessionsError.set(null);
+    this.chat.renameSession(session.id, title).subscribe({
+      next: (updated) => {
+        this.renameSaving.set(false);
+        this.renamingId.set(null);
+        this.sessions.update((list) => list.map((s) => (s.id === updated.id ? { ...s, title: updated.title } : s)));
+      },
+      error: (err: HttpErrorResponse) => {
+        this.renameSaving.set(false);
+        this.renamingId.set(null);
+        this.sessionsError.set(extractErrorMessage(err));
+      },
+    });
+  }
+
+  askDelete(session: SessionResponse): void {
+    this.deleteTarget.set(session);
+  }
+
+  cancelDelete(): void {
+    if (!this.deleting()) {
+      this.deleteTarget.set(null);
+    }
+  }
+
+  confirmDelete(): void {
+    const target = this.deleteTarget();
+    if (!target || this.deleting()) {
+      return;
+    }
+    this.deleting.set(true);
+    const finish = (): void => {
+      this.deleting.set(false);
+      this.deleteTarget.set(null);
+      this.sessions.update((list) => list.filter((s) => s.id !== target.id));
+      this.pendingJobs.update((jobs) => Object.fromEntries(Object.entries(jobs).filter(([, j]) => j.sessionId !== target.id)));
+      if (this.selectedSessionId() === target.id) {
+        this.messages.set([]);
+        this.messagesToken++; // a load still in flight for the deleted chat must not bring it back
+        this.router.navigate([], { relativeTo: this.route, queryParams: { session: null } });
+      }
+    };
+    this.chat.deleteSession(target.id).subscribe({
+      next: finish,
+      error: (err: HttpErrorResponse) => {
+        if (err.status === 404) {
+          finish(); // already gone (deleted in another tab): same end state
+          return;
+        }
+        this.deleting.set(false);
+        this.deleteTarget.set(null);
+        this.sessionsError.set(extractErrorMessage(err));
+      },
+    });
+  }
+
+  onMessageListScroll(event: Event): void {
+    if ((event.target as HTMLElement).scrollTop < ChatComponent.SCROLL_EDGE_PX) {
+      this.loadOlderMessages();
+    }
+  }
+
+  /** Fetches the page of messages above the oldest one on screen and puts it in front, keeping what the person is reading in place. */
+  loadOlderMessages(): void {
+    const sessionId = this.selectedSessionId();
+    const oldest = this.messages().find((m) => m.id > 0);
+    if (!sessionId || !oldest || !this.hasMoreMessages() || this.loadingOlder()) {
+      return;
+    }
+    this.loadingOlder.set(true);
+    this.chat.getMessages(sessionId, { before: oldest.id }).subscribe({
+      next: (page) => {
+        this.loadingOlder.set(false);
+        if (sessionId !== this.selectedSessionId()) {
+          return; // the person moved to another chat meanwhile
+        }
+        this.hasMoreMessages.set(page.length >= ChatComponent.PAGE_SIZE);
+        const el = this.messageList()?.nativeElement;
+        const heightBefore = el?.scrollHeight ?? 0;
+        const topBefore = el?.scrollTop ?? 0;
+        this.messages.update((list) => [...page.filter((p) => !list.some((m) => m.id === p.id)), ...list]);
+        // Prepending is not "a new message": do not jump to the bottom, and keep the same text under the eyes.
+        this.scrolledForMessageCount = this.messages().length;
+        afterNextRender(
+          () => {
+            if (el) {
+              el.scrollTop = topBefore + (el.scrollHeight - heightBefore);
+            }
+          },
+          { injector: this.injector },
+        );
+      },
+      error: (err: HttpErrorResponse) => {
+        this.loadingOlder.set(false);
+        this.sendError.set(extractErrorMessage(err));
+      },
     });
   }
 
@@ -334,7 +565,13 @@ export class ChatComponent implements AfterViewChecked {
       return;
     }
     this.chat.getSessions().subscribe({
-      next: (list) => this.sessions.set(list),
+      next: (list) => {
+        // Take only the new title: replacing the whole list would drop pages already loaded and ignore an active search.
+        const fresh = list.find((s) => s.id === sessionId);
+        if (fresh) {
+          this.sessions.update((all) => all.map((s) => (s.id === sessionId ? { ...s, title: fresh.title } : s)));
+        }
+      },
       error: () => {
         // Cosmetic only - the title shows up on the next page load anyway.
       },
@@ -343,6 +580,7 @@ export class ChatComponent implements AfterViewChecked {
 
   private loadMessages(sessionId: string): void {
     const token = ++this.messagesToken;
+    this.hasMoreMessages.set(false);
     this.messagesLoading.set(true);
     this.sendError.set(null);
     this.chat.getMessages(sessionId).subscribe({
@@ -351,6 +589,7 @@ export class ChatComponent implements AfterViewChecked {
           return; // superseded by a newer load or an in-progress send - discard this response
         }
         this.messages.set(msgs);
+        this.hasMoreMessages.set(msgs.length >= ChatComponent.PAGE_SIZE);
         this.messagesLoading.set(false);
         this.loadReplyJobs(sessionId);
       },
@@ -360,6 +599,7 @@ export class ChatComponent implements AfterViewChecked {
         }
         this.messagesLoading.set(false);
         this.messages.set([]);
+        this.hasMoreMessages.set(false);
         this.sessionsError.set(extractErrorMessage(err));
       },
     });
@@ -394,9 +634,11 @@ export class ChatComponent implements AfterViewChecked {
           return;
         }
         this.messages.update((list) => {
-          // Keep an optimistic message that is still being sent; take everything the server knows.
+          // Take everything the server knows for the newest page, keep older pages already scrolled in, and keep an optimistic message still being sent.
           const local = list.filter((m) => m.pending || m.failed);
-          return [...msgs, ...local];
+          const newestPageStart = msgs[0]?.id;
+          const older = newestPageStart === undefined ? [] : list.filter((m) => !m.pending && !m.failed && m.id > 0 && m.id < newestPageStart);
+          return [...older, ...msgs, ...local];
         });
         this.applyReplyJobs(sessionId, jobs);
       },

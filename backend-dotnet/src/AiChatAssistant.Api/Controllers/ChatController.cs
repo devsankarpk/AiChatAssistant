@@ -22,6 +22,7 @@ public class ChatController : ControllerBase
     private readonly IPythonAiClient _pythonClient;
     private readonly IValidator<CreateSessionRequest> _createSessionValidator;
     private readonly IValidator<SendMessageRequest> _sendMessageValidator;
+    private readonly IValidator<RenameSessionRequest> _renameValidator;
     private readonly ILogger<ChatController> _logger;
     private readonly IAiReplyQueue? _replyQueue;
     private readonly ChatOptions _chatOptions;
@@ -31,6 +32,7 @@ public class ChatController : ControllerBase
         IPythonAiClient pythonClient,
         IValidator<CreateSessionRequest> createSessionValidator,
         IValidator<SendMessageRequest> sendMessageValidator,
+        IValidator<RenameSessionRequest> renameValidator,
         ILogger<ChatController> logger,
         IOptions<ChatOptions> chatOptions,
         IAiReplyQueue? replyQueue = null)
@@ -41,6 +43,7 @@ public class ChatController : ControllerBase
         _pythonClient = pythonClient;
         _createSessionValidator = createSessionValidator;
         _sendMessageValidator = sendMessageValidator;
+        _renameValidator = renameValidator;
         _logger = logger;
     }
 
@@ -65,20 +68,71 @@ public class ChatController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, ToSessionResponse(session));
     }
 
+    /// <summary>
+    /// The caller's chats, newest first, deleted ones left out. <c>search</c> keeps chats whose title contains the text;
+    /// <c>limit</c> (default 50, max 100) and <c>before</c> (the <c>createdAt</c> of the last chat received) page through them.
+    /// The answer stays a plain array, so a client that sends no parameters still works, it just sees the newest 50.
+    /// </summary>
     [HttpGet("sessions")]
-    public async Task<ActionResult<IReadOnlyList<SessionResponse>>> ListSessions(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<SessionResponse>>> ListSessions(
+        string? search = null, DateTime? before = null, int? limit = null, CancellationToken cancellationToken = default)
     {
         var userId = User.GetUserId();
-        var sessions = await _db.ChatSessions
-            .Where(s => s.UserId == userId)
+        var query = _db.ChatSessions.Where(s => s.UserId == userId && s.DeletedAt == null);
+
+        var term = search?.Trim();
+        if (!string.IsNullOrEmpty(term))
+        {
+            if (term.Length > SearchMaxLength)
+            {
+                term = term[..SearchMaxLength];
+            }
+            var lowered = term.ToLower();
+            query = query.Where(s => s.Title.ToLower().Contains(lowered));
+        }
+
+        if (before is not null)
+        {
+            var cursor = before.Value.Kind == DateTimeKind.Local ? before.Value.ToUniversalTime() : before.Value;
+            query = query.Where(s => s.CreatedAt < cursor);
+        }
+
+        var sessions = await query
             .OrderByDescending(s => s.CreatedAt)
+            .Take(PageSize(limit))
             .ToListAsync(cancellationToken);
 
         return Ok(sessions.Select(ToSessionResponse).ToList());
     }
 
-    [HttpGet("sessions/{id:guid}/messages")]
-    public async Task<ActionResult<IReadOnlyList<MessageResponse>>> GetMessages(Guid id, CancellationToken cancellationToken)
+    /// <summary>Renames a chat. Title is trimmed, 1 to 200 characters. 404 for a chat that is not the caller's or is deleted.</summary>
+    [HttpPatch("sessions/{id:guid}")]
+    public async Task<ActionResult<SessionResponse>> RenameSession(Guid id, RenameSessionRequest request, CancellationToken cancellationToken)
+    {
+        var validation = await _renameValidator.ValidateAsync(request, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return this.ValidationError(validation);
+        }
+
+        var session = await GetOwnedSessionAsync(id, cancellationToken);
+        if (session is null)
+        {
+            return SessionNotFound();
+        }
+
+        session.Title = request.Title.Trim();
+        await _db.SaveChangesAsync(cancellationToken);
+        return Ok(ToSessionResponse(session));
+    }
+
+    /// <summary>
+    /// Deletes a chat for its owner. A soft delete: the row and its messages stay in the database so the usage history
+    /// that points at them is kept, but the chat disappears from the list and every endpoint answers 404 for it.
+    /// A second delete is a 404 too, because the chat no longer exists as far as the caller can tell.
+    /// </summary>
+    [HttpDelete("sessions/{id:guid}")]
+    public async Task<IActionResult> DeleteSession(Guid id, CancellationToken cancellationToken)
     {
         var session = await GetOwnedSessionAsync(id, cancellationToken);
         if (session is null)
@@ -86,12 +140,37 @@ public class ChatController : ControllerBase
             return SessionNotFound();
         }
 
-        var messages = await _db.Messages
-            .Where(m => m.SessionId == id)
-            .OrderBy(m => m.Id)
-            .ToListAsync(cancellationToken);
+        session.DeletedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
 
-        return Ok(messages.Select(ToMessageResponse).ToList());
+    /// <summary>
+    /// The messages of a chat, oldest first. With no parameters: the newest <c>limit</c> (default 50, max 100).
+    /// <c>before</c> (a message id) gives the page of messages older than that one, so a client scrolls upwards.
+    /// </summary>
+    [HttpGet("sessions/{id:guid}/messages")]
+    public async Task<ActionResult<IReadOnlyList<MessageResponse>>> GetMessages(Guid id, int? before = null, int? limit = null, CancellationToken cancellationToken = default)
+    {
+        var session = await GetOwnedSessionAsync(id, cancellationToken);
+        if (session is null)
+        {
+            return SessionNotFound();
+        }
+
+        var query = _db.Messages.Where(m => m.SessionId == id);
+        if (before is not null)
+        {
+            query = query.Where(m => m.Id < before.Value);
+        }
+
+        var page = await query
+            .OrderByDescending(m => m.Id)
+            .Take(PageSize(limit))
+            .ToListAsync(cancellationToken);
+        page.Reverse(); // oldest first within the page
+
+        return Ok(page.Select(ToMessageResponse).ToList());
     }
 
     [HttpPost("sessions/{id:guid}/messages")]
@@ -251,6 +330,11 @@ public class ChatController : ControllerBase
             return NotFound(new ErrorResponse("job_not_found", "Reply not found."));
         }
 
+        if (await GetOwnedSessionAsync(job.SessionId, cancellationToken) is null)
+        {
+            return NotFound(new ErrorResponse("job_not_found", "Reply not found.")); // its chat was deleted
+        }
+
         if (job.Status == AiReplyJobStatus.Done)
         {
             return Conflict(new ErrorResponse("reply_already_delivered", "This reply was already delivered."));
@@ -292,7 +376,7 @@ public class ChatController : ControllerBase
     /// <summary>Null unless the session exists AND (the caller owns it OR the caller is Admin).</summary>
     private async Task<ChatSession?> GetOwnedSessionAsync(Guid id, CancellationToken cancellationToken)
     {
-        var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+        var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAt == null, cancellationToken);
         if (session is null)
         {
             return null;
@@ -304,6 +388,13 @@ public class ChatController : ControllerBase
     // 404, not 403, for "not yours" too - avoids confirming to a caller that a given session id
     // exists at all when it isn't theirs.
     private ActionResult SessionNotFound() => NotFound(new ErrorResponse("session_not_found", "Chat session not found."));
+
+    private const int DefaultPageSize = 50;
+    private const int MaxPageSize = 100;
+    private const int SearchMaxLength = 100;
+
+    /// <summary>Missing or non-positive means the default; anything above the cap is cut to it.</summary>
+    private static int PageSize(int? limit) => limit is null or <= 0 ? DefaultPageSize : Math.Min(limit.Value, MaxPageSize);
 
     private const string DefaultTitle = "New chat";
     private const int TitleMaxLength = 60;

@@ -438,7 +438,7 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 | 2 | **21** | Rate limiting, lockout, real client IP, security headers | T2 | Done |
 | 3 | **22** | Change password, profile, delete account, optional email verification | — | Built; real-stack check pending (Docker was unavailable) |
 | 4 | **23** | Access and refresh tokens, real logout | 22 | Built; real-stack suite `13-sessions` run (see TESTING.md section 24) |
-| 5 | **24** | Chat rename, delete, search, paging | — | Planned |
+| 5 | **24** | Chat rename, delete, search, paging | — | Done (2026-11-03) |
 | 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | Planned |
 | 7 | **26** | Cost tracking, admin user management | — | Planned |
 | 8 | **27** | Health/readiness, metrics, CI, backups, retention, data export | — | Planned |
@@ -653,7 +653,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 979 automated tests (543 .NET, 65 Python, 371 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet, and 33 in `13-sessions`) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 1049 automated tests (543 .NET, 65 Python, 371 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet, and 33 in `13-sessions`) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -780,10 +780,12 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 - [x] Angular: the auth interceptor renews once on `401 unauthorized` and repeats the request once (never for `/auth/*`, never in a loop); one shared in-flight refresh; a tab that loses the race adopts the tab that won; the `storage` event keeps tabs in step; `isAuthenticated` is true while a refresh token exists; the SignalR hub's `accessTokenFactory` now calls `AuthService.freshToken()`, so a (re)connect always uses a live token (TOK-04); "Sign out everywhere" card on the Account page
 - [x] Tests: rotation, reuse inside and after the grace window, expiry, family revocation, revoke on logout / logout-all / password change / reset / delete, hash-only storage (12 service + 20 pipeline .NET tests; 25 Angular specs); real-stack suite `e2e/suites/13-sessions.mjs` (33 checks, includes an access token that really expires in a real browser). Report: `TESTING.md` section 24
 
-#### Phase 24 — Chat management and pagination *(backend + frontend)*
-- [ ] `PATCH` rename and `DELETE` (soft delete via `DeletedAt`) for sessions; `GET` search by title
-- [ ] Paged sessions and cursor-paged messages (`?before=&limit=`); Angular infinite scroll and a confirm-delete dialog
-- [ ] Tests: ownership `404`, deleted chats hidden but usage logs kept, paging bounds
+#### Phase 24 — Chat management and pagination *(backend + frontend)* — **done (2026-11-03)**
+- [x] `PATCH /api/chat/sessions/{id}` renames (title trimmed, 1 to 200 characters, `400` otherwise) and `DELETE` soft-deletes (`ChatSessions.DeletedAt`; the row, its messages and its `UsageLogs` stay). A deleted chat answers `404 session_not_found` on every endpoint (list, read, send, jobs, retry, rename, a second delete), the same as a chat that was never yours. `GET sessions?search=` keeps chats whose title contains the text (case-insensitive, `%` and `_` are plain characters, at most 100 characters).
+- [x] Paging, always as a plain array so old clients keep working: `GET sessions?limit=&before=` (`before` is the `createdAt` of the last chat received; default 50, max 100, newest first) and `GET sessions/{id}/messages?limit=&before=` (`before` is a message id; the newest page by default, oldest first inside a page). A non-positive limit means the default, a huge one is cut to 100, a non-number is `400`. The AI's 20-message context window is unchanged and independent of page size. Migration `AddChatSessionDeletedAt` (the column and an index on `UserId, DeletedAt, CreatedAt`; generated, applied to the Docker database only).
+- [x] Angular: a search box (250 ms debounce, answered by the server, so it covers chats not loaded yet), the chat list loads the next page when scrolled near its bottom (with a "Show more chats" button for keyboard users), rename and delete actions on each chat (shown on hover or focus, always on touch screens), inline rename (Enter saves, Escape or leaving the box cancels, the old title is selected on open), a confirm-delete dialog (`role="alertdialog"`, focus on Cancel, Escape closes), deleting the open chat returns to the empty screen, a thread loads 50 earlier messages when scrolled to the top (or with "Show earlier messages") and keeps the reading position.
+- [x] Tests: 33 .NET (`ChatManagementTests`), 37 Angular (`chat-management.spec`), and `e2e/suites/14-chat-management.mjs` (42 checks on real MySQL and in real Chrome, no LLM). See `TESTING.md` section 25.
+- Limits: a pending async AI reply for a chat that is deleted meanwhile is still saved and pushed (invisible, harmless); deleting is not undoable from the app (no trash); search is on titles only, not message text; paging a very long chat list relies on `createdAt` being unique enough (microsecond precision) for the cursor.
 
 #### Phase 25 — Streaming replies and LLM robustness *(Python + backend + frontend)*
 - [ ] Python `POST /generate/stream` (server-sent events); .NET proxies it as `text/event-stream` and saves the final message

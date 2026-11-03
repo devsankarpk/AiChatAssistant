@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 979 automated tests (543 .NET, 65 Python, 371 Angular), all passing, plus 304 end-to-end checks in 13 committed suites (and a 14th, `12-account`, written but not yet run) under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 1049 automated tests (576 .NET, 65 Python, 408 Angular), all passing, plus 304 end-to-end checks in 13 committed suites (and a 14th, `12-account`, written but not yet run) under `e2e/` that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -514,11 +514,11 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | TOK-02 | Refresh token rotation | Each refresh returns a new token; reusing an old one is rejected and revokes the family | .NET + e2e | Built: `RefreshTokenServiceTests`, `RefreshPipelineTests`, `13-sessions` A23-05 to A23-10 |
 | TOK-03 | Logout and password change | Refresh token revoked; old access token refused | .NET + e2e | Built: `RefreshPipelineTests`, `13-sessions` A23-11 to A23-16, A23-27 to A23-31 |
 | TOK-04 | SignalR connect uses a live token | The hub's token factory renews a lapsing token before connecting | Angular | Built: `DirectHubService asks for the token again each time`, `freshToken()` specs. (A connection that is already open keeps running until it drops; the next connect uses a fresh token.) |
-| CHM-01 | Rename a chat | Title changes; another user's chat gives `404` | .NET | Planned (Phase 24) |
-| CHM-02 | Delete a chat | Hidden from lists; messages not returned; `UsageLogs` rows kept | .NET | Planned (Phase 24) |
-| CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET | Planned (Phase 24) |
-| CHM-04 | Paged sessions and messages | Page size capped; `before` cursor returns older messages without gaps or duplicates | .NET | Planned (Phase 24) |
-| CHM-05 | Infinite scroll and confirm-delete | Older messages load on scroll; delete needs confirmation | Angular | Planned (Phase 24) |
+| CHM-01 | Rename a chat | Title changes; another user's chat gives `404` | .NET | Done: `ChatManagementTests.Rename_*` (trim, empty, 200/201 characters, someone else's chat, unknown chat, no token, a custom name survives the first message); `14-chat-management` C24-05..07 |
+| CHM-02 | Delete a chat | Hidden from lists; messages not returned; `UsageLogs` rows kept | .NET + e2e | Done: `ChatManagementTests.Delete_*`, `ADeletedChat_AnswersTheSame404OnEveryEndpoint_AndTheAiIsNeverAsked`, `TheAdminUsageList_StillShowsTheTitleOfADeletedChat`; real MySQL `C24-01..04`, `C24-08/09` (the account delete still cascades) |
+| CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET + e2e | Done: `ChatManagementTests.Search_*` (case, spaces, empty, deleted and foreign chats, wildcards, 5000-character term); real MySQL `B24-01..06` (the `%`, `_`, quote and injection cases only mean something there) |
+| CHM-04 | Paged sessions and messages | Page size capped; `before` cursor returns older messages without gaps or duplicates | .NET + e2e | Done: `ChatManagementTests.Sessions_*`, `Messages_*`, `TheAiContext_StillUsesTheLatest20_NotThePageSize`; real MySQL `D24-01..08` (121 chats and 130 messages walked page by page) |
+| CHM-05 | Infinite scroll and confirm-delete | Older messages load on scroll; delete needs confirmation | Angular + e2e | Done: `chat-management.spec` (37 specs: list paging, search, rename, delete dialog, thread paging) and `14-chat-management` E24-01..16 in real Chrome |
 | STR-01 | Stream a reply | Chunks arrive in order; the final message is saved once | Python + .NET | Planned (Phase 25) |
 | STR-02 | Stop mid-stream | Generation stops; behaviour for the partial text as decided in Phase 25 | .NET + Angular | Planned (Phase 25) |
 | STR-03 | Upstream error mid-stream | Error event delivered; the user message stays saved | Python + .NET | Planned (Phase 25) |
@@ -2194,3 +2194,29 @@ First run (2026-11-02): **31 of 33 passed**. The two failures were mistakes in t
 | A23-F3 | Info (limit) | An already-open realtime connection is not closed by logout; it ends when it drops, and the next connect needs a live token. |
 | A23-F4 | Info (limit) | Refresh tokens live 14 days from the last use (sliding); there is no absolute cap on a login's age. |
 | A23-F5 | Info (trade-off) | Tokens are in `localStorage` (readable by XSS), as before. |
+
+## 25. Phase 24: chat management and pagination (2026-11-03)
+
+### 25.1 Automated suites
+| Layer | Before | Now | New |
+|---|---|---|---|
+| .NET | 543 | 576 | 33 (`ChatManagementTests`; the other chat test classes only gained the new constructor argument and named arguments) |
+| Python | 65 | 65 | 0 (Python is unchanged) |
+| Angular | 371 | 408 | 37 (`chat-management.spec`) |
+| **Total automated** | **979 passed, 0 failed** | **1049 passed, 0 failed** | **70** |
+
+Mutation spot-check (a rule broken on purpose, the suites must fail): deleted chats reachable (1 failed), deleted chats listed (2), no page cap (2), message cursor off by one (1), hard delete instead of soft (2). All five were caught.
+
+### 25.2 Real Docker stack: suite `14-chat-management` (42 checks, real MySQL, nginx + CSP, Chrome, no LLM)
+**42 of 42 passed** (`./e2e/run.sh 14`). Parts: A schema (the column and the index), B title search on real MySQL, C soft delete and the account-delete cascade, D paging 121 chats and 130 messages, E the real UI (scroll for more chats, search, rename, delete with confirmation, scroll up in a thread). Chats and messages are written straight into the Docker database (the LLM is never called) and removed at the end (`Z24-01`).
+
+### 25.3 Findings
+| ID | Status | Finding |
+|---|---|---|
+| A24-F1 | Fixed (real bug, found by the browser run) | The rename box opened without focus and without the old title selected: `select()` ran before `ngModel` had written the value. Now focus and select happen a tick later; `chat-management.spec` pins it. |
+| A24-F2 | Fixed (test defects) | The first suite run was 39/42: E24-09 measured the reading position after scrolling instead of before, and E24-11/12 pressed Ctrl+A, which on macOS moves the cursor instead of selecting. |
+| A24-F3 | Info (limit) | The in-memory test database treats `%` and `_` as plain text, so the wildcard unit tests would pass even if the code were wrong; the real-MySQL checks B24-02/03 are the proof. |
+| A24-F4 | Info (limit) | A pending async AI reply for a chat deleted meanwhile is still saved and pushed; nothing shows it. |
+| A24-F5 | Info (limit) | `chat.component.scss` is 8.4 kB, over the 7 kB warning budget (the error limit is 10 kB); the build passes with a warning. Moving the sidebar into its own component would fix it. |
+| A24-F6 | Info (limit) | Search covers titles only, not message text. Delete has no trash or undo. |
+
