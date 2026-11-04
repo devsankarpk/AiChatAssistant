@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 1115 automated tests (605 .NET, 78 Python, 432 Angular), all passing, plus real-stack suites under `e2e/` that all passed on their latest runs (including `12-account` 39/39, `13-sessions` 33/33, `14-chat-management` 42/42 and `15-streaming` 26/26) that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 1198 automated tests (656 .NET, 82 Python, 460 Angular), all passing, plus real-stack suites under `e2e/` that all passed on their latest runs (including `12-account` 39/39, `13-sessions` 33/33, `14-chat-management` 42/42, `15-streaming` 26/26 and `16-admin-cost`) that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -523,9 +523,9 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | STR-02 | Stop mid-stream | Generation stops; the partial text is saved as the answer | .NET + Angular + e2e | Done: `StreamingTests.Stream_WhenTheBrowserStops_*`, `test_stopping_early_closes_the_provider_stream`, `chat-streaming.spec` "Stop closes the stream…", `15-streaming` A25-06, C25-06, C25-07 |
 | STR-03 | Upstream error mid-stream | Error event delivered; the user message stays saved | Python + .NET + Angular + e2e | Done: `test_failure_mid_stream_is_an_error_event_*`, `StreamingTests.Stream_FailingPartWay_*`, `Stream_FailingBeforeTheFirstWord_Is503_*`, `Client_*`, `chat-streaming.spec`, `15-streaming` B25-03 to B25-05 |
 | STR-04 | Token-aware history trimming | Newest messages kept within the budget; an oversized history no longer causes a `502` | .NET + e2e | Done: `StreamingTests.History_*` (6), `15-streaming` B25-01, B25-02 |
-| COST-01 | Cost calculation | Prompt and completion tokens times configured price, stored in `CostEstimate` | .NET | Planned (Phase 26) |
-| COST-02 | Usage aggregates | Totals per user and per day are computed server-side, not from the current page | .NET | Planned (Phase 26) |
-| COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403` | .NET | Planned (Phase 26) |
+| COST-01 | Cost calculation | Prompt and completion tokens times configured price, stored in `CostEstimate` | Python + .NET + e2e | Done: `CostTrackingTests` (maths, model override, total-only fallback, rounding, one row per reply path: one-shot, streamed, stopped, async worker; client parsing), `test_cost_fields.py`, `16-admin-cost` B26-01 to B26-05 with the real LLM |
+| COST-02 | Usage aggregates | Totals per user and per day are computed server-side, not from the current page | .NET + Angular + e2e | Done: `AdminManagementTests.Summary_*` (5), `Export_*` (3), `usage-flows.spec` summary and export blocks, `16-admin-cost` E26-01 to E26-08 against real MySQL |
+| COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403` | .NET + Angular + e2e | Done: `AdminManagementTests` (disable, enable, roles, last-admin, bootstrap, list), `users.component.spec`, `16-admin-cost` C26, D26, F26 |
 | COST-05 | A disabled user opens the SignalR hub | Connection refused | .NET | Planned (Phase 11, because Phase 26 is built first) |
 | ACC-06 | Delete account for a user who has direct conversations | Their conversations and messages are removed or anonymised | .NET | Built: the foreign keys cascade and the code relies on them; proved on real MySQL by `12-account` `A22-03`..`A22-07` (written, **not yet run**: Docker was unavailable) |
 | SEC-06 | The CSP allows the `/hubs/` WebSocket | The hub connects in the browser with no CSP violation | Manual | Planned (Phase 11, because Phase 21 is built first) |
@@ -2243,6 +2243,31 @@ Mutation spot-check: token budget ignored (5 of 29 streaming tests failed), old 
 | ID | Status | Finding |
 |---|---|---|
 | A25-F1 | Fixed (test) | The first run failed C25-07: the saved partial answer (359 characters) was longer than what was on screen when Stop was pressed (331). Not a defect: words already in flight when the connection closes are saved too. The check now asserts "not less than was shown". A reload within a fraction of a second of Stop can still show the old answer until the server has saved the partial. |
-| A25-F2 | Open, unrelated | `BrokerTimeoutTests.ABrokerCallThatNeverAnswers_BecomesBrokerUnavailable_NotACancellation` fails now and then under load (it failed once in two of this session's full runs, then passed). A timing-sensitive test from Phase 17; not touched by this phase. |
+| A25-F2 | Fixed in Phase 26 (see A26-F7) | `BrokerTimeoutTests.ABrokerCallThatNeverAnswers_BecomesBrokerUnavailable_NotACancellation` fails now and then under load (it failed once in two of this session's full runs, then passed). A timing-sensitive test from Phase 17; not touched by this phase. |
 | A25-F3 | Info | The older rule "the AI context is the last 20 messages" is gone: it is the newest messages that fit `Chat:HistoryTokenBudget` (6000 estimated tokens), at most 50. |
 | A25-F4 | Info | Docker Desktop was not running at the start of the e2e run; it was started and the suite ran against freshly built images. |
+
+## 27. Phase 26: cost tracking and admin user management (2026-11-04)
+
+### 27.1 Automated suites
+| Layer | Before | Now | New |
+|---|---|---|---|
+| .NET | 605 | 656 | 51 (`CostTrackingTests` 15, `AdminManagementTests` 36) |
+| Python | 78 | 82 | 4 (`test_cost_fields.py`; five older exact-body assertions were widened for the new fields) |
+| Angular | 432 | 460 | 28 (`users.component.spec` 18, usage specs rewritten and extended, `admin.service.spec` +5) |
+| **Total automated** | **1115 passed, 0 failed** | **1198 passed, 0 failed** | **83** |
+
+### 27.2 Real Docker stack: suite `16-admin-cost` (real nginx and CSP, real API, real Python service and LLM provider, real MySQL, real Chrome)
+Parts: A schema, B cost of real replies (one-shot and streamed: model, split, price to eight decimals), C first-admin bootstrap (registered, existing account at start-up, never when an Admin exists, no address in the logs), D roles and disabling over HTTP (token refused at once at the API and the hub, refresh revoked, `403 account_disabled` only after the right password, enable restores, self and last-admin refusals, search with `%`), E summary and CSV computed by real MySQL (totals equal MySQL's own sums, UTC day grouping at 23:59:59.5 versus 00:00:00, formula-injection defused, account deletion cascade), F the pages in Chrome (stat tiles, chart, spenders, CSV built, Users search, disable with confirmation and the disabled person's open window signed out, enable, make admin, no CSP violations, axe on both pages in light and dark), Z clean-up and the standard configuration restored.
+
+### 27.3 Findings
+| ID | Status | Finding |
+|---|---|---|
+| A26-F1 | Fixed (found by a spec) | The Users page showed "No one matches" next to the real error when the list failed to load. The empty hint is now hidden while there is an error. |
+| A26-F2 | Fixed (design) | `CostEstimate` was `decimal(10,4)`; one message costs about $0.00013, which that column stored as $0.0001 (or 0). It is `decimal(14,8)` now (migration `AddCostTrackingAndUserDisabled`, applied to the Docker database only). |
+| A26-F3 | Info | The "last active Admin" refusal can only be reached by a token that still says Admin after the role was removed behind its back, because the person acting is always an active Admin themselves. It is kept as a safety net and tested that way. |
+| A26-F4 | Info | Role changes use the same "tokens issued before this moment are refused" stamp as a password change, so a session that is less than a second old at that moment survives it (disabling is checked on every request and has no such gap). |
+| A26-F5 | Fixed (test) | First real-stack run 60/62: one check expected `200` where deleting an account answers `204`; one relied on headless Chrome saving a download to disk. The export check now captures the file the page builds. No application defect. |
+| A26-F7 | Fixed (test) | `BrokerTimeoutTests.ABrokerCallThatNeverAnswers_*` (the Phase 17 test noted as A25-F2) failed in several full runs: it asserted that a 1-second deadline fires within 3 wall-clock seconds, which a busy machine running the suite in parallel can exceed. The upper bound is now 10 s (still far under the library's own 20 s wait). It passed alone every time. |
+| A26-F6 | Info | The price defaults (`0.05` / `0.08` dollars per million tokens) are placeholders; the estimate is only as good as the numbers in `Pricing` / `PRICE_*_PER_MILLION`. |
+

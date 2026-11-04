@@ -144,7 +144,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<UsageLog>(entity =>
         {
             entity.ToTable("UsageLogs");
-            entity.Property(l => l.CostEstimate).HasColumnType("decimal(10,4)").HasDefaultValue(0m);
+            // Eight decimals: one chat message costs a few hundred-thousandths of a dollar, which decimal(10,4) rounded to zero.
+            entity.Property(l => l.CostEstimate).HasColumnType("decimal(14,8)").HasDefaultValue(0m);
+            entity.Property(l => l.Model).HasMaxLength(100).HasDefaultValue(string.Empty);
             entity.Property(l => l.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.HasOne(l => l.User)
                 .WithMany(u => u.UsageLogs)

@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from app.auth.api_key import require_internal_key
 from app.schemas import GenerateRequest, GenerateResponse
-from app.services.llm_client import UpstreamError, generate_reply, open_reply_stream, read_reply_stream
+from app.services.llm_client import UpstreamError, generate_completion, open_reply_stream, read_reply_stream
 
 router = APIRouter()
 
@@ -14,14 +14,20 @@ router = APIRouter()
 @router.post("/generate", response_model=GenerateResponse, dependencies=[Depends(require_internal_key)])
 async def generate(request: GenerateRequest) -> GenerateResponse:
     try:
-        reply, tokens_used = generate_reply(request.history, request.prompt)
+        completion = generate_completion(request.history, request.prompt)
     except UpstreamError as exc:
         raise HTTPException(
             status_code=exc.status_code,
             detail={"error": {"code": exc.code, "message": exc.message}},
         ) from exc
 
-    return GenerateResponse(reply=reply, tokens_used=tokens_used)
+    return GenerateResponse(
+        reply=completion.reply,
+        tokens_used=completion.tokens_used,
+        prompt_tokens=completion.prompt_tokens,
+        completion_tokens=completion.completion_tokens,
+        model=completion.model,
+    )
 
 
 def _event(name: str, data: dict) -> str:
@@ -32,7 +38,15 @@ def _events(stream) -> Iterator[str]:
     try:
         for chunk in read_reply_stream(stream):
             if chunk.tokens_used is not None:
-                yield _event("done", {"tokens_used": chunk.tokens_used})
+                yield _event(
+                    "done",
+                    {
+                        "tokens_used": chunk.tokens_used,
+                        "prompt_tokens": chunk.prompt_tokens,
+                        "completion_tokens": chunk.completion_tokens,
+                        "model": chunk.model,
+                    },
+                )
             else:
                 yield _event("delta", {"text": chunk.text})
     except UpstreamError as exc:

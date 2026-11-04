@@ -28,6 +28,7 @@ public class ChatController : ControllerBase
     private readonly ILogger<ChatController> _logger;
     private readonly IAiReplyQueue? _replyQueue;
     private readonly ChatOptions _chatOptions;
+    private readonly CostCalculator _cost;
 
     public ChatController(
         AppDbContext db,
@@ -37,8 +38,10 @@ public class ChatController : ControllerBase
         IValidator<RenameSessionRequest> renameValidator,
         ILogger<ChatController> logger,
         IOptions<ChatOptions> chatOptions,
-        IAiReplyQueue? replyQueue = null)
+        IAiReplyQueue? replyQueue = null,
+        CostCalculator? cost = null)
     {
+        _cost = cost ?? CostCalculator.Unpriced;
         _chatOptions = chatOptions.Value;
         _replyQueue = replyQueue;
         _db = db;
@@ -276,12 +279,7 @@ public class ChatController : ControllerBase
             Content = result.Reply,
         };
         _db.Messages.Add(assistantMessage);
-        _db.UsageLogs.Add(new UsageLog
-        {
-            UserId = User.GetUserId(),
-            SessionId = id,
-            TokensUsed = result.TokensUsed,
-        });
+        _db.UsageLogs.Add(_cost.CreateLog(User.GetUserId(), id, result.TokensUsed, result.PromptTokens, result.CompletionTokens, result.Model));
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new SendMessageResponse
@@ -391,6 +389,9 @@ public class ChatController : ControllerBase
 
         var text = new StringBuilder();
         int? tokens = null;
+        var promptTokens = 0;
+        var completionTokens = 0;
+        var model = string.Empty;
         var failed = false;
         var stopped = false;
         try
@@ -407,7 +408,13 @@ public class ChatController : ControllerBase
                     text.Append(chunk.Text);
                     await WriteEventAsync("delta", new { text = chunk.Text }, cancellationToken);
                 }
-                tokens = chunk.TokensUsed ?? tokens;
+                if (chunk.TokensUsed is not null)
+                {
+                    tokens = chunk.TokensUsed;
+                    promptTokens = chunk.PromptTokens;
+                    completionTokens = chunk.CompletionTokens;
+                    model = chunk.Model;
+                }
                 more = await chunks.MoveNextAsync();
             }
         }
@@ -437,12 +444,11 @@ public class ChatController : ControllerBase
         {
             _db.Messages.Remove(replaceReply);
         }
-        _db.UsageLogs.Add(new UsageLog
-        {
-            UserId = User.GetUserId(),
-            SessionId = sessionId,
-            TokensUsed = tokens ?? Math.Max(1, text.Length / 4),
-        });
+        // A stopped stream never gets the provider's final count: estimate the answer's share from its length (the question's share is not counted).
+        var estimated = Math.Max(1, text.Length / 4);
+        _db.UsageLogs.Add(tokens is null
+            ? _cost.CreateLog(User.GetUserId(), sessionId, estimated, 0, estimated, string.Empty)
+            : _cost.CreateLog(User.GetUserId(), sessionId, tokens.Value, promptTokens, completionTokens, model));
         // Not tied to the request: a Stop must not stop the reply from being saved.
         await _db.SaveChangesAsync(CancellationToken.None);
 

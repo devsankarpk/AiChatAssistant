@@ -27,6 +27,12 @@ public class User
     /// </summary>
     public DateTime? EmailVerifiedAt { get; set; }
 
+    /// <summary>
+    /// When an administrator disabled the account (null = active). A disabled account cannot log in, renew a session or use an existing token.
+    /// Nothing is deleted: its chats and usage history stay, and enabling it again restores access.
+    /// </summary>
+    public DateTime? DisabledAt { get; set; }
+
     public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
 
     public ICollection<ChatSession> ChatSessions { get; set; } = new List<ChatSession>();

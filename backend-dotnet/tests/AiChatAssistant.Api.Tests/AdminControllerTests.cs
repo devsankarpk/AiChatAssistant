@@ -1,3 +1,4 @@
+using Moq;
 using AiChatAssistant.Api.Controllers;
 using AiChatAssistant.Api.Data;
 using AiChatAssistant.Api.Dtos.Admin;
@@ -26,7 +27,7 @@ public class AdminControllerTests : IDisposable
 
     private AdminController Controller()
     {
-        var controller = new AdminController(_db);
+        var controller = new AdminController(_db, Mock.Of<AiChatAssistant.Api.Services.IRefreshTokenService>());
         controller.SetUser(ClaimsPrincipalFactory.Create(_ada.Id, "ada@example.com", "Admin"));
         return controller;
     }

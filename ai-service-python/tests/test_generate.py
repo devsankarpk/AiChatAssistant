@@ -63,7 +63,7 @@ def test_returns_reply(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"reply": "Hello there!", "tokens_used": 42}
+    assert (response.json()["reply"], response.json()["tokens_used"]) == ("Hello there!", 42)
 
 
 def test_sends_full_history_plus_prompt_as_the_final_user_message(monkeypatch):

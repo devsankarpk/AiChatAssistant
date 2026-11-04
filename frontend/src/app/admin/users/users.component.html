@@ -1,0 +1,98 @@
+<div class="users-page">
+  <header class="topbar">
+    <p class="brand">AI Chat Assistant</p>
+    <div class="topbar-actions">
+      <button type="button" class="btn btn-quiet" [attr.aria-pressed]="theme.theme() === 'dark'" (click)="theme.toggle()">
+        {{ theme.theme() === 'dark' ? 'Light theme' : 'Dark theme' }}
+      </button>
+      <a class="btn btn-quiet" routerLink="/admin/usage">Usage logs</a>
+      <a class="btn btn-quiet" routerLink="/">Back to chat</a>
+    </div>
+  </header>
+
+  <div class="heading">
+    <h1>Users</h1>
+    <p class="muted">Make someone an Admin, or disable an account. Disabling signs the person out at once and keeps their chats.</p>
+  </div>
+
+  <div class="search card">
+    <label class="field">
+      Find a person
+      <input type="search" placeholder="Name or email" autocomplete="off" [ngModel]="search()" (ngModelChange)="onSearch($event)" name="search" />
+    </label>
+  </div>
+
+  @if (error()) {
+    <p class="form-error" role="alert">{{ error() }}</p>
+  }
+  @if (notice()) {
+    <p class="notice" role="status">{{ notice() }}</p>
+  }
+
+  <div class="table-wrap card">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Person</th>
+          <th scope="col">Role</th>
+          <th scope="col">Status</th>
+          <th scope="col">Last seen</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (u of users(); track u.id) {
+          <tr [class.disabled]="u.disabledAt">
+            <td>
+              <span class="user">{{ u.name }}@if (isMe(u)) { <span class="you">(you)</span> }</span>
+              <span class="muted email">{{ u.email }}</span>
+            </td>
+            <td><span class="pill" [class.admin]="isAdmin(u)">{{ isAdmin(u) ? 'Admin' : 'User' }}</span></td>
+            <td>
+              @if (u.disabledAt) {
+                <span class="pill off">Disabled</span>
+              } @else {
+                <span class="pill ok">Active</span>
+              }
+            </td>
+            <td>{{ u.lastSeenAt ? (u.lastSeenAt | date: 'medium') : 'Never' }}</td>
+            <td class="actions">
+              @if (isMe(u)) {
+                <span class="muted">Not for your own account</span>
+              } @else if (pending()?.userId === u.id) {
+                <span class="ask">
+                  {{ isPending(u, 'disable') ? 'Disable and sign out ' + u.name + '?' : isPending(u, 'promote') ? 'Make ' + u.name + ' an Admin?' : 'Make ' + u.name + ' a User?' }}
+                </span>
+                <button type="button" class="btn btn-quiet danger" [disabled]="busyId() !== null" (click)="confirm(u)">Confirm</button>
+                <button type="button" class="btn btn-quiet" (click)="cancel()">Cancel</button>
+              } @else {
+                @if (isAdmin(u)) {
+                  <button type="button" class="btn btn-quiet" (click)="ask(u, 'demote')">Make user</button>
+                } @else {
+                  <button type="button" class="btn btn-quiet" (click)="ask(u, 'promote')">Make admin</button>
+                }
+                @if (u.disabledAt) {
+                  <button type="button" class="btn btn-quiet" [disabled]="busyId() !== null" (click)="enable(u)">Enable</button>
+                } @else {
+                  <button type="button" class="btn btn-quiet" (click)="ask(u, 'disable')">Disable</button>
+                }
+              }
+            </td>
+          </tr>
+        } @empty {
+          @if (!loading() && !error()) {
+            <tr>
+              <td colspan="5" class="empty-hint">No one matches. Try a different name or email.</td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <nav class="pager" aria-label="Pages">
+    <button type="button" class="btn btn-quiet" [disabled]="page() <= 1" (click)="prevPage()">Previous</button>
+    <span>Page {{ page() }} of {{ totalPages() || 1 }}, {{ totalCount() }} people</span>
+    <button type="button" class="btn btn-quiet" [disabled]="page() >= totalPages()" (click)="nextPage()">Next</button>
+  </nav>
+</div>

@@ -17,9 +17,9 @@ AUTH = {"X-Internal-Key": "test-internal-key"}
 BODY = {"session_id": "s1", "history": [{"role": "user", "content": "Hi"}], "prompt": "Tell me more"}
 
 
-def _event(text=None, total_tokens=None):
+def _event(text=None, total_tokens=None, prompt=0, completion=0):
     choices = [SimpleNamespace(delta=SimpleNamespace(content=text))] if text is not None else []
-    usage = SimpleNamespace(total_tokens=total_tokens) if total_tokens is not None else None
+    usage = SimpleNamespace(total_tokens=total_tokens, prompt_tokens=prompt, completion_tokens=completion) if total_tokens is not None else None
     return SimpleNamespace(choices=choices, usage=usage)
 
 
@@ -86,7 +86,7 @@ def test_stream_sends_deltas_in_order_then_done(monkeypatch):
     events = _parse(r.text)
     assert [e[0] for e in events] == ["delta", "delta", "delta", "done"]
     assert "".join(e[1]["text"] for e in events[:-1]) == "Hello there"
-    assert events[-1][1] == {"tokens_used": 12}
+    assert events[-1][1]["tokens_used"] == 12
     assert create.kwargs["stream"] is True
     assert create.kwargs["stream_options"] == {"include_usage": True}
     assert create.kwargs["messages"][-1] == {"role": "user", "content": "Tell me more"}
@@ -96,7 +96,7 @@ def test_stream_sends_deltas_in_order_then_done(monkeypatch):
 def test_stream_estimates_tokens_when_the_provider_sends_no_usage(monkeypatch):
     _use(monkeypatch, FakeStream([_event("x" * 40)]))
     events = _parse(client.post("/generate/stream", json=BODY, headers=AUTH).text)
-    assert events[-1] == ("done", {"tokens_used": 10})
+    assert events[-1][0] == "done" and events[-1][1]["tokens_used"] == 10
 
 
 def test_stream_skips_empty_deltas_and_role_only_events(monkeypatch):

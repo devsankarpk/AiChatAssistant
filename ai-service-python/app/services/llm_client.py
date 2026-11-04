@@ -47,7 +47,28 @@ def to_upstream_error(exc: Exception) -> UpstreamError:
     return UpstreamError(502, "llm_unexpected_error", "Unexpected error calling the LLM provider.")
 
 
+def _count(usage, field: str) -> int:
+    """A token count from the provider's usage block; 0 when it is missing or not a whole number."""
+    value = getattr(usage, field, 0) if usage is not None else 0
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+@dataclass
+class Completion:
+    reply: str
+    tokens_used: int
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    model: str = ""
+
+
 def generate_reply(history: list[HistoryMessage], prompt: str) -> tuple[str, int]:
+    """The reply and its total token count. Kept for callers that do not need the split; see `generate_completion`."""
+    completion = generate_completion(history, prompt)
+    return completion.reply, completion.tokens_used
+
+
+def generate_completion(history: list[HistoryMessage], prompt: str) -> Completion:
     messages = [{"role": m.role, "content": m.content} for m in history]
     messages.append({"role": "user", "content": prompt})
 
@@ -60,8 +81,14 @@ def generate_reply(history: list[HistoryMessage], prompt: str) -> tuple[str, int
 
     choice = completion.choices[0] if completion.choices else None
     reply = choice.message.content if choice and choice.message and choice.message.content else ""
-    tokens_used = completion.usage.total_tokens if completion.usage else 0
-    return reply, tokens_used
+    usage = completion.usage
+    return Completion(
+        reply=reply,
+        tokens_used=usage.total_tokens if usage else 0,
+        prompt_tokens=_count(usage, "prompt_tokens"),
+        completion_tokens=_count(usage, "completion_tokens"),
+        model=DEEPINFRA_MODEL,
+    )
 
 
 # Whole-stream budget. The per-request timeout above only bounds the wait between chunks, so a stream that keeps
@@ -76,6 +103,9 @@ class StreamChunk:
 
     text: str = ""
     tokens_used: int | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    model: str = ""
 
 
 def open_reply_stream(history: list[HistoryMessage], prompt: str):
@@ -103,12 +133,16 @@ def read_reply_stream(stream, deadline_seconds: float = STREAM_DEADLINE_SECONDS)
     started = time.monotonic()
     written = 0
     tokens_used: int | None = None
+    prompt_tokens = 0
+    completion_tokens = 0
     try:
         for event in stream:
             if time.monotonic() - started > deadline_seconds:
                 raise UpstreamError(503, "llm_timeout", "The reply took too long.")
             if getattr(event, "usage", None) is not None:
                 tokens_used = event.usage.total_tokens
+                prompt_tokens = _count(event.usage, "prompt_tokens")
+                completion_tokens = _count(event.usage, "completion_tokens")
             choices = getattr(event, "choices", None) or []
             delta = choices[0].delta.content if choices and choices[0].delta else None
             if delta:
@@ -126,4 +160,9 @@ def read_reply_stream(stream, deadline_seconds: float = STREAM_DEADLINE_SECONDS)
             except Exception:  # noqa: BLE001 - closing a dead connection must not hide the real outcome
                 pass
     # A provider that sends no usage block still gets a rough count (about four characters a token).
-    yield StreamChunk(tokens_used=tokens_used if tokens_used is not None else max(1, written // 4))
+    yield StreamChunk(
+        tokens_used=tokens_used if tokens_used is not None else max(1, written // 4),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        model=DEEPINFRA_MODEL,
+    )

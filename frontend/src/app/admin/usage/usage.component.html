@@ -5,13 +5,14 @@
       <button type="button" class="btn btn-quiet" [attr.aria-pressed]="theme.theme() === 'dark'" (click)="theme.toggle()">
         {{ theme.theme() === 'dark' ? 'Light theme' : 'Dark theme' }}
       </button>
+      <a class="btn btn-quiet" routerLink="/admin/users">Users</a>
       <a class="btn btn-quiet" routerLink="/">Back to chat</a>
     </div>
   </header>
 
   <div class="heading">
     <h1>Usage logs</h1>
-    <p class="muted">Every assistant reply, with who asked and how many tokens it used.</p>
+    <p class="muted">Every assistant reply, with who asked, the tokens it used and an estimated cost.</p>
   </div>
 
   <form class="filter card" (ngSubmit)="applyFilter()">
@@ -25,37 +26,79 @@
     </label>
     <button type="submit" class="btn btn-primary">Apply dates</button>
     <button type="button" class="btn btn-quiet" (click)="clearFilter()">Clear dates</button>
+    <button type="button" class="btn btn-quiet export" [disabled]="exporting()" (click)="exportCsv()">
+      {{ exporting() ? 'Preparing file' : 'Export CSV' }}
+    </button>
   </form>
 
   @if (error()) {
     <p class="form-error" role="alert">{{ error() }}</p>
   }
 
-  @if (!loading() && totalCount() > 0) {
-    <div class="stats">
-      <div class="stat card">
-        <span class="stat-label">Replies in range</span>
-        <span class="stat-value">{{ totalCount() | number }}</span>
-      </div>
-      <div class="stat card">
-        <span class="stat-label">Tokens on this page</span>
-        <span class="stat-value">{{ pageTokens() | number }}</span>
-      </div>
-    </div>
+  @if (summaryError()) {
+    <p class="form-error" role="alert">{{ summaryError() }}</p>
   }
 
-  @if (dailyTotals().length > 1) {
-    <figure class="chart card">
-      <figcaption>Tokens per day, this page</figcaption>
-      <div class="bars" aria-hidden="true">
-        @for (d of dailyTotals(); track d.day) {
-          <div class="bar-col" [title]="d.day + ': ' + d.tokens + ' tokens'">
-            <div class="bar" [style.height.%]="(d.tokens / maxDailyTokens()) * 100"></div>
-            <span class="bar-label">{{ d.day.slice(5) }}</span>
-          </div>
-        }
+  @if (summary(); as s) {
+    @if (s.totals.requests > 0) {
+      <div class="stats">
+        <div class="stat card">
+          <span class="stat-label">Replies in range</span>
+          <span class="stat-value">{{ s.totals.requests | number }}</span>
+        </div>
+        <div class="stat card">
+          <span class="stat-label">Tokens in range</span>
+          <span class="stat-value">{{ s.totals.tokens | number }}</span>
+        </div>
+        <div class="stat card">
+          <span class="stat-label">Estimated cost</span>
+          <span class="stat-value">{{ s.totals.cost | currency: 'USD' : 'symbol' : '1.2-4' }}</span>
+        </div>
       </div>
-    </figure>
+    }
+
+    @if (s.byDay.length > 1) {
+      <figure class="chart card">
+        <figcaption>Tokens per day, whole range</figcaption>
+        <div class="bars" aria-hidden="true">
+          @for (d of s.byDay; track d.date) {
+            <div class="bar-col" [title]="d.date + ': ' + d.tokens + ' tokens'">
+              <div class="bar" [style.height.%]="(d.tokens / maxDayTokens()) * 100"></div>
+              <span class="bar-label">{{ d.date.slice(5) }}</span>
+            </div>
+          }
+        </div>
+      </figure>
+    }
+
+    @if (s.byUser.length > 0) {
+      <div class="table-wrap card spenders">
+        <table>
+          <caption class="table-caption">Who used the most</caption>
+          <thead>
+            <tr>
+              <th scope="col">User</th>
+              <th scope="col" class="num">Replies</th>
+              <th scope="col" class="num">Tokens</th>
+              <th scope="col" class="num">Estimated cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (u of s.byUser; track u.userId) {
+              <tr>
+                <td>
+                  <span class="user">{{ u.userName }}</span>
+                  <span class="muted email">{{ u.userEmail }}</span>
+                </td>
+                <td class="num">{{ u.requests | number }}</td>
+                <td class="num">{{ u.tokens | number }}</td>
+                <td class="num">{{ u.cost | currency: 'USD' : 'symbol' : '1.2-4' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
   }
 
   <div class="table-wrap card">
@@ -80,10 +123,10 @@
             <td class="title">{{ item.sessionTitle }}</td>
             <td class="num">{{ item.tokensUsed | number }}</td>
             <td class="num">
-              @if (item.costEstimate > 0) {
-                {{ item.costEstimate | currency }}
+              @if (isTracked(item)) {
+                <span [title]="item.model + ': ' + item.promptTokens + ' in, ' + item.completionTokens + ' out'">{{ item.costEstimate | currency: 'USD' : 'symbol' : '1.2-4' }}</span>
               } @else {
-                <span class="muted" title="Cost isn't tracked yet">Not tracked</span>
+                <span class="muted" title="This reply was recorded before cost tracking existed">Not tracked</span>
               }
             </td>
           </tr>
