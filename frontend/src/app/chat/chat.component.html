@@ -97,6 +97,7 @@
       </div>
       @if (auth.hasRole('Admin')) {
         <a class="footer-link" routerLink="/admin/usage">Usage logs</a>
+        <a class="footer-link" routerLink="/admin/users">Users</a>
       }
       <button type="button" class="btn btn-quiet" [attr.aria-pressed]="theme.theme() === 'dark'" (click)="theme.toggle()">
         {{ theme.theme() === 'dark' ? 'Light theme' : 'Dark theme' }}

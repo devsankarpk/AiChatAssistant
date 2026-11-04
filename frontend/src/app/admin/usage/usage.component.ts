@@ -6,13 +6,8 @@ import { RouterLink } from '@angular/router';
 
 import { AdminService } from '../../core/services/admin.service';
 import { ThemeService } from '../../core/services/theme.service';
-import { UsageLogResponse } from '../../core/models/admin.models';
+import { UsageLogResponse, UsageSummary } from '../../core/models/admin.models';
 import { extractErrorMessage } from '../../core/utils/http-error';
-
-interface DayTotal {
-  day: string;
-  tokens: number;
-}
 
 @Component({
   selector: 'app-usage',
@@ -37,29 +32,49 @@ export class UsageComponent {
   readonly fromDate = signal('');
   readonly toDate = signal('');
 
-  /** Tokens used per day, across the *currently loaded page* only - a page-scoped glance, not a
-   * full aggregate query (Phase 7 marks this chart optional; a proper all-time aggregate would be
-   * a separate backend endpoint, not something to compute by paging through everything client-side). */
-  readonly dailyTotals = computed<DayTotal[]>(() => {
-    const totals = new Map<string, number>();
-    for (const item of this.items()) {
-      const day = item.createdAt.slice(0, 10);
-      totals.set(day, (totals.get(day) ?? 0) + item.tokensUsed);
-    }
-    return Array.from(totals, ([day, tokens]) => ({ day, tokens })).sort((a, b) => a.day.localeCompare(b.day));
-  });
+  /** Totals, top spenders and the per-day series for the whole date range, worked out by the server (not by this page of rows). */
+  readonly summary = signal<UsageSummary | null>(null);
+  readonly summaryError = signal<string | null>(null);
 
-  readonly pageTokens = computed(() => this.items().reduce((sum, item) => sum + item.tokensUsed, 0));
+  readonly maxDayTokens = computed(() => Math.max(1, ...(this.summary()?.byDay ?? []).map((d) => d.tokens)));
 
-  readonly maxDailyTokens = computed(() => Math.max(1, ...this.dailyTotals().map((d) => d.tokens)));
+  readonly exporting = signal(false);
 
   constructor() {
     this.fetch();
+    this.loadSummary();
+  }
+
+  /** A row written before cost tracking existed has no model and no cost: say so rather than showing $0.00. */
+  isTracked(item: UsageLogResponse): boolean {
+    return item.costEstimate > 0 || item.model !== '';
   }
 
   applyFilter(): void {
     this.page.set(1);
     this.fetch();
+    this.loadSummary();
+  }
+
+  /** Downloads the rows in the date range as a CSV file. */
+  exportCsv(): void {
+    this.exporting.set(true);
+    this.error.set(null);
+    this.admin.exportUsage(this.range()).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `usage-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+        this.exporting.set(false);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.exporting.set(false);
+        this.error.set(extractErrorMessage(err));
+      },
+    });
   }
 
   clearFilter(): void {
@@ -82,17 +97,27 @@ export class UsageComponent {
     }
   }
 
+  private range(): { from: string | null; to: string | null } {
+    return {
+      from: this.fromDate() ? new Date(this.fromDate()).toISOString() : null,
+      // Include the whole "to" day, not just its midnight.
+      to: this.toDate() ? new Date(`${this.toDate()}T23:59:59.999`).toISOString() : null,
+    };
+  }
+
+  private loadSummary(): void {
+    this.summaryError.set(null);
+    this.admin.getUsageSummary(this.range()).subscribe({
+      next: (summary) => this.summary.set(summary),
+      error: (err: HttpErrorResponse) => this.summaryError.set(extractErrorMessage(err)),
+    });
+  }
+
   private fetch(): void {
     this.loading.set(true);
     this.error.set(null);
     this.admin
-      .getUsage({
-        page: this.page(),
-        pageSize: this.pageSize(),
-        from: this.fromDate() ? new Date(this.fromDate()).toISOString() : null,
-        // Include the whole "to" day, not just its midnight.
-        to: this.toDate() ? new Date(`${this.toDate()}T23:59:59.999`).toISOString() : null,
-      })
+      .getUsage({ page: this.page(), pageSize: this.pageSize(), ...this.range() })
       .subscribe({
         next: (res) => {
           this.items.set(res.items);

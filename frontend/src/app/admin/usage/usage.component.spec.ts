@@ -28,7 +28,11 @@ describe('UsageComponent', () => {
       .flush({ items: [], page: 1, pageSize: 20, totalCount: 0, totalPages: 0 });
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    // the totals requests that go out with the page
+    httpMock.match((req) => req.url === `${environment.apiBaseUrl}/admin/usage/summary`).forEach((r) => r.flush({ totals: { requests: 0, tokens: 0, promptTokens: 0, completionTokens: 0, cost: 0 }, byUser: [], byDay: [] }));
+    httpMock.verify();
+  });
 
   it('should create', () => {
     expect(component).toBeTruthy();

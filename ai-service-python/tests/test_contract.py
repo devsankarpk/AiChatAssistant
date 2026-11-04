@@ -168,10 +168,10 @@ def test_the_model_and_token_cap_come_from_configuration(llm):
 # ---- response shape and odd provider answers ----
 
 
-def test_the_response_has_exactly_reply_and_tokens_used(llm):
+def test_the_response_has_exactly_the_contract_fields(llm):
     body = post(VALID).json()
 
-    assert set(body) == {"reply", "tokens_used"}
+    assert set(body) == {"reply", "tokens_used", "prompt_tokens", "completion_tokens", "model"}
     assert isinstance(body["tokens_used"], int)
 
 
@@ -179,7 +179,8 @@ def test_a_provider_answer_without_usage_reports_zero_tokens(monkeypatch):
     completion = MagicMock(choices=[MagicMock(message=MagicMock(content="hi"))], usage=None)
     monkeypatch.setattr(llm_client_module._client.chat.completions, "create", lambda **kw: completion)
 
-    assert post(VALID).json() == {"reply": "hi", "tokens_used": 0}
+    body = post(VALID).json()
+    assert (body["reply"], body["tokens_used"], body["prompt_tokens"], body["completion_tokens"]) == ("hi", 0, 0, 0)
 
 
 def test_a_provider_answer_without_choices_gives_an_empty_reply(monkeypatch):
@@ -189,7 +190,7 @@ def test_a_provider_answer_without_choices_gives_an_empty_reply(monkeypatch):
     response = post(VALID)
 
     assert response.status_code == 200
-    assert response.json() == {"reply": "", "tokens_used": 9}
+    assert (response.json()["reply"], response.json()["tokens_used"]) == ("", 9)
 
 
 # ---- auth and the other routes ----

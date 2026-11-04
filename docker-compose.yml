@@ -112,6 +112,10 @@ services:
       Lockout__LockoutMinutes: ${LOCKOUT_MINUTES:-15}
       # Phase 22: require people to confirm their email before they can log in (off by default; people who register while it is off count as confirmed).
       Account__RequireEmailVerification: ${ACCOUNT_REQUIRE_EMAIL_VERIFICATION:-false}
+      # Phase 26: the address of the account that becomes the first Admin (only while nobody is an Admin), and what the AI provider charges per million tokens.
+      Admin__BootstrapEmail: ${ADMIN_BOOTSTRAP_EMAIL:-}
+      Pricing__InputPerMillion: ${PRICE_INPUT_PER_MILLION:-0.05}
+      Pricing__OutputPerMillion: ${PRICE_OUTPUT_PER_MILLION:-0.08}
       Email__Provider: ${EMAIL_PROVIDER:-smtp}
     depends_on:
       migrate:

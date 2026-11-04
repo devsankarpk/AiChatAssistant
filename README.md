@@ -130,7 +130,7 @@ Notes:
 - Password-reset emails are queued in RabbitMQ and sent by a worker inside the `api`. Without SMTP credentials every send fails, is retried (after 10 s and 60 s) and ends in the `email.dead` queue; to see the link instead, run the `api` with `Email__Provider=console` and read its log. Inspect queues with `docker compose --env-file docker.env exec rabbitmq rabbitmqctl list_queues name messages`. Running the API outside Docker needs no broker: leave `RabbitMq:Host` blank and the email is sent inline.
 - All settings come from the one gitignored `docker.env` (template: `docker.env.example`). `INTERNAL_API_KEY` is generated once and shared by the API and the Python service.
 - The containers run as non-root users. nginx's `proxy_read_timeout` (75 s) must stay above the API's 60 s Python timeout.
-- To become an Admin in this stack, run the SQL from "Becoming an Admin" against the `mysql` container (`docker compose --env-file docker.env exec mysql mysql -uaichat -p AiChatAssistant`).
+- To become an Admin in this stack, either set `ADMIN_BOOTSTRAP_EMAIL` in `docker.env` to the address of an account you registered (it is promoted at the next start or login while nobody is an Admin), or run the SQL from "Becoming an Admin" against the `mysql` container (`docker compose --env-file docker.env exec mysql mysql -uaichat -p AiChatAssistant`).
 
 ### Forgot password
 
@@ -151,8 +151,11 @@ the connection fails with an `SslHandshakeException` even though the certificate
 
 ### Becoming an Admin
 
-There's no self-serve path (by design - see `AuthController.Register` in CLAUDE.md's notes). Grant
-it directly in the database for the account you just registered:
+There's no self-serve path (by design - see `AuthController.Register` in CLAUDE.md's notes). The simplest
+way to get the **first** Admin is the bootstrap setting: register the account, then set
+`Admin:BootstrapEmail` (Docker: `ADMIN_BOOTSTRAP_EMAIL` in `docker.env`) to its address and restart the API
+(or just log in again). It works only while nobody is an Admin. Once you have an Admin, use the **Users** page
+(`/admin/users`) to make others Admins. Or grant it directly in the database for the account you just registered:
 
 ```sql
 INSERT INTO UserRoles (UserId, RoleId)
@@ -440,7 +443,7 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 | 4 | **23** | Access and refresh tokens, real logout | 22 | Built; real-stack suite `13-sessions` run (see TESTING.md section 24) |
 | 5 | **24** | Chat rename, delete, search, paging | — | Done (2026-11-03) |
 | 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | **Done** |
-| 7 | **26** | Cost tracking, admin user management | — | Planned |
+| 7 | **26** | Cost tracking, admin user management | — | **Done** |
 | 8 | **27** | Health/readiness, metrics, CI, backups, retention, data export | — | Planned |
 | 9 | **28** | 404 page, accessibility check, optional i18n | — | Planned |
 | 10 | **9** | Top navigation, appointments placeholder | — | **Done** (early, at the user's request) |
@@ -653,7 +656,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 1115 automated tests (605 .NET, 78 Python, 432 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet, and 33 in `13-sessions`) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 1198 automated tests (656 .NET, 82 Python, 460 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet, and 33 in `13-sessions`) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -796,10 +799,12 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 - Limits: streaming is always used by the web app, so `Chat:AsyncReplies` only matters to other clients; pressing Regenerate in the instant after Stop can race the server saving the partial (two answers); token counts are estimates (a different tokenizer could differ); the `done` event is not sent to a client that has already left.
 
 #### Phase 26 — Cost tracking and admin user management *(Python + backend + frontend)*
-- [ ] Python returns prompt and completion tokens and the model; pricing from configuration; `UsageLogs.CostEstimate` filled in
-- [ ] Usage page shows cost; server-side aggregates per user and per day; CSV export
-- [ ] Admin users page: list, change role, disable user (`DisabledAt`; login and existing tokens rejected); a first-Admin bootstrap setting replaces the raw-SQL steps
-- [ ] Tests: cost maths, aggregates, disabled users cannot log in or use an old token, admins cannot read direct messages
+- [x] Python returns `prompt_tokens`, `completion_tokens` and `model` (on `/generate` and in the stream's `done` event; optional fields, zeros when the provider reports no split). .NET prices them from configuration: `Pricing:InputPerMillion` / `OutputPerMillion` (dollars per million tokens) with per-model overrides in `Pricing:Models`; compose passes `PRICE_INPUT_PER_MILLION` / `PRICE_OUTPUT_PER_MILLION` (defaults 0.05 / 0.08, **placeholders: check them against the provider's price list for the model in use**). `CostCalculator` fills `UsageLogs.CostEstimate` in every reply path (one-shot, streamed, async worker). With only a total (older AI service) the whole total is billed at the higher rate; a stopped stream is priced from the length of the words written. `CostEstimate` is now `decimal(14,8)` (one message costs a few hundred-thousandths of a dollar; the old `decimal(10,4)` rounded it to zero). New columns `UsageLogs.PromptTokens`, `CompletionTokens`, `Model`; old rows have an empty model and show "Not tracked".
+- [x] Usage page: cost per reply (hover shows model and the in/out split), and, from `GET /api/admin/usage/summary`, totals, the 50 biggest spenders and a per-day series for the **whole date range** (the database does the adding; the old chart only covered one page). `GET /api/admin/usage/export` is a CSV download (newest first, at most 50,000 rows; cells that start with `=`, `+`, `-` or `@` are prefixed with a quote so a spreadsheet does not run them).
+- [x] Admin users: `GET /api/admin/users?search=&page=&pageSize=`, `PUT /api/admin/users/{id}/role` (`Admin` or `User`), `POST .../disable` and `.../enable`; Angular page `/admin/users` (search, role change and disabling each ask first, enabling is one click). **Disabling** sets `Users.DisabledAt` and ends every session at once: tokens are refused on the next request (`AccountTokenValidator`, which also covers the realtime hub's connect), refresh tokens are revoked, login answers `403 account_disabled` (only after the right password, so a wrong password gives the same answer for disabled, unknown and active accounts), nothing is deleted and enabling restores everything. **Role changes** also end the person's sessions, because roles travel inside the token: the new role applies at their next login. Refused with `409`: changing or disabling your own account (`cannot_change_own_role`, `cannot_disable_self`) and removing the last active Admin (`last_admin`; only reachable by a token whose Admin role was removed behind its back, since the acting admin is always an active Admin). Admins still get `404` for other people's private conversations.
+- [x] First-Admin bootstrap: set `Admin:BootstrapEmail` (compose: `ADMIN_BOOTSTRAP_EMAIL`) to the address of the first administrator. That account is promoted at start-up, at its next login, or when it registers, **only while nobody holds the Admin role**, so a demoted administrator is never quietly restored and the setting cannot be used to take over an installation that already has one. The SQL steps in "Becoming an Admin" still work.
+- [x] Tests: 51 .NET (`CostTrackingTests` 15, `AdminManagementTests` 36), 4 Python (`test_cost_fields.py`; the contract tests were widened for the new fields), 28 Angular (usage and users pages, `AdminService`), and `e2e/suites/16-admin-cost.mjs` on the real stack. See `TESTING.md` section 27.
+- Limits: a person who was signed in during the same second as a role change or disable keeps a token that long (disabling itself is checked per request, so it is immediate; role changes use the password-change stamp); an open realtime connection survives until it reconnects; prices are an estimate you maintain; a stopped stream is priced without the question's share; the summary lists at most 50 people and 366 days.
 
 #### Phase 27 — Operations and compliance
 - [ ] `/health/ready` (database, optionally Python); request and correlation ids in logs; a metrics endpoint (OpenTelemetry or Prometheus)

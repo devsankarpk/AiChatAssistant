@@ -23,11 +23,16 @@ public static class AccountTokenValidator
 
         var changedAt = await db.Users.AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new { u.PasswordChangedAt })
+            .Select(u => new { u.PasswordChangedAt, u.DisabledAt })
             .FirstOrDefaultAsync(cancellationToken);
         if (changedAt is null)
         {
             return "the account no longer exists";
+        }
+
+        if (changedAt.DisabledAt is not null)
+        {
+            return "the account is disabled";
         }
 
         if (changedAt.PasswordChangedAt is { } changed)

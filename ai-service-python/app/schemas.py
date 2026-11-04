@@ -21,3 +21,8 @@ class GenerateRequest(BaseModel):
 class GenerateResponse(BaseModel):
     reply: str
     tokens_used: int
+    # Added for cost tracking (Phase 26). Optional so an older .NET that ignores them still works, and so a provider that
+    # reports no split gives zeros rather than an error.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    model: str = ""

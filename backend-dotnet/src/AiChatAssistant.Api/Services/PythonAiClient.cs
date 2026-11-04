@@ -63,7 +63,7 @@ public class PythonAiClient : IPythonAiClient
             throw new PythonServiceUnavailableException("The AI service returned an empty response.");
         }
 
-        return new PythonGenerateResult(result.Reply, result.TokensUsed);
+        return new PythonGenerateResult(result.Reply, result.TokensUsed, result.PromptTokens, result.CompletionTokens, result.Model ?? string.Empty);
     }
 
     public async IAsyncEnumerable<PythonStreamChunk> StreamAsync(
@@ -141,7 +141,13 @@ public class PythonAiClient : IPythonAiClient
                         yield return new PythonStreamChunk(data.RootElement.GetProperty("text").GetString() ?? string.Empty);
                         break;
                     case "done":
-                        yield return new PythonStreamChunk(string.Empty, data.RootElement.GetProperty("tokens_used").GetInt32());
+                        var root = data.RootElement;
+                        yield return new PythonStreamChunk(
+                            string.Empty,
+                            root.GetProperty("tokens_used").GetInt32(),
+                            root.TryGetProperty("prompt_tokens", out var p) && p.TryGetInt32(out var pt) ? pt : 0,
+                            root.TryGetProperty("completion_tokens", out var c) && c.TryGetInt32(out var ct) ? ct : 0,
+                            root.TryGetProperty("model", out var m) ? m.GetString() ?? string.Empty : string.Empty);
                         finished = true;
                         break;
                     case "error":
@@ -183,5 +189,14 @@ public class PythonAiClient : IPythonAiClient
 
         [JsonPropertyName("tokens_used")]
         public int TokensUsed { get; set; }
+
+        [JsonPropertyName("prompt_tokens")]
+        public int PromptTokens { get; set; }
+
+        [JsonPropertyName("completion_tokens")]
+        public int CompletionTokens { get; set; }
+
+        [JsonPropertyName("model")]
+        public string? Model { get; set; }
     }
 }

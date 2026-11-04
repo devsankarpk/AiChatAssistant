@@ -109,7 +109,13 @@ public class AuthController : ControllerBase
         _db.Users.Add(user);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return StatusCode(StatusCodes.Status201Created, await BuildAuthResponseAsync(user, new[] { userRole.Name }, cancellationToken));
+        var roleNames = new List<string> { userRole.Name };
+        if (await AdminBootstrap.TryPromoteAsync(_db, _configuration[AdminBootstrap.SettingName], normalizedEmail, cancellationToken))
+        {
+            roleNames.Add(Role.Admin);
+        }
+
+        return StatusCode(StatusCodes.Status201Created, await BuildAuthResponseAsync(user, roleNames, cancellationToken));
     }
 
     [HttpPost("login")]
@@ -148,6 +154,18 @@ public class AuthController : ControllerBase
         await _lockout.ClearAsync(normalizedEmail);
 
         // After the password check, so this answer is only ever given to someone who knows the password.
+        if (user.DisabledAt is not null)
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                new ErrorResponse("account_disabled", "This account has been disabled. Contact an administrator."));
+        }
+
+        if (await AdminBootstrap.TryPromoteAsync(_db, _configuration[AdminBootstrap.SettingName], normalizedEmail, cancellationToken))
+        {
+            user = await _db.Users.Include(u => u.UserRoles).ThenInclude(ur => ur.Role).SingleAsync(u => u.Id == user.Id, cancellationToken);
+        }
+
         if (_account.RequireEmailVerification && user.EmailVerifiedAt is null)
         {
             return StatusCode(
@@ -180,6 +198,12 @@ public class AuthController : ControllerBase
         }
 
         // The account may have changed since the last visit: re-check what login checks.
+        if (result.User.DisabledAt is not null)
+        {
+            await _refreshTokens.RevokeAsync(result.NewToken!, cancellationToken);
+            return Unauthorized(new ErrorResponse("invalid_refresh_token", "Your session has ended. Please log in again."));
+        }
+
         if (_account.RequireEmailVerification && result.User.EmailVerifiedAt is null)
         {
             await _refreshTokens.RevokeAsync(result.NewToken!, cancellationToken);

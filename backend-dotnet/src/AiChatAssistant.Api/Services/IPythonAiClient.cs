@@ -2,10 +2,11 @@ namespace AiChatAssistant.Api.Services;
 
 public record PythonHistoryMessage(string Role, string Content);
 
-public record PythonGenerateResult(string Reply, int TokensUsed);
+/// <summary>The AI's answer. The split and model are zero/empty when the AI service did not report them (an older service); cost is then estimated from the total.</summary>
+public record PythonGenerateResult(string Reply, int TokensUsed, int PromptTokens = 0, int CompletionTokens = 0, string Model = "");
 
 /// <summary>One piece of a streamed reply: some <see cref="Text"/>, or (last) the <see cref="TokensUsed"/> total.</summary>
-public record PythonStreamChunk(string Text, int? TokensUsed = null);
+public record PythonStreamChunk(string Text, int? TokensUsed = null, int PromptTokens = 0, int CompletionTokens = 0, string Model = "");
 
 /// <summary>
 /// The .NET side of the `.NET -> Python` contract in CLAUDE.md. This service is stateless and

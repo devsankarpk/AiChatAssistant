@@ -48,14 +48,18 @@ public sealed class AiReplyProcessor
     private readonly TimeProvider _time;
     private readonly ILogger<AiReplyProcessor> _logger;
 
+    private readonly CostCalculator _cost;
+
     public AiReplyProcessor(
         AppDbContext db,
         IPythonAiClient python,
         IChatNotifier notifier,
         IOptions<ChatOptions> options,
         TimeProvider time,
-        ILogger<AiReplyProcessor> logger)
+        ILogger<AiReplyProcessor> logger,
+        CostCalculator? cost = null)
     {
+        _cost = cost ?? CostCalculator.Unpriced;
         _db = db;
         _python = python;
         _notifier = notifier;
@@ -130,7 +134,7 @@ public sealed class AiReplyProcessor
             Content = result.Reply,
         };
         _db.Messages.Add(assistantMessage);
-        _db.UsageLogs.Add(new UsageLog { UserId = job.UserId, SessionId = job.SessionId, TokensUsed = result.TokensUsed });
+        _db.UsageLogs.Add(_cost.CreateLog(job.UserId, job.SessionId, result.TokensUsed, result.PromptTokens, result.CompletionTokens, result.Model));
         job.AssistantMessage = assistantMessage;
         job.Status = AiReplyJobStatus.Done;
         job.Error = null;

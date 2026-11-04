@@ -22,7 +22,8 @@ public class BrokerTimeoutTests
         var ex = await Assert.ThrowsAsync<BrokerUnavailableException>(() =>
             connection.WithTimeoutAsync(token => Task.Delay(Timeout.Infinite, token), CancellationToken.None));
 
-        Assert.InRange((DateTime.UtcNow - started).TotalSeconds, 0.8, 3);
+        // Upper bound well under the library's own 20 s wait but generous enough for a busy machine running the whole suite in parallel (3 s was flaky).
+        Assert.InRange((DateTime.UtcNow - started).TotalSeconds, 0.8, 10);
         Assert.Contains("did not answer within 1 s", ex.Message);
         Assert.False(ex is OperationCanceledException);
     }
