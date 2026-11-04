@@ -110,7 +110,7 @@ public sealed class AiReplyProcessor
             return await MarkFailedAsync(job, "The question no longer exists.", cancellationToken);
         }
 
-        var history = await ChatHistory.LoadAsync(_db, job.SessionId, job.UserMessageId, cancellationToken);
+        var history = await ChatHistory.LoadAsync(_db, job.SessionId, job.UserMessageId, cancellationToken, _options.HistoryTokenBudget, userMessage.Content);
 
         PythonGenerateResult result;
         try

@@ -2,7 +2,7 @@
 
 The test plan and test-case catalogue for the whole application. It is the single place to answer "what is tested, how, and what is not yet".
 
-**Status today:** 1049 automated tests (576 .NET, 65 Python, 408 Angular), all passing, plus real-stack suites under `e2e/` that all passed on their latest runs (including `12-account` 39/39, `13-sessions` 33/33 and `14-chat-management` 42/42) that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
+**Status today:** 1115 automated tests (605 .NET, 78 Python, 432 Angular), all passing, plus real-stack suites under `e2e/` that all passed on their latest runs (including `12-account` 39/39, `13-sessions` 33/33, `14-chat-management` 42/42 and `15-streaming` 26/26) that drive the real Docker stack (`./e2e/run.sh`, section 17). There is no CI yet. The most recent runs, with results and findings, are in **section 17** (Phase 20, the closing end-to-end run, latest), **section 16** (gap-closing run), **section 15** (Phases 18 and 19), **section 14** (Phase 16), **section 13** (Phases 15 and 17), **section 12** (Phase 14), **section 11** (Phase 13), **section 10** (Phase 12) and **section 9** (Phase 11). Test gaps are listed in section 6 and are closed phase by phase (T2 to T5, see `README.md`). Cases for planned features (chat, brokers, hardening) are listed in section 7 and filled in as each phase is built.
 
 ## 1. Purpose and scope
 
@@ -519,10 +519,10 @@ These rows are filled in (and their test names recorded) when the feature phase 
 | CHM-03 | Search chats by title | Only the caller's matches, case-insensitive | .NET + e2e | Done: `ChatManagementTests.Search_*` (case, spaces, empty, deleted and foreign chats, wildcards, 5000-character term); real MySQL `B24-01..06` (the `%`, `_`, quote and injection cases only mean something there) |
 | CHM-04 | Paged sessions and messages | Page size capped; `before` cursor returns older messages without gaps or duplicates | .NET + e2e | Done: `ChatManagementTests.Sessions_*`, `Messages_*`, `TheAiContext_StillUsesTheLatest20_NotThePageSize`; real MySQL `D24-01..08` (121 chats and 130 messages walked page by page) |
 | CHM-05 | Infinite scroll and confirm-delete | Older messages load on scroll; delete needs confirmation | Angular + e2e | Done: `chat-management.spec` (37 specs: list paging, search, rename, delete dialog, thread paging) and `14-chat-management` E24-01..16 in real Chrome |
-| STR-01 | Stream a reply | Chunks arrive in order; the final message is saved once | Python + .NET | Planned (Phase 25) |
-| STR-02 | Stop mid-stream | Generation stops; behaviour for the partial text as decided in Phase 25 | .NET + Angular | Planned (Phase 25) |
-| STR-03 | Upstream error mid-stream | Error event delivered; the user message stays saved | Python + .NET | Planned (Phase 25) |
-| STR-04 | Token-aware history trimming | Newest messages kept within the budget; an oversized history no longer causes a `502` | .NET | Planned (Phase 25) |
+| STR-01 | Stream a reply | Chunks arrive in order; the final message is saved once | Python + .NET + e2e | Done: `test_stream.py::test_stream_sends_deltas_in_order_then_done`, `StreamingTests.Stream_SendsTheSavedQuestion_ThenTheWords_ThenTheSavedAnswer`, `15-streaming` A25-01 to A25-04 |
+| STR-02 | Stop mid-stream | Generation stops; the partial text is saved as the answer | .NET + Angular + e2e | Done: `StreamingTests.Stream_WhenTheBrowserStops_*`, `test_stopping_early_closes_the_provider_stream`, `chat-streaming.spec` "Stop closes the stream…", `15-streaming` A25-06, C25-06, C25-07 |
+| STR-03 | Upstream error mid-stream | Error event delivered; the user message stays saved | Python + .NET + Angular + e2e | Done: `test_failure_mid_stream_is_an_error_event_*`, `StreamingTests.Stream_FailingPartWay_*`, `Stream_FailingBeforeTheFirstWord_Is503_*`, `Client_*`, `chat-streaming.spec`, `15-streaming` B25-03 to B25-05 |
+| STR-04 | Token-aware history trimming | Newest messages kept within the budget; an oversized history no longer causes a `502` | .NET + e2e | Done: `StreamingTests.History_*` (6), `15-streaming` B25-01, B25-02 |
 | COST-01 | Cost calculation | Prompt and completion tokens times configured price, stored in `CostEstimate` | .NET | Planned (Phase 26) |
 | COST-02 | Usage aggregates | Totals per user and per day are computed server-side, not from the current page | .NET | Planned (Phase 26) |
 | COST-03 | Admin disables a user | Login refused and an existing token rejected; a non-admin gets `403` | .NET | Planned (Phase 26) |
@@ -2224,3 +2224,25 @@ Mutation spot-check (a rule broken on purpose, the suites must fail): deleted ch
 | A24-F5 | Info (limit) | `chat.component.scss` is 8.4 kB, over the 7 kB warning budget (the error limit is 10 kB); the build passes with a warning. Moving the sidebar into its own component would fix it. |
 | A24-F6 | Info (limit) | Search covers titles only, not message text. Delete has no trash or undo. |
 
+## 26. Phase 25: streaming replies and robust history (2026-11-03)
+
+### 26.1 Automated suites
+| Layer | Before | Now | New |
+|---|---|---|---|
+| .NET | 576 | 605 | 29 (`StreamingTests`: client against stubbed bytes, both endpoints through the real pipeline, token-aware history; 3 older tests changed from "last 20" to "newest up to the limit of 50") |
+| Python | 65 | 78 | 13 (`test_stream.py`) |
+| Angular | 408 | 432 | 24 (`chat-streaming.spec`: 11 service, 13 component) |
+| **Total automated** | **1049 passed, 0 failed** | **1115 passed, 0 failed** | **66** |
+
+Mutation spot-check: token budget ignored (5 of 29 streaming tests failed), old answer deleted before the new one starts (4 failed). Both caught.
+
+### 26.2 Real Docker stack: suite `15-streaming` (26 checks, real nginx and CSP, real API, real Python service, real LLM provider, real MySQL, real Chrome)
+**26 of 26 passed** (`./e2e/run.sh 15`). A the stream over HTTP (words arrive over time through nginx, saved text equals streamed text, usage row, title, Stop saves the partial, regenerate replaces, 409/404/401/400), B robustness (a 303k-character chat, about 76k tokens, still answers; the one-shot endpoint too; AI service stopped gives `503` with the question saved; regenerate answers it after the service returns), C Chrome (text grows, Stop button, Copy and Regenerate, reload shows the same text, Regenerate in place, Stop keeps and persists the words, no CSP violations), Z clean-up.
+
+### 26.3 Findings
+| ID | Status | Finding |
+|---|---|---|
+| A25-F1 | Fixed (test) | The first run failed C25-07: the saved partial answer (359 characters) was longer than what was on screen when Stop was pressed (331). Not a defect: words already in flight when the connection closes are saved too. The check now asserts "not less than was shown". A reload within a fraction of a second of Stop can still show the old answer until the server has saved the partial. |
+| A25-F2 | Open, unrelated | `BrokerTimeoutTests.ABrokerCallThatNeverAnswers_BecomesBrokerUnavailable_NotACancellation` fails now and then under load (it failed once in two of this session's full runs, then passed). A timing-sensitive test from Phase 17; not touched by this phase. |
+| A25-F3 | Info | The older rule "the AI context is the last 20 messages" is gone: it is the newest messages that fit `Chat:HistoryTokenBudget` (6000 estimated tokens), at most 50. |
+| A25-F4 | Info | Docker Desktop was not running at the start of the e2e run; it was started and the suite ran against freshly built images. |

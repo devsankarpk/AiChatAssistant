@@ -147,17 +147,22 @@
       }
 
       @for (message of messages(); track message.id) {
-        <div class="message" [class]="message.role" [class.pending]="message.pending" [class.failed]="message.failed">
+        <div class="message" [class]="message.role" [class.pending]="message.pending" [class.failed]="message.failed" [class.streaming]="message.streaming">
           <span class="avatar" aria-hidden="true">{{ message.role === 'user' ? 'You' : 'AI' }}</span>
           <span class="speaker visually-hidden">{{ message.role === 'user' ? 'You' : 'Assistant' }}</span>
           <div class="body">
             @if (message.role === 'assistant') {
               <app-markdown class="text" [source]="message.content" />
-              <div class="actions">
-                <button type="button" (click)="copy(message)" [attr.aria-label]="copiedId() === message.id ? 'Reply copied' : 'Copy this reply'">
-                  {{ copiedId() === message.id ? 'Copied' : 'Copy' }}
-                </button>
-              </div>
+              @if (!message.streaming) {
+                <div class="actions">
+                  <button type="button" (click)="copy(message)" [attr.aria-label]="copiedId() === message.id ? 'Reply copied' : 'Copy this reply'">
+                    {{ copiedId() === message.id ? 'Copied' : 'Copy' }}
+                  </button>
+                  @if (canRegenerate(message)) {
+                    <button type="button" class="regenerate" (click)="regenerate()" aria-label="Write this reply again">Regenerate</button>
+                  }
+                </div>
+              }
             } @else {
               <!-- No whitespace before the content: .text is pre-wrap, so it would render. -->
               <div class="text">{{ message.content.trim() }}</div>
@@ -165,6 +170,12 @@
                 <div class="message-error">
                   <span>This message didn't send.</span>
                   <button type="button" class="btn btn-quiet" (click)="retry()">Send again</button>
+                </div>
+              }
+              @if (isUnanswered(message)) {
+                <div class="message-error">
+                  <span>No reply yet.</span>
+                  <button type="button" class="btn btn-quiet" (click)="regenerate()">Get a reply</button>
                 </div>
               }
               @if (failedJobs()[message.id]; as failedJobId) {
@@ -178,7 +189,7 @@
         </div>
       }
 
-      @if (sending() || replyPending()) {
+      @if ((sending() && !streamedWords()) || replyPending()) {
         <div class="message assistant thinking" role="status">
           <span class="avatar" aria-hidden="true">AI</span>
           <span class="speaker visually-hidden">Assistant</span>
@@ -206,10 +217,17 @@
           name="draft"
           aria-describedby="composer-hint"
         ></textarea>
-        <button type="submit" class="btn btn-primary send" [disabled]="sending() || replyPending() || !draft().trim()">
-          Send
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
-        </button>
+        @if (streamInFlight()) {
+          <button type="button" class="btn stop" (click)="stop()" aria-label="Stop writing this reply">
+            Stop
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor" /></svg>
+          </button>
+        } @else {
+          <button type="submit" class="btn btn-primary send" [disabled]="sending() || replyPending() || !draft().trim()">
+            Send
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
+          </button>
+        }
       </form>
       <p id="composer-hint" class="composer-hint">Enter sends. Shift+Enter starts a new line.</p>
     </div>

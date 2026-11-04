@@ -7,6 +7,7 @@ import { BehaviorSubject, Subject } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { MessageResponse } from '../core/models/chat.models';
 import { AuthService } from '../core/services/auth.service';
+import { STREAM_REPLIES } from '../core/services/chat.service';
 import { DirectHubService } from '../core/services/direct-hub.service';
 import { ChatComponent } from './chat.component';
 
@@ -40,6 +41,7 @@ describe('ChatComponent flows', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
+        { provide: STREAM_REPLIES, useValue: false }, // these specs cover the one-shot request; streaming has its own spec
         { provide: ActivatedRoute, useValue: { queryParamMap: query } },
         { provide: DirectHubService, useValue: hub },
         { provide: AuthService, useValue: auth },
@@ -297,6 +299,7 @@ describe('ChatComponent flows', () => {
         imports: [ChatComponent],
         providers: [
           provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
+        { provide: STREAM_REPLIES, useValue: false }, // these specs cover the one-shot request; streaming has its own spec
           { provide: ActivatedRoute, useValue: { queryParamMap: query } },
           { provide: DirectHubService, useValue: hub },
         ],

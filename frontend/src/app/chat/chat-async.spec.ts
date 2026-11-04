@@ -1,3 +1,4 @@
+import { STREAM_REPLIES } from '../core/services/chat.service';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
@@ -53,6 +54,7 @@ describe('ChatComponent with async replies', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
+        { provide: STREAM_REPLIES, useValue: false }, // these specs cover the one-shot request; streaming has its own spec
         { provide: ActivatedRoute, useValue: { queryParamMap: query } },
         { provide: DirectHubService, useValue: hub },
       ],

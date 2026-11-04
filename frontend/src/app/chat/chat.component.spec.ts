@@ -1,3 +1,4 @@
+import { STREAM_REPLIES } from '../core/services/chat.service';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -14,7 +15,7 @@ describe('ChatComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ChatComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), { provide: STREAM_REPLIES, useValue: false }],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);

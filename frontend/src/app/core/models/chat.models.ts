@@ -59,3 +59,9 @@ export interface AssistantFailedEvent {
   userMessageId: number;
   error: { code: string; message: string };
 }
+
+/** One step of a streamed reply (`POST .../messages/stream` and `.../regenerate`), in the order the server sends them. */
+export type ReplyStreamEvent =
+  | { type: 'user'; message: MessageResponse } // the saved question (not sent by regenerate)
+  | { type: 'delta'; text: string } // more of the answer
+  | { type: 'done'; message: MessageResponse }; // the saved answer; the stream is over

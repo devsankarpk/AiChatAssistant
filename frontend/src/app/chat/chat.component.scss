@@ -480,6 +480,29 @@
   }
 }
 
+.message.streaming .text::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: caret 1s steps(2, start) infinite;
+}
+
+@keyframes caret {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message.streaming .text::after {
+    animation: none;
+  }
+}
+
 .actions {
   margin-top: 0.35rem;
 

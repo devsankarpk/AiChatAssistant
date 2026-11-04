@@ -265,10 +265,10 @@ public class ChatControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task SendMessage_SendsPythonOnlyTheLast20PriorMessages_OldestFirst()
+    public async Task SendMessage_SendsPythonOnlyTheNewestPriorMessages_UpToTheHardLimit_OldestFirst()
     {
         var session = SeedSession(_owner);
-        SeedHistory(session, 30);
+        SeedHistory(session, 70);
         IReadOnlyList<PythonHistoryMessage>? sent = null;
         _pythonClient
             .Setup(c => c.GenerateAsync(session.Id, It.IsAny<IReadOnlyList<PythonHistoryMessage>>(), "next", It.IsAny<CancellationToken>()))
@@ -278,9 +278,9 @@ public class ChatControllerTests : IDisposable
         await CreateController(_owner.Id, "User").SendMessage(session.Id, new SendMessageRequest { Content = "next" }, CancellationToken.None);
 
         Assert.NotNull(sent);
-        Assert.Equal(20, sent!.Count);
-        Assert.Equal("m11", sent[0].Content);   // messages 1-10 are dropped
-        Assert.Equal("m30", sent[^1].Content);
+        Assert.Equal(ChatHistory.Limit, sent!.Count);
+        Assert.Equal("m21", sent[0].Content);   // messages 1-20 are dropped
+        Assert.Equal("m70", sent[^1].Content);
         Assert.DoesNotContain(sent, h => h.Content == "next"); // the new question is the prompt, not history
     }
 
