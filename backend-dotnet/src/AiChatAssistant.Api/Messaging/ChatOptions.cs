@@ -1,3 +1,5 @@
+using AiChatAssistant.Api.Services;
+
 namespace AiChatAssistant.Api.Messaging;
 
 /// <summary>
@@ -26,4 +28,7 @@ public sealed class ChatOptions
     /// It must be longer than the slowest AI call: .NET gives Python 60 s (see CLAUDE.md, nested timeouts).
     /// </summary>
     public int ReplyLeaseSeconds { get; set; } = 90;
+
+    /// <summary>Room for the history sent with each question, in estimated tokens (see <c>ChatHistory</c>). Keep it well below the model's window minus the reply cap (<c>DEEPINFRA_MAX_TOKENS</c>).</summary>
+    public int HistoryTokenBudget { get; set; } = ChatHistory.DefaultTokenBudget;
 }

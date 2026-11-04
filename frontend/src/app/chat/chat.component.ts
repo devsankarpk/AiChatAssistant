@@ -3,13 +3,13 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { AfterViewChecked, Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Subject, debounceTime, distinctUntilChanged, firstValueFrom, forkJoin, map, switchMap } from 'rxjs';
+import { Observable, Subject, Subscription, debounceTime, distinctUntilChanged, firstValueFrom, forkJoin, map, switchMap } from 'rxjs';
 
 import { AuthService } from '../core/services/auth.service';
-import { ChatService } from '../core/services/chat.service';
+import { ChatService, STREAM_REPLIES } from '../core/services/chat.service';
 import { DirectHubService } from '../core/services/direct-hub.service';
 import { ThemeService } from '../core/services/theme.service';
-import { MessageResponse, ReplyJob, SessionResponse, isAccepted } from '../core/models/chat.models';
+import { MessageResponse, ReplyJob, ReplyStreamEvent, SessionResponse, isAccepted } from '../core/models/chat.models';
 import { extractErrorMessage } from '../core/utils/http-error';
 import { groupSessionsByRecency } from '../core/utils/session-groups';
 import { MarkdownComponent } from '../shared/markdown/markdown.component';
@@ -20,6 +20,8 @@ import { TopNavComponent } from '../shared/top-nav/top-nav.component';
 interface DisplayMessage extends MessageResponse {
   pending?: boolean;
   failed?: boolean;
+  /** The answer is still being written (client-side only; its id is temporary until the server's saved copy arrives). */
+  streaming?: boolean;
 }
 
 @Component({
@@ -127,10 +129,49 @@ export class ChatComponent implements AfterViewChecked {
 
   readonly draft = signal('');
   readonly sending = signal(false);
+
+  private readonly streamReplies = inject(STREAM_REPLIES);
+  private streamSub: Subscription | undefined;
+  private nextStreamId = -1_000_000;
+
+  /** True while an answer is arriving word by word: the composer shows Stop instead of Send. */
+  readonly streamInFlight = signal(false);
+
+  /** True once the first words of a streamed answer are on screen ("Thinking…" is then replaced by the words). */
+  readonly streamedWords = computed(() => this.messages().some((m) => m.streaming));
+
+  /** The last message in the open chat, which decides where Regenerate (or "try again") is offered. */
+  private readonly lastMessage = computed(() => this.messages().at(-1));
+
+  /** Regenerate sits under the newest answer; it is offered when nothing else is going on. */
+  canRegenerate(message: DisplayMessage): boolean {
+    return (
+      this.streamReplies &&
+      !this.sending() &&
+      !this.replyPending() &&
+      !message.streaming &&
+      message.id === this.lastMessage()?.id
+    );
+  }
+
+  /** A question the assistant never answered (the reply failed or was stopped before a word), offered "Try again". */
+  isUnanswered(message: DisplayMessage): boolean {
+    return (
+      this.streamReplies &&
+      message.role === 'user' &&
+      !message.pending &&
+      !message.failed &&
+      message.id === this.lastMessage()?.id &&
+      !this.sending() &&
+      !this.replyPending() &&
+      !this.failedJobs()[message.id]
+    );
+  }
   readonly sendError = signal<string | null>(null);
   private lastFailedContent: string | null = null;
 
   private scrolledForMessageCount = -1;
+  private scrolledForStreamLength = 0;
 
   // Only ever superseded by a newer loadMessages() call (not by a send - see dispatchSend),
   // so a slow GET can never clobber a more recent GET's result.
@@ -249,6 +290,16 @@ export class ChatComponent implements AfterViewChecked {
     if (this.messages().length !== this.scrolledForMessageCount) {
       this.scrolledForMessageCount = this.messages().length;
       this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' });
+      return;
+    }
+    // Words arriving in the last message: follow them, unless the reader scrolled up to look at something earlier.
+    const streamed = this.messages().find((m) => m.streaming)?.content.length ?? 0;
+    if (streamed !== this.scrolledForStreamLength) {
+      this.scrolledForStreamLength = streamed;
+      const list = this.messageList()?.nativeElement;
+      if (list && list.scrollHeight - list.scrollTop - list.clientHeight < 160) {
+        this.scrollAnchor()?.nativeElement.scrollIntoView({ block: 'end' });
+      }
     }
   }
 
@@ -530,6 +581,11 @@ export class ChatComponent implements AfterViewChecked {
     this.sending.set(true);
     this.sendError.set(null);
 
+    if (this.streamReplies) {
+      this.runStream(sessionId, this.chat.streamMessage(sessionId, content), { tempId, content });
+      return;
+    }
+
     this.chat.sendMessage(sessionId, content).subscribe({
       next: (res) => {
         if (isAccepted(res)) {
@@ -554,6 +610,98 @@ export class ChatComponent implements AfterViewChecked {
         this.lastFailedContent = content;
         this.sendError.set(extractErrorMessage(err));
         // The server titles the chat as soon as the message is saved, even if the reply failed.
+        this.refreshTitleIfUntitled(sessionId);
+      },
+    });
+  }
+
+  /** Stop: closes the connection. The server keeps the words written so far as the answer. */
+  stop(): void {
+    if (!this.streamSub) {
+      return;
+    }
+    const sessionId = this.selectedSessionId();
+    this.streamSub.unsubscribe();
+    this.streamSub = undefined;
+    this.messages.update((list) => list.map((m) => ({ ...m, streaming: false, pending: m.id < 0 && m.role === 'user' ? false : m.pending })));
+    this.streamInFlight.set(false);
+    this.sending.set(false);
+    if (sessionId) {
+      this.refreshTitleIfUntitled(sessionId);
+    }
+  }
+
+  /** Another answer to the last question (replaces the newest answer, or answers a question that has none). */
+  regenerate(): void {
+    const sessionId = this.selectedSessionId();
+    if (!sessionId || this.sending() || this.replyPending()) {
+      return;
+    }
+    this.messagesToken++; // a thread load still in flight must not overwrite what is about to arrive
+    this.sending.set(true);
+    this.sendError.set(null);
+    this.runStream(sessionId, this.chat.regenerate(sessionId), { regenerating: true });
+  }
+
+  private runStream(
+    sessionId: string,
+    source: Observable<ReplyStreamEvent>,
+    opts: { tempId?: number; content?: string; regenerating?: boolean },
+  ): void {
+    let questionSaved = false;
+    const streamId = this.nextStreamId--;
+    this.streamInFlight.set(true);
+
+    const end = () => {
+      this.streamSub = undefined;
+      this.streamInFlight.set(false);
+      this.sending.set(false);
+    };
+
+    this.streamSub = source.subscribe({
+      next: (event) => {
+        if (event.type === 'user') {
+          questionSaved = true;
+          this.messages.update((list) => list.map((m) => (m.id === opts.tempId ? event.message : m)));
+        } else if (event.type === 'delta') {
+          this.messages.update((list) => {
+            const at = list.findIndex((m) => m.streaming);
+            if (at >= 0) {
+              return list.map((m, i) => (i === at ? { ...m, content: m.content + event.text } : m));
+            }
+            // First word. A regenerated answer replaces the old one only now, so a failure to start keeps the old one.
+            const kept = opts.regenerating && list.at(-1)?.role === 'assistant' ? list.slice(0, -1) : list;
+            return [...kept, { id: streamId, role: 'assistant', content: event.text, createdAt: new Date().toISOString(), streaming: true }];
+          });
+        } else {
+          this.messages.update((list) => {
+            const hadWords = list.some((m) => m.streaming);
+            const kept = hadWords
+              ? list.filter((m) => !m.streaming)
+              : opts.regenerating && list.at(-1)?.role === 'assistant'
+                ? list.slice(0, -1)
+                : list;
+            return [...kept, event.message];
+          });
+          end();
+          this.refreshTitleIfUntitled(sessionId);
+        }
+      },
+      error: (err: HttpErrorResponse) => {
+        const hadWords = this.messages().some((m) => m.streaming);
+        end();
+        const message = extractErrorMessage(err);
+        if (hadWords || questionSaved) {
+          // The server saved no answer for a broken stream: show what it really holds (the question, and for a
+          // regenerate the old answer) instead of the half-written text.
+          this.loadMessages(sessionId);
+        }
+        if (opts.tempId !== undefined && !questionSaved) {
+          // Never reached the server's save: the old "didn't send" state, with Send again.
+          this.messages.update((list) => list.map((m) => (m.id === opts.tempId ? { ...m, pending: false, failed: true } : m)));
+          this.lastFailedContent = opts.content ?? null;
+        }
+        this.sendError.set(message);
         this.refreshTitleIfUntitled(sessionId);
       },
     });

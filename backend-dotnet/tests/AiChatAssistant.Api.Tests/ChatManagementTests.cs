@@ -445,7 +445,7 @@ public class ChatManagementTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task TheAiContext_StillUsesTheLatest20_NotThePageSize()
+    public async Task TheAiContext_StillUsesTheNewestMessagesUpToTheLimit_NotThePageSize()
     {
         var (me, client) = NewPerson();
         var id = Seed(me, "Context");
@@ -459,6 +459,6 @@ public class ChatManagementTests : IClassFixture<ApiFactory>
 
         Assert.NotNull(seen);
         Assert.Equal(ChatHistory.Limit, seen!.Count);
-        Assert.Equal("m41", seen[0].Content);
+        Assert.Equal("m11", seen[0].Content);
     }
 }

@@ -5,6 +5,8 @@ using AiChatAssistant.Api.Messaging;
 using AiChatAssistant.Api.Models;
 using AiChatAssistant.Api.Security;
 using AiChatAssistant.Api.Services;
+using System.Text;
+using System.Text.Json;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -250,7 +252,7 @@ public class ChatController : ControllerBase
             });
         }
 
-        var history = await ChatHistory.LoadAsync(_db, id, userMessage.Id, cancellationToken);
+        var history = await ChatHistory.LoadAsync(_db, id, userMessage.Id, cancellationToken, _chatOptions.HistoryTokenBudget, userMessage.Content);
 
         PythonGenerateResult result;
         try
@@ -287,6 +289,187 @@ public class ChatController : ControllerBase
             UserMessage = ToMessageResponse(userMessage),
             AssistantMessage = ToMessageResponse(assistantMessage),
         });
+    }
+
+    private static readonly JsonSerializerOptions SseJson = new(JsonSerializerDefaults.Web);
+
+    private const string AiUnavailableMessage =
+        "The AI service is temporarily unavailable. Your message was saved - try sending again shortly.";
+
+    /// <summary>
+    /// Like <see cref="SendMessage"/>, but the reply is streamed as server-sent events while it is written:
+    /// <c>user</c> (the saved question), any number of <c>delta</c> {text}, then <c>done</c> {assistantMessage} or
+    /// <c>error</c> {error}. A failure before the first word is an ordinary <c>503</c> (question saved), exactly as
+    /// for <see cref="SendMessage"/>. If the caller disconnects (Stop), what was written so far is saved as the reply.
+    /// </summary>
+    [HttpPost("sessions/{id:guid}/messages/stream")]
+    [RateLimit(RateLimitPolicy.Chat)]
+    public async Task<IActionResult> StreamMessage(Guid id, SendMessageRequest request, CancellationToken cancellationToken)
+    {
+        var validation = await _sendMessageValidator.ValidateAsync(request, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return this.ValidationError(validation);
+        }
+
+        var session = await GetOwnedSessionAsync(id, cancellationToken);
+        if (session is null)
+        {
+            return SessionNotFound();
+        }
+
+        var userMessage = new Message { SessionId = id, Role = MessageRole.User, Content = request.Content.Trim() };
+        _db.Messages.Add(userMessage);
+        if (session.Title == DefaultTitle)
+        {
+            session.Title = TitleFromMessage(userMessage.Content);
+        }
+        // Saved before the AI is called, so every failure below still leaves the question (and the title) stored.
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return await StreamReplyAsync(id, userMessage, replaceReply: null, sendUserEvent: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Asks for a fresh reply to the last question and streams it like <see cref="StreamMessage"/> (without the <c>user</c> event).
+    /// If the chat ends with an answer, that answer is replaced, and only once the new one has started, so a failed
+    /// regeneration keeps the old answer. If it ends with an unanswered question (a failed or stopped reply), that question is answered.
+    /// </summary>
+    [HttpPost("sessions/{id:guid}/regenerate")]
+    [RateLimit(RateLimitPolicy.Chat)]
+    public async Task<IActionResult> Regenerate(Guid id, CancellationToken cancellationToken)
+    {
+        var session = await GetOwnedSessionAsync(id, cancellationToken);
+        if (session is null)
+        {
+            return SessionNotFound();
+        }
+
+        var last = await _db.Messages.Where(m => m.SessionId == id).OrderByDescending(m => m.Id).FirstOrDefaultAsync(cancellationToken);
+        Message? question = last;
+        Message? replace = null;
+        if (last is { Role: MessageRole.Assistant })
+        {
+            replace = last;
+            question = await _db.Messages
+                .Where(m => m.SessionId == id && m.Id < last.Id)
+                .OrderByDescending(m => m.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        if (question is not { Role: MessageRole.User })
+        {
+            return Conflict(new ErrorResponse("nothing_to_regenerate", "There is no question in this chat to answer again."));
+        }
+
+        return await StreamReplyAsync(id, question, replace, sendUserEvent: false, cancellationToken);
+    }
+
+    private async Task<IActionResult> StreamReplyAsync(
+        Guid sessionId, Message question, Message? replaceReply, bool sendUserEvent, CancellationToken cancellationToken)
+    {
+        var history = await ChatHistory.LoadAsync(
+            _db, sessionId, question.Id, cancellationToken, _chatOptions.HistoryTokenBudget, question.Content);
+
+        await using var chunks = _pythonClient.StreamAsync(sessionId, history, question.Content, cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+
+        // Nothing has been sent to the browser yet, so a failure to start is still a normal error response.
+        bool more;
+        try
+        {
+            more = await chunks.MoveNextAsync();
+        }
+        catch (PythonServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "AI service unavailable for session {SessionId}", sessionId);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ErrorResponse("ai_service_unavailable", AiUnavailableMessage));
+        }
+
+        Response.StatusCode = StatusCodes.Status200OK;
+        Response.ContentType = "text/event-stream";
+        Response.Headers["X-Accel-Buffering"] = "no"; // nginx must not hold the words back
+
+        var text = new StringBuilder();
+        int? tokens = null;
+        var failed = false;
+        var stopped = false;
+        try
+        {
+            if (sendUserEvent)
+            {
+                await WriteEventAsync("user", ToMessageResponse(question), cancellationToken);
+            }
+            while (more)
+            {
+                var chunk = chunks.Current;
+                if (chunk.Text.Length > 0)
+                {
+                    text.Append(chunk.Text);
+                    await WriteEventAsync("delta", new { text = chunk.Text }, cancellationToken);
+                }
+                tokens = chunk.TokensUsed ?? tokens;
+                more = await chunks.MoveNextAsync();
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            stopped = true; // the browser went away (Stop, closed tab): keep what was written
+        }
+        catch (PythonServiceUnavailableException ex)
+        {
+            _logger.LogWarning(ex, "AI stream failed part-way for session {SessionId}", sessionId);
+            failed = true;
+        }
+
+        if (failed)
+        {
+            await TryWriteEventAsync("error", new { error = new { code = "ai_service_unavailable", message = AiUnavailableMessage } });
+            return new EmptyResult();
+        }
+        if (stopped && text.Length == 0)
+        {
+            return new EmptyResult();
+        }
+
+        var reply = new Message { SessionId = sessionId, Role = MessageRole.Assistant, Content = text.ToString() };
+        _db.Messages.Add(reply);
+        if (replaceReply is not null)
+        {
+            _db.Messages.Remove(replaceReply);
+        }
+        _db.UsageLogs.Add(new UsageLog
+        {
+            UserId = User.GetUserId(),
+            SessionId = sessionId,
+            TokensUsed = tokens ?? Math.Max(1, text.Length / 4),
+        });
+        // Not tied to the request: a Stop must not stop the reply from being saved.
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        if (!stopped)
+        {
+            await TryWriteEventAsync("done", new { assistantMessage = ToMessageResponse(reply) });
+        }
+        return new EmptyResult();
+    }
+
+    private async Task WriteEventAsync(string name, object data, CancellationToken cancellationToken)
+    {
+        var frame = $"event: {name}\ndata: {JsonSerializer.Serialize(data, SseJson)}\n\n";
+        await Response.WriteAsync(frame, cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
+    }
+
+    private async Task TryWriteEventAsync(string name, object data)
+    {
+        try
+        {
+            await WriteEventAsync(name, data, CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException)
+        {
+            // The caller is already gone; the reply is saved either way.
+        }
     }
 
     /// <summary>

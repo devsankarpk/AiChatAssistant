@@ -464,9 +464,9 @@ public class AiReplyProcessorTests : IDisposable
     }
 
     [Fact]
-    public async Task TheQuestionIsReadFromTheDatabase_AndOnlyTheLast20EarlierMessagesAreSentAsContext_OldestFirst()
+    public async Task TheQuestionIsReadFromTheDatabase_AndOnlyTheNewestEarlierMessagesUpToTheLimitAreSentAsContext_OldestFirst()
     {
-        for (var i = 1; i <= 25; i++)
+        for (var i = 1; i <= 55; i++)
         {
             _db.Messages.Add(new Message { SessionId = _session.Id, Role = i % 2 == 1 ? MessageRole.User : MessageRole.Assistant, Content = $"old {i}" });
         }
@@ -481,9 +481,9 @@ public class AiReplyProcessorTests : IDisposable
 
         await Processor().ProcessAsync(job.Id, CancellationToken.None);
 
-        Assert.Equal(20, sent!.Count);
+        Assert.Equal(ChatHistory.Limit, sent!.Count);
         Assert.Equal("old 6", sent[0].Content);
-        Assert.Equal("old 25", sent[^1].Content);
+        Assert.Equal("old 55", sent[^1].Content);
         Assert.DoesNotContain(sent, m => m.Content is "the question" or "asked later");
         _python.Verify(p => p.GenerateAsync(_session.Id, It.IsAny<IReadOnlyList<PythonHistoryMessage>>(), "the question", It.IsAny<CancellationToken>()), Times.Once);
     }

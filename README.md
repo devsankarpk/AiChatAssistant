@@ -439,7 +439,7 @@ Phases 1–8, test phase T1 and Phases 9–20 are **done**. Everything below is 
 | 3 | **22** | Change password, profile, delete account, optional email verification | — | Built; real-stack check pending (Docker was unavailable) |
 | 4 | **23** | Access and refresh tokens, real logout | 22 | Built; real-stack suite `13-sessions` run (see TESTING.md section 24) |
 | 5 | **24** | Chat rename, delete, search, paging | — | Done (2026-11-03) |
-| 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | Planned |
+| 6 | **25** | Streaming replies, Stop and Regenerate, token-aware history | — | **Done** |
 | 7 | **26** | Cost tracking, admin user management | — | Planned |
 | 8 | **27** | Health/readiness, metrics, CI, backups, retention, data export | — | Planned |
 | 9 | **28** | 404 page, accessibility check, optional i18n | — | Planned |
@@ -653,7 +653,7 @@ OutboxMessages (id, type, payload, created_at, dispatched_at NULL)   -- hand-wri
 
 ### Post-plan — Test plan (Phases T1–T6)
 
-> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 1049 automated tests (543 .NET, 65 Python, 371 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet, and 33 in `13-sessions`) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
+> The full test strategy and test-case catalogue live in **[`TESTING.md`](TESTING.md)**. Today there are 1115 automated tests (605 .NET, 78 Python, 432 Angular) and 304 end-to-end checks (39 more in `12-account`, written but not run yet, and 33 in `13-sessions`) in `e2e/`, all passing, and a manual smoke checklist for end-to-end checks. There is no browser E2E suite and no CI. The phases below close the gaps found in `TESTING.md` section 6. They are named T1–T5 so they don't collide with the feature phases; each is built and reviewed on its own.
 
 #### Phase T1 — Test plan documented
 - [x] `TESTING.md`: strategy, safety rules, how to run, test-case catalogue (existing tests by name, gaps and future-feature cases as *Planned*), manual smoke checklist, exit criteria
@@ -788,11 +788,12 @@ Already fine: Swagger is development-only, emails are trimmed and lower-cased, t
 - Limits: a pending async AI reply for a chat that is deleted meanwhile is still saved and pushed (invisible, harmless); deleting is not undoable from the app (no trash); search is on titles only, not message text; paging a very long chat list relies on `createdAt` being unique enough (microsecond precision) for the cursor.
 
 #### Phase 25 — Streaming replies and LLM robustness *(Python + backend + frontend)*
-- [ ] Python `POST /generate/stream` (server-sent events); .NET proxies it as `text/event-stream` and saves the final message
-- [ ] Angular renders the reply as it arrives, with Stop and Regenerate
-- [ ] Token-aware history trimming in place of the fixed 20-message window
-- [ ] Keep the nested-timeouts rule and "a failure returns `503` and the user message stays saved"
-- [ ] Tests: stream happy path, abort mid-stream, upstream error mid-stream, trimming keeps the newest messages within budget
+- [x] Python `POST /generate/stream` (server-sent events `delta` {text}, `done` {tokens_used}, `error`); a failure before the first byte is an ordinary `503`/`502` like `/generate`. .NET: `POST /api/chat/sessions/{id}/messages/stream` (events `user`, `delta`, `done` {assistantMessage}, `error`) saves the question first, then the answer; `POST /api/chat/sessions/{id}/regenerate` re-answers the last question (no `user` event) and replaces the old answer only when the new one has started, so a failed regeneration keeps the old one. The one-shot `POST .../messages` and the async path (Phase 18) are unchanged.
+- [x] Angular: `fetch` streaming in `ChatService` (`streamMessage`, `regenerate`; `STREAM_REPLIES` token switches it off), words appear as written with a caret, a **Stop** button replaces Send while writing, **Regenerate** under the newest answer, "Get a reply" under a question with no answer, auto-scroll only while the reader is at the bottom. Stop closes the connection and **the server saves the words written so far** as the answer.
+- [x] Token-aware history: `ChatHistory` sends the newest messages that fit `Chat:HistoryTokenBudget` (default 6000 estimated tokens, about four characters a token, counting the new question), never skipping over one that does not fit, hard cap 50 messages. Replaces the fixed 20; used by the one-shot, streaming and async paths.
+- [x] Nested timeouts kept: Python stops a stream at 50 s (`STREAM_DEADLINE_SECONDS`), .NET at 60 s (`PythonAiClient.StreamTimeout`, which `HttpClient.Timeout` does not cover once headers arrive), nginx at 75 s. A failure before the first word is `503` with the question saved; one part-way is an `error` event, no answer saved, question kept.
+- [x] Tests: 13 Python (`test_stream.py`), 29 .NET (`StreamingTests`), 24 Angular (`chat-streaming.spec`), and `e2e/suites/15-streaming.mjs` on the real stack. See `TESTING.md` section 26.
+- Limits: streaming is always used by the web app, so `Chat:AsyncReplies` only matters to other clients; pressing Regenerate in the instant after Stop can race the server saving the partial (two answers); token counts are estimates (a different tokenizer could differ); the `done` event is not sent to a client that has already left.
 
 #### Phase 26 — Cost tracking and admin user management *(Python + backend + frontend)*
 - [ ] Python returns prompt and completion tokens and the model; pricing from configuration; `UsageLogs.CostEstimate` filled in
